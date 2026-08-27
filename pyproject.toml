@@ -20,3 +20,10 @@ dependencies = [
 
 [project.scripts]
 photo-face-organizer = "app:main"
+
+[tool.setuptools]
+py-modules = ["app", "config", "dev"]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["domain*", "services*", "ui*"]
