@@ -97,10 +97,14 @@ class ScanWorker(QThread):
         performance_mode: str = "Maximum Performance",
         start_index: int = 0,
         initial_stats: dict[str, Any] | None = None,
+        sources: list[str] | None = None,
+        recursive: bool = True,
     ):
         super().__init__()
         self.scan_id = scan_id
-        self.files = files
+        self.files = files or []
+        self.sources = sources or []
+        self.recursive = recursive
         self.profiles = profiles
         self.output_dir = Path(output_dir)
         self.checkpoint_file = Path(checkpoint_file)
@@ -116,7 +120,7 @@ class ScanWorker(QThread):
 
         # Statistics & Audit Tracking
         init = initial_stats or {}
-        self.total_files = len(files)
+        self.total_files = len(self.files)
         self.processed_count = init.get("processed_count", 0)
         self.matched_count = init.get("matched_count", 0)
         self.no_match_count = init.get("no_match_count", 0)
@@ -198,6 +202,13 @@ class ScanWorker(QThread):
 
     def run(self):
         start_time = time.time()
+
+        # Discover photos on background thread if not already populated
+        if not self.files and self.sources:
+            from domain.scanner import discover_photos
+            self.files = discover_photos(self.sources, recursive=self.recursive)
+            self.total_files = len(self.files)
+
         logger.info(f"Starting scan worker {self.scan_id} on {self.total_files} files using InsightFace AI Engine.")
 
         for i in range(self.start_index, self.total_files):

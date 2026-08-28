@@ -116,17 +116,14 @@ class ScanService:
         except Exception as e:
             logger.warning(f"Could not pre-create output dir {output_dir}: {e}")
 
-        # 1. Discover photo files
-        discovered_paths = discover_photos(sources, recursive=recursive)
-
-        # 2. Fetch full profiles with encodings
+        # 1. Fetch full profiles with encodings
         selected_profiles = []
         for p_id in profile_ids:
             p_data = self.profile_service.get_profile(p_id)
             if p_data:
                 selected_profiles.append(p_data)
 
-        # 3. Configure face engine device
+        # 2. Configure face engine device
         active_device = self.face_engine.set_device_preference(device_preference)
 
         start_iso = datetime.datetime.now().isoformat()
@@ -143,7 +140,7 @@ class ScanService:
             "active_device": active_device,
             "performance_mode": performance_mode,
             "threshold": threshold,
-            "total_files": len(discovered_paths),
+            "total_files": 0,
         }
 
         # Save scan.json
@@ -152,10 +149,12 @@ class ScanService:
 
         checkpoint_file = scan_dir / "checkpoint.json"
 
-        # Create Worker Thread
+        # Create Worker Thread with background discovery
         worker = ScanWorker(
             scan_id=scan_id,
-            files=discovered_paths,
+            files=[],
+            sources=sources,
+            recursive=recursive,
             profiles=selected_profiles,
             output_dir=Path(output_dir),
             checkpoint_file=checkpoint_file,

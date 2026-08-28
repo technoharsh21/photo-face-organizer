@@ -47,6 +47,14 @@ class InsightFaceEngine:
                 self.providers = ["CUDAExecutionProvider", "CPUExecutionProvider"]
                 self.active_device = "NVIDIA CUDA GPU"
                 self.gpu_available = True
+            elif "DmlExecutionProvider" in available_providers and self.device_preference != "CPU":
+                self.providers = ["DmlExecutionProvider", "CPUExecutionProvider"]
+                self.active_device = "DirectX 12 / DirectML GPU"
+                self.gpu_available = True
+            elif "OpenVINOExecutionProvider" in available_providers and self.device_preference != "CPU":
+                self.providers = ["OpenVINOExecutionProvider", "CPUExecutionProvider"]
+                self.active_device = "Intel Iris / OpenVINO GPU"
+                self.gpu_available = True
             elif "CoreMLExecutionProvider" in available_providers and self.device_preference != "CPU":
                 self.providers = ["CoreMLExecutionProvider", "CPUExecutionProvider"]
                 self.active_device = "Apple CoreML GPU"
@@ -54,7 +62,7 @@ class InsightFaceEngine:
             else:
                 self.providers = ["CPUExecutionProvider"]
                 self.active_device = "Multi-Core CPU"
-                self.gpu_available = False
+                self.gpu_available = self._detect_system_gpu()
 
             # Initialize InsightFace model pack (buffalo_sc lightweight high-accuracy model pack)
             # Downloads/loads ONNX models (~15MB) into ~/.insightface/models/
@@ -67,11 +75,28 @@ class InsightFaceEngine:
             try:
                 self.providers = ["CPUExecutionProvider"]
                 self.active_device = "Multi-Core CPU"
-                self.gpu_available = False
+                self.gpu_available = self._detect_system_gpu()
                 self.app = FaceAnalysis(name="buffalo_sc", providers=self.providers)
                 self.app.prepare(ctx_id=0, det_size=(640, 640))
             except Exception as cpu_err:
                 logger.error(f"Failed to initialize InsightFace CPU fallback: {cpu_err}")
+
+    def _detect_system_gpu(self) -> bool:
+        """Detect system GPU hardware presence (NVIDIA, AMD, Intel)."""
+        try:
+            import subprocess
+            import sys
+
+            if sys.platform == "win32":
+                out = subprocess.check_output("wmic path win32_VideoController get name", shell=True, text=True, stderr=subprocess.DEVNULL)
+                names = out.lower()
+                return any(vendor in names for vendor in ["nvidia", "amd", "radeon", "geforce", "rtx", "gtx", "quadro", "intel"])
+            elif sys.platform == "linux":
+                out = subprocess.check_output("lspci -vnn | grep -i vga", shell=True, text=True, stderr=subprocess.DEVNULL)
+                return bool(out.strip())
+        except Exception:
+            pass
+        return False
 
     def set_device_preference(self, preference: str) -> str:
         """Update hardware device preference."""
@@ -152,9 +177,9 @@ class InsightFaceEngine:
         Calculate calibrated ArcFace similarity score normalized to 0.0 - 100.0%.
 
         ArcFace Cosine Similarity Calibration:
-        - Different People: Cosine Similarity <= 0.15 (0.0% User Score)
-        - Same Person Standard Match: Cosine Similarity >= 0.35 (57.0% User Score)
-        - Same Person High Match: Cosine Similarity >= 0.45 (85.0% User Score)
+        - Different People: Cosine Similarity < 0.18 (0.0% User Score)
+        - Same Person Threshold: Cosine Similarity >= 0.25 (50.0% User Score)
+        - Same Person High Confidence: Cosine Similarity >= 0.40 (80.0% User Score)
         """
         e1 = np.asarray(embedding1, dtype=np.float64)
         e2 = np.asarray(embedding2, dtype=np.float64)
@@ -170,13 +195,17 @@ class InsightFaceEngine:
 
         raw_cosine = float(np.dot(e1, e2) / (norm1 * norm2))
 
-        # ArcFace Calibration: Map raw_cosine [0.15, 0.50] to User Score [0%, 100%]
-        if raw_cosine <= 0.15:
+        if raw_cosine < 0.18:
             return 0.0
 
-        calibrated = ((raw_cosine - 0.15) / (0.50 - 0.15)) * 100.0
-        score = max(0.0, min(100.0, calibrated))
-        return round(score, 1)
+        if raw_cosine < 0.25:
+            # Scale [0.18, 0.25] -> [0.0%, 49.9%]
+            score = ((raw_cosine - 0.18) / (0.25 - 0.18)) * 49.9
+        else:
+            # Scale [0.25, 0.50] -> [50.0%, 100.0%]
+            score = 50.0 + ((raw_cosine - 0.25) / (0.50 - 0.25)) * 50.0
+
+        return round(max(0.0, min(100.0, score)), 1)
 
     def extract_faces(
         self, image: Any, face_locations: list[tuple[int, int, int, int]] | None = None
