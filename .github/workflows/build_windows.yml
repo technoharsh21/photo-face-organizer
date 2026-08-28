@@ -32,7 +32,7 @@ jobs:
       - name: Build Executable with PyInstaller
         shell: powershell
         run: |
-          pyinstaller --noconfirm --onedir --windowed --name "PhotoFaceOrganizer" --icon="icon.ico" app.py
+          pyinstaller --noconfirm --onedir --windowed --name "PhotoFaceOrganizer" --icon="icon.ico" --collect-data face_recognition_models --collect-data face_recognition --collect-submodules face_recognition --collect-submodules face_recognition_models app.py
 
       - name: Install Inno Setup & Compile Installer
         shell: powershell
@@ -72,7 +72,7 @@ jobs:
 
       - name: Build Executable with PyInstaller
         run: |
-          pyinstaller --noconfirm --onedir --windowed --name "PhotoFaceOrganizer" --icon="icon.png" app.py
+          pyinstaller --noconfirm --onedir --windowed --name "PhotoFaceOrganizer" --icon="icon.png" --collect-data face_recognition_models --collect-data face_recognition --collect-submodules face_recognition --collect-submodules face_recognition_models app.py
 
       - name: Package Standalone Linux Zip
         run: |
@@ -150,7 +150,7 @@ jobs:
 
       - name: Build macOS App Bundle with PyInstaller
         run: |
-          pyinstaller --noconfirm --onedir --windowed --name "PhotoFaceOrganizer" --icon="icon.png" app.py
+          pyinstaller --noconfirm --onedir --windowed --name "PhotoFaceOrganizer" --icon="icon.png" --collect-data face_recognition_models --collect-data face_recognition --collect-submodules face_recognition --collect-submodules face_recognition_models app.py
 
       - name: Package macOS .dmg Disk Image & Zip Bundle
         run: |

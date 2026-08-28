@@ -26,7 +26,8 @@ def _clean_pycache():
             pass
 
 
-_clean_pycache()
+if not getattr(sys, "frozen", False):
+    _clean_pycache()
 
 from PySide6.QtWidgets import QApplication
 
