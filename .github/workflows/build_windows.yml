@@ -7,6 +7,7 @@ on:
 
 jobs:
   build-windows:
+    name: Build Windows (.exe Installer)
     runs-on: windows-latest
     steps:
       - name: Checkout Code
@@ -31,7 +32,7 @@ jobs:
       - name: Build Executable with PyInstaller
         shell: powershell
         run: |
-          pyinstaller --noconfirm --onedir --windowed --name "PhotoFaceOrganizer" --icon="icon.png" app.py
+          pyinstaller --noconfirm --onedir --windowed --name "PhotoFaceOrganizer" --icon="icon.ico" app.py
 
       - name: Install Inno Setup & Compile Installer
         shell: powershell
@@ -45,3 +46,82 @@ jobs:
         with:
           name: PhotoFaceOrganizer_Windows_Setup
           path: Output/PhotoFaceOrganizer_Setup.exe
+
+  build-linux:
+    name: Build Linux (.deb Package & Standalone Zip)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install System Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake build-essential libgl1-mesa-glx libglib2.0-0 dpkg-dev
+
+      - name: Install Python Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install "setuptools<70" wheel pyinstaller
+          pip install PySide6 face_recognition Pillow watchfiles pytest
+
+      - name: Build Executable with PyInstaller
+        run: |
+          pyinstaller --noconfirm --onedir --windowed --name "PhotoFaceOrganizer" --icon="icon.png" app.py
+
+      - name: Package Standalone Linux Zip
+        run: |
+          cd dist
+          zip -r ../PhotoFaceOrganizer_Linux.zip PhotoFaceOrganizer/
+          cd ..
+
+      - name: Build Debian Package (.deb)
+        run: |
+          mkdir -p deb_building/usr/share/photo-face-organizer
+          mkdir -p deb_building/usr/bin
+          mkdir -p deb_building/usr/share/applications
+          mkdir -p deb_building/usr/share/icons/hicolor/256x256/apps
+          mkdir -p deb_building/DEBIAN
+
+          cp -r dist/PhotoFaceOrganizer/* deb_building/usr/share/photo-face-organizer/
+          ln -sf /usr/share/photo-face-organizer/PhotoFaceOrganizer deb_building/usr/bin/photo-face-organizer
+          cp icon.png deb_building/usr/share/icons/hicolor/256x256/apps/photo-face-organizer.png
+
+          cat << 'EOF' > deb_building/usr/share/applications/photo-face-organizer.desktop
+          [Desktop Entry]
+          Name=Photo Face Organizer
+          Comment=100% Local AI Photo Sorter & Face Recognition
+          Exec=/usr/bin/photo-face-organizer
+          Icon=photo-face-organizer
+          Terminal=false
+          Type=Application
+          Categories=Utility;Graphics;
+          EOF
+
+          cat << 'EOF' > deb_building/DEBIAN/control
+          Package: photo-face-organizer
+          Version: 1.0.0
+          Architecture: amd64
+          Maintainer: Photo Face Organizer Team <support@technoharsh.com>
+          Description: 100% Local AI Photo Sorter & Face Recognition Desktop App
+           Local-first photo sorting and face recognition desktop application.
+          EOF
+
+          dpkg-deb --build deb_building photo-face-organizer_1.0.0_amd64.deb
+
+      - name: Upload Linux .deb Package Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: PhotoFaceOrganizer_Linux_Deb_Package
+          path: photo-face-organizer_1.0.0_amd64.deb
+
+      - name: Upload Linux Standalone Zip Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: PhotoFaceOrganizer_Linux_Zip_Bundle
+          path: PhotoFaceOrganizer_Linux.zip
