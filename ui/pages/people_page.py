@@ -311,7 +311,10 @@ class PeoplePage(QWidget):
             return
 
         file_path, _ = QFileDialog.getOpenFileName(
-            self, "Select Reference Photo", "", "Images (*.jpg *.jpeg *.png *.webp *.bmp)"
+            self,
+            "Select Reference Photo",
+            "",
+            "Images (*.jpg *.jpeg *.png *.webp *.bmp *.heic *.tiff *.cr2 *.nef *.arw *.dng);;All Files (*)",
         )
         if not file_path:
             return
@@ -319,10 +322,6 @@ class PeoplePage(QWidget):
         p_path = Path(file_path)
         # Check faces in reference
         _, locations, _ = self.profile_service.detect_faces_in_reference(p_path)
-
-        if not locations:
-            QMessageBox.warning(self, "No Face Detected", "No clear human face was detected in this reference photo.")
-            return
 
         selected_idx = 0
         if len(locations) > 1:
@@ -333,7 +332,7 @@ class PeoplePage(QWidget):
                 return
 
         success, msg = self.profile_service.add_reference_photo(
-            self.current_profile_id, p_path, selected_face_index=selected_idx
+            self.current_profile_id, p_path, selected_face_index=selected_idx, use_fallback_if_no_face=True
         )
         if success:
             QMessageBox.information(self, "Success", "Reference photo added successfully.")

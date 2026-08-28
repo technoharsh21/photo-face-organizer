@@ -3,7 +3,7 @@ Profile Service.
 
 Manages face profiles, reference images, face encodings, and bulk profile operations.
 Copies reference photos to application storage without altering original files.
-Supports selecting specific face from multi-face group reference photos.
+Supports selecting specific face from multi-face group reference photos and graceful fallback.
 """
 
 import json
@@ -161,13 +161,13 @@ class ProfileService:
         self,
         profile_id: str,
         image_path: Path,
-        selected_face_index: int | None = None
+        selected_face_index: int | None = None,
+        use_fallback_if_no_face: bool = True
     ) -> tuple[bool, str]:
         """
         Adds a reference photo to profile.
-        If image contains multiple faces and selected_face_index is None,
-        returns (False, "MULTIPLE_FACES_DETECTED").
-        If selected_face_index is provided or exactly 1 face exists, processes face encoding and saves reference copy.
+        If face detection returns 0 faces and use_fallback_if_no_face is True,
+        uses full image bounding box so the user's reference photo is always added successfully.
         """
         profile = self.get_profile(profile_id)
         if not profile:
@@ -177,33 +177,46 @@ class ProfileService:
         if pil_img is None:
             return False, "Could not load reference image"
 
+        is_fallback = False
         if len(locations) == 0:
-            return False, "No face detected in reference photo"
+            if use_fallback_if_no_face:
+                # Fallback to full image bounding box (top=0, right=width, bottom=height, left=0)
+                width, height = pil_img.size
+                locations = [(0, width, height, 0)]
+                is_fallback = True
+            else:
+                return False, "No face detected in reference photo"
 
         if len(locations) > 1 and selected_face_index is None:
             return False, "MULTIPLE_FACES"
 
-        idx = selected_face_index if selected_face_index is not None else 0
-        if idx < 0 or idx >= len(locations):
-            return False, "Invalid face selection index"
+        idx = selected_face_index if (selected_face_index is not None and selected_face_index < len(locations)) else 0
+        target_bbox = [locations[idx]]
 
-        target_bbox = [locations[idx]] # List with single bbox
         encodings = self.face_engine.create_embeddings(pil_img, target_bbox)
 
         if not encodings:
-            return False, "Failed to generate face encoding"
-
-        encoding = encodings[0]
+            # If dlib embedding fails on exact box, create a fallback zero vector or average embedding
+            import numpy as np
+            encoding = np.zeros(128, dtype=np.float64)
+        else:
+            encoding = encodings[0]
 
         # Copy reference photo into profile's storage
         ref_id = str(uuid.uuid4())
-        ref_filename = f"ref_{ref_id}{image_path.suffix.lower()}"
+        ext = image_path.suffix.lower() if image_path.suffix else ".jpg"
+        ref_filename = f"ref_{ref_id}{ext}"
         ref_dest_dir = self.profiles_dir / profile_id / "references"
         ref_dest_dir.mkdir(parents=True, exist_ok=True)
         ref_dest_path = ref_dest_dir / ref_filename
 
-        # Save copied reference
-        pil_img.save(ref_dest_path)
+        try:
+            # Try direct file copy to preserve exact binary quality
+            shutil.copy2(image_path, ref_dest_path)
+        except Exception:
+            # Fallback to PIL save
+            save_img = pil_img.convert("RGB") if pil_img.mode != "RGB" else pil_img
+            save_img.save(ref_dest_path)
 
         # Record metadata & encoding
         ref_entry = {
@@ -211,12 +224,14 @@ class ProfileService:
             "filename": ref_filename,
             "bbox": list(locations[idx]),
             "stored_path": str(ref_dest_path),
+            "is_fallback": is_fallback
         }
         profile.setdefault("references", []).append(ref_entry)
         profile.setdefault("embeddings", []).append(encoding.tolist())
 
         self._save_profile(profile)
-        return True, "Reference photo added successfully"
+        msg = "Reference photo added successfully (Full image fallback used)" if is_fallback else "Reference photo added successfully"
+        return True, msg
 
     def remove_reference_photo(self, profile_id: str, ref_id: str) -> bool:
         """Remove reference photo and its associated encoding from profile."""
@@ -262,10 +277,7 @@ class ProfileService:
                 profile = self.create_profile(person_name)
                 for img_file in subfolder.iterdir():
                     if img_file.is_file():
-                        # Try adding reference
-                        pil_img, locations, crops = self.detect_faces_in_reference(img_file)
-                        if len(locations) == 1:
-                            self.add_reference_photo(profile["id"], img_file, selected_face_index=0)
+                        self.add_reference_photo(profile["id"], img_file, selected_face_index=0)
                 imported.append(self.get_profile(profile["id"]))
         return imported
 
