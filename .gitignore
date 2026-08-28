@@ -1,10 +1,20 @@
+# Python bytecode & cache
 __pycache__/
 *.py[cod]
 *$py.class
 *.so
+*.egg-info/
+**/*.egg-info/
+.pytest_cache/
+
+# Virtual Environments
 venv/
 env/
 ENV/
+.venv/
+**/*.venv/
+
+# Build & Package Outputs
 build/
 dist/
 *.manifest
@@ -12,9 +22,33 @@ dist/
 deb_building/
 *.deb
 *.zip
+
+# Node.js & Next.js dependencies & builds
+node_modules/
+**/node_modules/
+.next/
+**/.next/
+out/
+**/out/
+.env.local
+.env*.local
+
+# Application Runtime User Data
 .local/
 user_data/
 scans/
 checkpoint.json
-.pytest_cache/
+
+# Logs & Temporary Files
 *.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.DS_Store
+Thumbs.db
+
+# IDE & Editor Files
+.vscode/
+.idea/
+*.swp
+*.swo
