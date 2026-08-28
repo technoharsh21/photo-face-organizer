@@ -14,7 +14,11 @@ APP_NAME = "PhotoFaceOrganizer"
 def get_default_app_data_dir() -> Path:
     """Return platform-appropriate default application data directory."""
     if sys.platform == "win32":
-        base = Path(os.environ.get("APPDATA", Path.home()))
+        appdata = os.environ.get("LOCALAPPDATA") or os.environ.get("APPDATA")
+        if appdata:
+            base = Path(appdata)
+        else:
+            base = Path.home() / "AppData" / "Local"
     elif sys.platform == "darwin":
         base = Path.home() / "Library" / "Application Support"
     else:

@@ -109,6 +109,13 @@ class ScanService:
         scan_dir = self.config.scans_dir / scan_id
         scan_dir.mkdir(parents=True, exist_ok=True)
 
+        # Ensure target output directory exists on disk
+        out_p = Path(output_dir)
+        try:
+            out_p.mkdir(parents=True, exist_ok=True)
+        except Exception as e:
+            logger.warning(f"Could not pre-create output dir {output_dir}: {e}")
+
         # 1. Discover photo files
         discovered_paths = discover_photos(sources, recursive=recursive)
 

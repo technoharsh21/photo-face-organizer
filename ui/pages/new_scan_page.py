@@ -338,19 +338,22 @@ class NewScanPage(QWidget):
 
     def _populate_review(self):
         self.lbl_review_sources.setText(f"• Sources: {len(self.sources)} folder/file paths")
-        discovered = discover_photos(self.sources, recursive=self.chk_recursive.isChecked())
+        try:
+            discovered = discover_photos(self.sources, recursive=self.chk_recursive.isChecked())
+        except Exception:
+            discovered = []
         self.lbl_review_files.setText(f"• Estimated Photos: {len(discovered)} images found")
 
         sel_p_names = []
         self.selected_profile_ids.clear()
         for i in range(self.profiles_list_widget.count()):
             item = self.profiles_list_widget.item(i)
-            if item.checkState() == Qt.Checked:
+            if item and item.checkState() == Qt.Checked:
                 sel_p_names.append(item.text())
                 self.selected_profile_ids.add(item.data(Qt.UserRole))
 
-        self.lbl_review_profiles.setText(f"• Selected Profiles ({len(sel_p_names)}): {', '.join(sel_p_names) if sel_p_names else 'None'}")
-        self.lbl_review_output.setText(f"• Output Folder: {getattr(self, 'output_dir_path', 'Not Selected')}")
+        out_path = getattr(self, "output_dir_path", "Not Selected")
+        self.lbl_review_output.setText(f"• Output Folder: {out_path}")
         self.lbl_review_settings.setText(
             f"• Device: {self.combo_device.currentText()} | Mode: {self.combo_perf.currentText()} | Threshold: {self.spin_threshold.value()}"
         )
@@ -361,7 +364,10 @@ class NewScanPage(QWidget):
             QMessageBox.warning(self, "Validation Error", "Please select at least one source file or folder to scan.")
             return
         if curr == 1:
-            sel_count = sum(1 for i in range(self.profiles_list_widget.count()) if self.profiles_list_widget.item(i).checkState() == Qt.Checked)
+            sel_count = sum(
+                1 for i in range(self.profiles_list_widget.count())
+                if self.profiles_list_widget.item(i) and self.profiles_list_widget.item(i).checkState() == Qt.Checked
+            )
             if sel_count == 0:
                 QMessageBox.warning(self, "Validation Error", "Please select at least one profile to match against.")
                 return
@@ -378,6 +384,18 @@ class NewScanPage(QWidget):
             self.stacked_widget.setCurrentIndex(curr - 1)
 
     def _start_scan(self):
+        if not getattr(self, "output_dir_path", None):
+            QMessageBox.warning(self, "Validation Error", "Please select an output directory.")
+            return
+
+        from pathlib import Path
+        out_p = Path(self.output_dir_path)
+        try:
+            out_p.mkdir(parents=True, exist_ok=True)
+        except Exception as e:
+            QMessageBox.warning(self, "Output Directory Error", f"Could not create output directory:\n{e}")
+            return
+
         worker, scan_meta = self.scan_service.start_new_scan(
             sources=self.sources,
             profile_ids=list(self.selected_profile_ids),
