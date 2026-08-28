@@ -2,16 +2,13 @@
 Processing Worker Pipeline.
 
 Executes face detection, encoding, profile matching, output copying, and unknown face registration
-in a background thread while updating Qt UI signals.
-Supports Multi-Threaded Parallel Execution (Max CPU/GPU utilization), Pause, Resume, Cancel,
-State Checkpointing, and Source File Audit Reconciliation.
+safely in a background thread while updating Qt UI signals.
+Supports Pause, Resume, Cancel, State Checkpointing, and Source File Audit Reconciliation.
 """
 
 import json
 import logging
-import os
 import time
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any
 
@@ -36,7 +33,7 @@ class ScanWorkerSignals:
 
 class ScanWorker(QThread):
     """
-    Background worker thread executing the photo scanner pipeline with maximum performance multi-threading.
+    Background worker thread executing the photo scanner pipeline safely and sequentially.
     Emits progress, status changes, and completion signals.
     """
 
@@ -55,7 +52,7 @@ class ScanWorker(QThread):
         output_service: OutputService,
         unknown_face_service: UnknownFaceService,
         threshold: float = 50.0,
-        performance_mode: str = "High Performance",
+        performance_mode: str = "Balanced",
         start_index: int = 0,
         initial_stats: dict[str, Any] | None = None,
     ):
@@ -91,16 +88,6 @@ class ScanWorker(QThread):
 
         self.matcher = FaceMatcher(face_engine=face_engine, threshold=threshold)
 
-        # Resolve worker thread count for Max Performance
-        cpu_count = os.cpu_count() or 4
-        if performance_mode == "Eco":
-            self.max_workers = max(1, cpu_count // 4)
-        elif performance_mode == "Balanced":
-            self.max_workers = max(2, cpu_count // 2)
-        else:
-            # High / Max Performance mode: Utilize 100% of logical CPU cores
-            self.max_workers = max(1, cpu_count)
-
     def pause(self):
         self._is_paused = True
 
@@ -120,85 +107,62 @@ class ScanWorker(QThread):
 
     def run(self):
         start_time = time.time()
-        logger.info(f"Starting scan worker {self.scan_id} on {self.total_files} files with {self.max_workers} worker threads.")
+        logger.info(f"Starting scan worker {self.scan_id} on {self.total_files} files.")
 
-        remaining_indices = [
-            i for i in range(self.start_index, self.total_files)
-            if str(self.files[i]) not in self.processed_files
-        ]
-
-        if not remaining_indices:
-            self._save_checkpoint("Completed", self.total_files)
-            self.finished_signal.emit(self._build_summary("Completed", 0))
-            return
-
-        batch_size = max(1, self.max_workers * 2)
-
-        for chunk_start in range(0, len(remaining_indices), batch_size):
-            chunk_indices = remaining_indices[chunk_start : chunk_start + batch_size]
-
-            # Handle Pause
+        for i in range(self.start_index, self.total_files):
+            # Check pause loop
             while self._is_paused and not self._is_cancelled:
                 time.sleep(0.2)
-                self._save_checkpoint("Paused", self.processed_count)
+                self._save_checkpoint("Paused", i)
 
-            # Handle Cancel
+            # Check cancel signal
             if self._is_cancelled:
                 logger.info("Scan worker cancelled by user.")
-                self._save_checkpoint("Cancelled", self.processed_count)
+                self._save_checkpoint("Cancelled", i)
                 self.finished_signal.emit(self._build_summary("Cancelled", time.time() - start_time))
                 return
 
-            # Execute batch concurrently across all CPU logical cores
-            with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
-                future_to_idx = {
-                    executor.submit(self._process_single_file, self.files[idx], idx): idx
-                    for idx in chunk_indices
-                }
+            file_path = self.files[i]
+            str_path = str(file_path)
 
-                for future in as_completed(future_to_idx):
-                    if self._is_cancelled:
-                        break
-                    idx = future_to_idx[future]
-                    file_path = self.files[idx]
-                    str_path = str(file_path)
+            if str_path in self.processed_files:
+                continue
 
-                    try:
-                        res = future.result()
-                        self._apply_file_result(file_path, res)
-                    except Exception as e:
-                        logger.error(f"Error processing {file_path}: {e}")
-                        self.error_count += 1
-                        self.errors_log.append({"file": str_path, "error": str(e)})
+            # Throttle if Eco mode
+            if self.performance_mode == "Eco":
+                time.sleep(0.05)
 
-                    self.processed_count += 1
-                    self.processed_files.add(str_path)
+            # Process single file sequentially (thread-safe for dlib / C++ bindings)
+            self._process_file(file_path, i)
 
-                    # Save checkpoint periodically
-                    if self.processed_count % 5 == 0 or self.processed_count == self.total_files:
-                        self._save_checkpoint("Running", self.processed_count)
+            self.processed_count = i + 1
+            self.processed_files.add(str_path)
 
-                    # Emit progress update
-                    elapsed = time.time() - start_time
-                    files_per_sec = self.processed_count / elapsed if elapsed > 0 else 0
-                    remaining_files = self.total_files - self.processed_count
-                    eta_seconds = remaining_files / files_per_sec if files_per_sec > 0 else 0
+            # Save checkpoint periodically
+            if (i + 1) % 5 == 0 or i == self.total_files - 1:
+                self._save_checkpoint("Running", i + 1)
 
-                    self.progress_signal.emit({
-                        "scan_id": self.scan_id,
-                        "current_file": file_path.name,
-                        "current_index": self.processed_count,
-                        "total_files": self.total_files,
-                        "progress_percent": round((self.processed_count / self.total_files) * 100.0, 1),
-                        "processed": self.processed_count,
-                        "matched": self.matched_count,
-                        "no_match": self.no_match_count,
-                        "unknown_faces": self.unknown_faces_count,
-                        "skipped": self.skipped_count,
-                        "errors": self.error_count,
-                        "speed_fps": round(files_per_sec, 2),
-                        "eta_seconds": round(eta_seconds, 1),
-                    })
+            # Emit progress update
+            elapsed = time.time() - start_time
+            files_per_sec = self.processed_count / elapsed if elapsed > 0 else 0
+            remaining_files = self.total_files - self.processed_count
+            eta_seconds = remaining_files / files_per_sec if files_per_sec > 0 else 0
+
+            self.progress_signal.emit({
+                "scan_id": self.scan_id,
+                "current_file": file_path.name,
+                "current_index": i + 1,
+                "total_files": self.total_files,
+                "progress_percent": round(((i + 1) / self.total_files) * 100.0, 1),
+                "processed": self.processed_count,
+                "matched": self.matched_count,
+                "no_match": self.no_match_count,
+                "unknown_faces": self.unknown_faces_count,
+                "skipped": self.skipped_count,
+                "errors": self.error_count,
+                "speed_fps": round(files_per_sec, 2),
+                "eta_seconds": round(eta_seconds, 1),
+            })
 
         # Scan completed successfully
         elapsed_total = time.time() - start_time
@@ -206,89 +170,85 @@ class ScanWorker(QThread):
         summary = self._build_summary("Completed", elapsed_total)
         self.finished_signal.emit(summary)
 
-    def _process_single_file(self, file_path: Path, index: int) -> dict[str, Any]:
-        """Independent file processor executed in thread pool worker."""
+    def _process_file(self, file_path: Path, index: int):
         pil_img, err = load_image(file_path)
         if pil_img is None:
-            return {"status": "unreadable", "error": err or "Unreadable image"}
-
-        # 1. Detect faces
-        face_locations = self.face_engine.detect_faces(pil_img)
-
-        if not face_locations:
-            return {"status": "no_faces", "matched_names": set(), "face_results": [], "face_crops": []}
-
-        # 2. Extract face crops and generate encodings
-        face_encodings = self.face_engine.create_embeddings(pil_img, face_locations)
-        face_crops = self.face_engine.extract_faces(pil_img, face_locations)
-
-        # 3. Evaluate matches
-        matched_person_names, face_results = self.matcher.evaluate_photo_matches(
-            face_encodings=face_encodings,
-            face_locations=face_locations,
-            profiles=self.profiles,
-        )
-
-        return {
-            "status": "success",
-            "matched_names": matched_person_names,
-            "face_results": face_results,
-            "face_crops": face_crops,
-        }
-
-    def _apply_file_result(self, file_path: Path, res: dict[str, Any]):
-        """Apply results from parallel thread execution to thread-safe data structures."""
-        str_path = str(file_path)
-        status = res.get("status")
-
-        if status == "unreadable":
             self.skipped_count += 1
             self.error_count += 1
-            self.errors_log.append({"file": str_path, "error": res.get("error", "Unreadable image")})
-            self.source_to_output_map[str_path] = ["Skipped/Unreadable"]
+            self.errors_log.append({"file": str(file_path), "error": err or "Unreadable image"})
+            self.source_to_output_map[str(file_path)] = ["Skipped/Unreadable"]
             return
 
-        matched_person_names = res.get("matched_names", set())
-        face_results = res.get("face_results", [])
-        face_crops = res.get("face_crops", [])
+        try:
+            # 1. Detect faces
+            face_locations = self.face_engine.detect_faces(pil_img)
 
-        # Record unknown faces
-        for face_res, crop in zip(face_results, face_crops):
-            if not face_res.is_match or not face_res.matched_profile_name:
-                self.unknown_faces_count += 1
-                self.unknown_face_service.store_unknown_face(
-                    face_crop=crop,
-                    face_encoding=face_res.face_encoding,
-                    source_photo_path=str_path,
-                    bounding_box=list(face_res.bounding_box),
-                    scan_id=self.scan_id,
+            if not face_locations:
+                self.no_match_count += 1
+                copies = self.output_service.process_photo_output(
+                    source_path=file_path,
+                    output_base_dir=self.output_dir,
+                    matched_profile_names=set(),
                 )
+                self.source_to_output_map[str(file_path)] = [
+                    str(target) for (_, target, _) in copies if target is not None
+                ]
+                return
 
-        # Route copies
-        if matched_person_names:
-            self.matched_count += 1
-            for p_name in matched_person_names:
-                self.results_by_person[p_name] = self.results_by_person.get(p_name, 0) + 1
-        else:
-            self.no_match_count += 1
+            # 2. Extract face crops and generate encodings
+            face_encodings = self.face_engine.create_embeddings(pil_img, face_locations)
+            face_crops = self.face_engine.extract_faces(pil_img, face_locations)
 
-        copies = self.output_service.process_photo_output(
-            source_path=file_path,
-            output_base_dir=self.output_dir,
-            matched_profile_names=matched_person_names,
-        )
+            # 3. Evaluate photo matches
+            matched_person_names, face_results = self.matcher.evaluate_photo_matches(
+                face_encodings=face_encodings,
+                face_locations=face_locations,
+                profiles=self.profiles,
+            )
 
-        output_targets = []
-        for _, target, copy_status in copies:
-            if target is not None:
-                output_targets.append(str(target))
+            # Update unknown faces
+            for res, crop in zip(face_results, face_crops):
+                if not res.is_match or not res.matched_profile_name:
+                    self.unknown_faces_count += 1
+                    self.unknown_face_service.store_unknown_face(
+                        face_crop=crop,
+                        face_encoding=res.face_encoding,
+                        source_photo_path=str(file_path),
+                        bounding_box=list(res.bounding_box),
+                        scan_id=self.scan_id,
+                    )
+
+            # 4. Route photo output copies
+            if matched_person_names:
+                self.matched_count += 1
+                for p_name in matched_person_names:
+                    self.results_by_person[p_name] = self.results_by_person.get(p_name, 0) + 1
             else:
-                output_targets.append(f"Output Status: {copy_status}")
-                if "error" in copy_status.lower():
-                    self.error_count += 1
-                    self.errors_log.append({"file": str_path, "error": copy_status})
+                self.no_match_count += 1
 
-        self.source_to_output_map[str_path] = output_targets
+            copies = self.output_service.process_photo_output(
+                source_path=file_path,
+                output_base_dir=self.output_dir,
+                matched_profile_names=matched_person_names,
+            )
+
+            output_targets = []
+            for _, target, status in copies:
+                if target is not None:
+                    output_targets.append(str(target))
+                else:
+                    output_targets.append(f"Output Status: {status}")
+                    if "error" in status.lower():
+                        self.error_count += 1
+                        self.errors_log.append({"file": str(file_path), "error": status})
+
+            self.source_to_output_map[str(file_path)] = output_targets
+
+        except Exception as e:
+            logger.error(f"Error processing {file_path}: {e}")
+            self.error_count += 1
+            self.errors_log.append({"file": str(file_path), "error": str(e)})
+            self.source_to_output_map[str(file_path)] = [f"Error: {e!s}"]
 
     def _save_checkpoint(self, status: str, current_index: int):
         """Write current scan progress to local checkpoint JSON file."""
