@@ -2,9 +2,10 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import Image from "next/image";
 import { usePathname } from "next/navigation";
 import { ThemeToggle } from "./ThemeToggle";
-import { Camera, Download, Menu, X, Github } from "lucide-react";
+import { Download, Menu, X, Github } from "lucide-react";
 
 export function Navbar() {
   const [isOpen, setIsOpen] = useState(false);
@@ -29,8 +30,15 @@ export function Navbar() {
         <div className="flex items-center justify-between h-16">
           {/* Logo */}
           <Link href="/" className="flex items-center gap-2.5 font-bold text-lg text-slate-900 dark:text-white">
-            <div className="p-2 rounded-lg bg-brand-600 text-white shadow-sm">
-              <Camera className="w-5 h-5" />
+            <div className="p-1 rounded-lg bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm flex items-center justify-center overflow-hidden">
+              <Image
+                src="/logo.png"
+                alt="Photo Face Organizer Logo"
+                width={32}
+                height={32}
+                className="w-7 h-7 object-contain"
+                priority
+              />
             </div>
             <span>Photo Face Organizer</span>
           </Link>

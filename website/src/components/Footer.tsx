@@ -1,5 +1,6 @@
 import Link from "next/link";
-import { Camera, ShieldCheck, Github } from "lucide-react";
+import Image from "next/image";
+import { ShieldCheck, Github } from "lucide-react";
 
 export function Footer() {
   const repoUrl = process.env.NEXT_PUBLIC_GITHUB_REPO
@@ -13,8 +14,14 @@ export function Footer() {
           {/* Brand Col */}
           <div className="space-y-4 md:col-span-1">
             <Link href="/" className="flex items-center gap-2 font-bold text-slate-900 dark:text-white">
-              <div className="p-1.5 rounded-md bg-brand-600 text-white">
-                <Camera className="w-4 h-4" />
+              <div className="p-1 rounded-lg bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm flex items-center justify-center">
+                <Image
+                  src="/logo.png"
+                  alt="Photo Face Organizer Logo"
+                  width={24}
+                  height={24}
+                  className="w-6 h-6 object-contain"
+                />
               </div>
               <span>Photo Face Organizer</span>
             </Link>

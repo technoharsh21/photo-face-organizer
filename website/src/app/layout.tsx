@@ -27,6 +27,11 @@ export const metadata: Metadata = {
     "desktop application",
   ],
   authors: [{ name: "Photo Face Organizer Team" }],
+  icons: {
+    icon: "/favicon.ico",
+    shortcut: "/favicon.ico",
+    apple: "/icon.png",
+  },
   openGraph: {
     type: "website",
     locale: "en_US",
@@ -35,12 +40,21 @@ export const metadata: Metadata = {
     description:
       "Automatically recognize people and route photos into person folders. 100% local processing, zero cloud uploads.",
     siteName: "Photo Face Organizer",
+    images: [
+      {
+        url: "/logo.png",
+        width: 512,
+        height: 512,
+        alt: "Photo Face Organizer Logo",
+      },
+    ],
   },
   twitter: {
     card: "summary_large_image",
     title: "Photo Face Organizer | Local AI Photo Sorter",
     description:
       "Automatically recognize people and route photos into person folders. 100% local processing, zero cloud uploads.",
+    images: ["/logo.png"],
   },
   robots: {
     index: true,
