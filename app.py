@@ -6,11 +6,27 @@ logging to file/console, crash error hooks, and PySide6 QApplication main loop.
 Disables bytecode caching (pycache) in dev mode.
 """
 
+import io
 import logging
 import os
 import sys
 import traceback
 from pathlib import Path
+
+
+class NullWriter:
+
+    def write(self, s):
+        pass
+
+    def flush(self):
+        pass
+
+
+if sys.stdout is None:
+    sys.stdout = NullWriter()
+if sys.stderr is None:
+    sys.stderr = NullWriter()
 
 # Disable Python bytecode (.pyc) caching to guarantee fresh code is loaded on every launch
 sys.dont_write_bytecode = True

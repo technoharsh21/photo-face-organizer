@@ -9,13 +9,26 @@ Powered by Microsoft ONNX Runtime with automatic hardware GPU detection
 (NVIDIA CUDA GPU on Windows/Linux, Apple CoreML GPU on macOS, and Multi-Core CPU fallback).
 """
 
+import io
 import logging
+import sys
 from pathlib import Path
 from typing import Any
 
 import numpy as np
 import onnxruntime
 from PIL import Image
+
+class NullWriter:
+    def write(self, s):
+        pass
+    def flush(self):
+        pass
+
+if sys.stdout is None:
+    sys.stdout = NullWriter()
+if sys.stderr is None:
+    sys.stderr = NullWriter()
 
 import insightface
 from insightface.app import FaceAnalysis
