@@ -2,8 +2,7 @@
 Settings Page Module.
 
 Requirements #31 & #32:
-Manages device preferences (Auto/CPU/GPU), performance modes (Eco/Balanced/Max),
-and matching thresholds (default 50), displaying active device status accurately.
+Manages performance modes (Eco/Balanced/Maximum Performance) and matching thresholds (default 50).
 """
 
 from PySide6.QtWidgets import (
@@ -47,23 +46,13 @@ class SettingsPage(QWidget):
         c_layout = QVBoxLayout(card)
         c_layout.setSpacing(16)
 
-        # 1. Device Preference
-        c_layout.addWidget(QLabel("Device Acceleration Preference:"))
-        self.combo_device = QComboBox()
-        self.combo_device.addItems(["Auto", "CPU", "GPU"])
-        c_layout.addWidget(self.combo_device)
-
-        self.lbl_device_status = QLabel("Active Device: Checking...")
-        self.lbl_device_status.setStyleSheet("color: #3b82f6; font-weight: bold;")
-        c_layout.addWidget(self.lbl_device_status)
-
-        # 2. Performance Mode
+        # 1. Performance Mode
         c_layout.addWidget(QLabel("Performance Mode:"))
         self.combo_perf = QComboBox()
         self.combo_perf.addItems(["Eco", "Balanced", "Maximum Performance"])
         c_layout.addWidget(self.combo_perf)
 
-        # 3. Matching Threshold
+        # 2. Matching Threshold
         c_layout.addWidget(QLabel("Default Matching Threshold (0 - 100, Default: 50):"))
         self.spin_threshold = QSpinBox()
         self.spin_threshold.setRange(1, 100)
@@ -104,31 +93,15 @@ class SettingsPage(QWidget):
 
     def refresh(self):
         """Refresh displayed settings values."""
-        self.combo_device.setCurrentText(self.settings_service.get("device_preference", "Auto"))
         self.combo_perf.setCurrentText(self.settings_service.get("performance_mode", "Maximum Performance"))
         self.spin_threshold.setValue(int(self.settings_service.get("matching_threshold", 50)))
 
-        info = self.face_engine.get_device_info()
-        active = info.get("active_device", "CPU")
-        gpu_avail = info.get("gpu_available", False)
-        import os
-        cpus = os.cpu_count() or 4
-
-        if gpu_avail:
-            status_str = f"Active Device: GPU (NVIDIA CUDA Accelerated) | GPU Status: Active"
-        else:
-            status_str = f"Active Device: CPU (Max Multi-Core Parallel Threads Across {cpus} CPU Cores) | GPU Status: CUDA fallback active"
-
-        self.lbl_device_status.setText(status_str)
-
     def _save(self):
         self.settings_service.update({
-            "device_preference": self.combo_device.currentText(),
             "performance_mode": self.combo_perf.currentText(),
             "matching_threshold": float(self.spin_threshold.value()),
         })
 
-        self.face_engine.set_device_preference(self.combo_device.currentText())
         self.refresh()
         QMessageBox.information(self, "Settings Saved", "Settings updated successfully.")
 

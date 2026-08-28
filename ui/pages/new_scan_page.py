@@ -214,26 +214,19 @@ class NewScanPage(QWidget):
         l.addStretch()
         return widget
 
-    # STEP 4: PERFORMANCE & DEVICE
+    # STEP 4: PERFORMANCE
     def _create_step4_performance(self) -> QWidget:
         widget = QFrame()
         widget.setProperty("class", "Card")
         l = QVBoxLayout(widget)
 
-        l.addWidget(QLabel("Device Acceleration & Performance Preferences:"))
-
-        # Device combo
-        l.addWidget(QLabel("Device Preference:"))
-        self.combo_device = QComboBox()
-        self.combo_device.addItems(["Auto", "CPU", "GPU"])
-        self.combo_device.setCurrentText(self.settings_service.get("device_preference", "Auto"))
-        l.addWidget(self.combo_device)
+        l.addWidget(QLabel("Performance Preferences:"))
 
         # Performance mode combo
         l.addWidget(QLabel("Performance Mode:"))
         self.combo_perf = QComboBox()
         self.combo_perf.addItems(["Eco", "Balanced", "Maximum Performance"])
-        self.combo_perf.setCurrentText(self.settings_service.get("performance_mode", "Balanced"))
+        self.combo_perf.setCurrentText(self.settings_service.get("performance_mode", "Maximum Performance"))
         l.addWidget(self.combo_perf)
 
         # Matching threshold
@@ -355,7 +348,7 @@ class NewScanPage(QWidget):
         out_path = getattr(self, "output_dir_path", "Not Selected")
         self.lbl_review_output.setText(f"• Output Folder: {out_path}")
         self.lbl_review_settings.setText(
-            f"• Device: {self.combo_device.currentText()} | Mode: {self.combo_perf.currentText()} | Threshold: {self.spin_threshold.value()}"
+            f"• Mode: {self.combo_perf.currentText()} | Threshold: {self.spin_threshold.value()}"
         )
 
     def _go_next(self):
@@ -401,7 +394,7 @@ class NewScanPage(QWidget):
             profile_ids=list(self.selected_profile_ids),
             output_dir=self.output_dir_path,
             recursive=self.chk_recursive.isChecked(),
-            device_preference=self.combo_device.currentText(),
+            device_preference="Auto",
             performance_mode=self.combo_perf.currentText(),
             threshold=float(self.spin_threshold.value()),
         )
