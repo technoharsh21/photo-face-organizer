@@ -17,9 +17,10 @@ class SoloFaceMatcher:
     """
     Face matcher dedicated to solo photo organization.
     Only matches photos where len(face_locations) == 1.
+    Uses high-precision threshold (default 70.0%) to prevent false-positive person matches.
     """
 
-    def __init__(self, face_engine: FaceEngine, threshold: float = 50.0):
+    def __init__(self, face_engine: FaceEngine, threshold: float = 70.0):
         self.face_engine = face_engine
         self.threshold = threshold
 
@@ -32,7 +33,7 @@ class SoloFaceMatcher:
     ) -> ProfileMatchResult:
         """
         Evaluate a single face encoding against individual profiles.
-        Ignores group profiles.
+        Ignores group profiles and enforces strict 70%+ score threshold.
         """
         best_match_id = None
         best_match_name = None
@@ -50,6 +51,10 @@ class SoloFaceMatcher:
 
             for ref_emb in embeddings:
                 ref_arr = np.asarray(ref_emb, dtype=np.float64)
+                # Ignore invalid or all-zero fallback embeddings
+                if np.all(ref_arr == 0):
+                    continue
+
                 score = self.face_engine.calculate_match_score(face_encoding, ref_arr)
                 if score > p_best_score:
                     p_best_score = score

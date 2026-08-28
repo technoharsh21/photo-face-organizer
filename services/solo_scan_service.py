@@ -54,7 +54,7 @@ class SoloScanService:
         recursive: bool = True,
         performance_mode: str = "Maximum Performance",
         operation_mode: str = "copy",  # "copy" or "move"
-        threshold: float = 50.0,
+        threshold: float = 70.0,
     ) -> tuple[SoloScanWorker, dict[str, Any]]:
         """
         Initializes and returns a SoloScanWorker thread configured for single-person photo matching.

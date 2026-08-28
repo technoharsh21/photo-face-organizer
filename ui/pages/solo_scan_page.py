@@ -246,10 +246,10 @@ class SoloScanPage(QWidget):
         self.combo_perf.setCurrentText(self.settings_service.get("performance_mode", "Maximum Performance"))
         l.addWidget(self.combo_perf)
 
-        l.addWidget(QLabel("Matching Threshold (Default 50):"))
+        l.addWidget(QLabel("Matching Precision Threshold (Default 70 for High Precision & Zero False Matches):"))
         self.spin_threshold = QSpinBox()
         self.spin_threshold.setRange(1, 100)
-        self.spin_threshold.setValue(int(self.settings_service.get("matching_threshold", 50)))
+        self.spin_threshold.setValue(70)
         l.addWidget(self.spin_threshold)
 
         l.addStretch()

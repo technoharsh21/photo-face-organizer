@@ -47,7 +47,7 @@ class SoloScanWorker(QThread):
         face_engine: FaceEngine,
         output_service: OutputService,
         unknown_face_service: UnknownFaceService,
-        threshold: float = 50.0,
+        threshold: float = 70.0,
         performance_mode: str = "Maximum Performance",
         operation_mode: str = "copy",
         start_index: int = 0,
