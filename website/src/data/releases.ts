@@ -58,7 +58,7 @@ export const RELEASES_DATA: Release[] = [
           architecture: "amd64 (64-bit)",
           sha256: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
           available: true,
-          notes: "Install via: sudo dpkg -i photo-face-organizer_1.0.0_amd64.deb"
+          notes: "Official release package. Install via: sudo dpkg -i photo-face-organizer_1.0.0_amd64.deb"
         },
         {
           name: "Linux Standalone Bundle (.zip)",
@@ -69,7 +69,7 @@ export const RELEASES_DATA: Release[] = [
           architecture: "x86_64",
           sha256: "f2ca1bb6c7e907d06dafe4687e579fce76b37e4e93b7605022da52e6ccc26fd2",
           available: true,
-          notes: "Extract and run ./dist/PhotoFaceOrganizer/PhotoFaceOrganizer directly"
+          notes: "Extract and run ./dist/PhotoFaceOrganizer/PhotoFaceOrganizer"
         },
         {
           name: "PyPI Package (pip / pipx)",
@@ -85,12 +85,12 @@ export const RELEASES_DATA: Release[] = [
         {
           name: "Windows Setup Installer (.exe)",
           filename: "PhotoFaceOrganizer_Setup.exe",
-          url: "https://github.com/technoharsh21/photo-face-organizer/actions",
+          url: "https://github.com/technoharsh21/photo-face-organizer/releases/download/v1.0.0/PhotoFaceOrganizer_Setup.exe",
           size: "140 MB (Est.)",
           type: "exe",
           architecture: "x64 (64-bit)",
           available: true,
-          notes: "Built automatically via GitHub Actions workflow (Inno Setup wizard)"
+          notes: "Windows Inno Setup installer wizard with Desktop & Start Menu icons"
         }
       ],
       macos: [
