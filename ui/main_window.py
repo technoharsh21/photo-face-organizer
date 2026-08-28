@@ -28,6 +28,7 @@ from services.profile_service import ProfileService
 from services.scan_service import ScanService
 from services.settings_service import SettingsService
 from services.unknown_face_service import UnknownFaceService
+from services.solo_scan_service import SoloScanService
 from ui.components.crash_recovery_dialog import CrashRecoveryDialog
 from ui.pages.dashboard_page import DashboardPage
 from ui.pages.history_page import HistoryPage
@@ -36,6 +37,7 @@ from ui.pages.people_page import PeoplePage
 from ui.pages.processing_page import ProcessingPage
 from ui.pages.results_page import ResultsPage
 from ui.pages.settings_page import SettingsPage
+from ui.pages.solo_scan_page import SoloScanPage
 from ui.pages.unknown_faces_page import UnknownFacesPage
 from ui.styles import STYLESHEET
 
@@ -53,12 +55,21 @@ class MainWindow(QMainWindow):
         unknown_face_service: UnknownFaceService,
         history_service: HistoryService,
         settings_service: SettingsService,
+        solo_scan_service: SoloScanService | None = None,
     ):
         super().__init__()
         self.config = config
         self.face_engine = face_engine
         self.profile_service = profile_service
         self.scan_service = scan_service
+        self.solo_scan_service = solo_scan_service or SoloScanService(
+            config=config,
+            face_engine=face_engine,
+            output_service=output_service,
+            unknown_face_service=unknown_face_service,
+            history_service=history_service,
+            profile_service=profile_service,
+        )
         self.output_service = output_service
         self.unknown_face_service = unknown_face_service
         self.history_service = history_service
@@ -87,6 +98,7 @@ class MainWindow(QMainWindow):
         self.page_dashboard = DashboardPage(self.profile_service, self.history_service, self.unknown_face_service, self.navigate_to)
         self.page_people = PeoplePage(self.profile_service)
         self.page_new_scan = NewScanPage(self.profile_service, self.scan_service, self.settings_service, self._on_scan_started)
+        self.page_solo_scan = SoloScanPage(self.profile_service, self.solo_scan_service, self.settings_service, self._on_scan_started)
         self.page_processing = ProcessingPage(self.scan_service, self._on_scan_finished)
         self.page_results = ResultsPage(self.profile_service, self.output_service)
         self.page_unknown_faces = UnknownFacesPage(self.unknown_face_service)
@@ -97,22 +109,24 @@ class MainWindow(QMainWindow):
             "Dashboard": (0, self.page_dashboard),
             "People": (1, self.page_people),
             "New Scan": (2, self.page_new_scan),
-            "Processing": (3, self.page_processing),
-            "Results": (4, self.page_results),
-            "Unknown Faces": (5, self.page_unknown_faces),
-            "History": (6, self.page_history),
-            "Settings": (7, self.page_settings),
+            "Solo Scan": (3, self.page_solo_scan),
+            "Processing": (4, self.page_processing),
+            "Results": (5, self.page_results),
+            "Unknown Faces": (6, self.page_unknown_faces),
+            "History": (7, self.page_history),
+            "Settings": (8, self.page_settings),
         }
 
         for idx, page_widget in [
             (0, self.page_dashboard),
             (1, self.page_people),
             (2, self.page_new_scan),
-            (3, self.page_processing),
-            (4, self.page_results),
-            (5, self.page_unknown_faces),
-            (6, self.page_history),
-            (7, self.page_settings),
+            (3, self.page_solo_scan),
+            (4, self.page_processing),
+            (5, self.page_results),
+            (6, self.page_unknown_faces),
+            (7, self.page_history),
+            (8, self.page_settings),
         ]:
             self.content_stack.addWidget(page_widget)
 
@@ -134,6 +148,7 @@ class MainWindow(QMainWindow):
             ("Dashboard", "📊 Dashboard"),
             ("People", "👥 People"),
             ("New Scan", "🚀 New Scan"),
+            ("Solo Scan", "👤 Solo Scan"),
             ("Results", "🎯 Results"),
             ("Unknown Faces", "❓ Unknown Faces"),
             ("History", "📜 History"),
@@ -210,8 +225,52 @@ class MainWindow(QMainWindow):
 
     def _on_scan_finished(self, summary: dict[str, Any]):
         self._set_navigation_enabled(True)
+
+        # Handle Move Mode (Copy -> Verify 100% -> Confirm Delete Original Source Files)
+        op_mode = summary.get("operation_mode")
+        copied_pairs = summary.get("copied_file_pairs", [])
+
+        if op_mode == "move" and copied_pairs:
+            from PySide6.QtWidgets import QMessageBox
+
+            verified, count, verified_sources = self.solo_scan_service.verify_copied_photos(copied_pairs)
+            if verified and count > 0:
+                answer = QMessageBox.question(
+                    self,
+                    "100% Verification Successful",
+                    f"All {count} photos have been successfully copied and verified in your output directory.\n\n"
+                    f"Do you want to delete the original source photos from your source folder now?",
+                    QMessageBox.Yes | QMessageBox.No,
+                    QMessageBox.No,
+                )
+                if answer == QMessageBox.Yes:
+                    del_count, err_count = self.solo_scan_service.delete_verified_sources(verified_sources)
+                    QMessageBox.information(
+                        self,
+                        "Source Photos Cleaned",
+                        f"Successfully deleted {del_count} verified original source photos from disk.",
+                    )
+            elif not verified:
+                QMessageBox.warning(
+                    self,
+                    "Verification Warning",
+                    "Some copied files could not be 100% verified on disk. Original source files have NOT been deleted for safety.",
+                )
+
         self.page_results.load_results(summary)
         self.navigate_to("Results")
+
+    def _on_view_history_results(self, scan_data: dict[str, Any]):
+        self.page_results.load_results(scan_data)
+        self.navigate_to("Results")
+
+    def _on_resume_history_scan(self, scan_id: str):
+        res = self.scan_service.resume_scan(scan_id)
+        if res:
+            worker, scan_meta = res
+            self._set_navigation_enabled(False)
+            self.navigate_to("Processing")
+            self.page_processing.start_monitoring(worker)
 
     def _on_view_history_results(self, scan_data: dict[str, Any]):
         self.page_results.load_results(scan_data)

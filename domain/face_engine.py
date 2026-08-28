@@ -121,11 +121,11 @@ class FaceRecognitionEngine(FaceEngine):
         else:
             raise ValueError(f"Unsupported image type: {type(image)}")
 
-    def detect_faces(self, image: Any, model: str | None = None) -> list[tuple[int, int, int, int]]:
+    def detect_faces(self, image: Any, model: str | None = None, upsample_num_times: int = 1) -> list[tuple[int, int, int, int]]:
         import face_recognition
         rgb_img = self._to_numpy_rgb(image)
         use_model = model or self._model
-        locations = face_recognition.face_locations(rgb_img, model=use_model)
+        locations = face_recognition.face_locations(rgb_img, number_of_times_to_upsample=upsample_num_times, model=use_model)
         return locations
 
     def extract_faces(

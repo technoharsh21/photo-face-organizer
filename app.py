@@ -87,6 +87,9 @@ def _setup_crash_logging(config: Config):
     sys.excepthook = uncaught_exception_hook
 
 
+from services.solo_scan_service import SoloScanService
+
+
 def main():
     app = QApplication(sys.argv)
     app.setApplicationName("Photo Face Organizer")
@@ -115,11 +118,21 @@ def main():
         profile_service=profile_service,
     )
 
+    solo_scan_service = SoloScanService(
+        config=config,
+        face_engine=face_engine,
+        output_service=output_service,
+        unknown_face_service=unknown_face_service,
+        history_service=history_service,
+        profile_service=profile_service,
+    )
+
     main_window = MainWindow(
         config=config,
         face_engine=face_engine,
         profile_service=profile_service,
         scan_service=scan_service,
+        solo_scan_service=solo_scan_service,
         output_service=output_service,
         unknown_face_service=unknown_face_service,
         history_service=history_service,
