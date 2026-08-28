@@ -34,11 +34,12 @@ class InsightFaceEngine:
         self.gpu_available = False
         self.providers: list[str] = []
         self.app: FaceAnalysis | None = None
+        self._is_initialized = False
 
-        self._init_engine()
+        self._configure_providers()
 
-    def _init_engine(self):
-        """Detect hardware acceleration (NVIDIA CUDA / CoreML) and initialize InsightFace models."""
+    def _configure_providers(self):
+        """Quickly detect hardware providers without loading models into memory (Instant App Launch)."""
         try:
             available_providers = onnxruntime.get_available_providers()
             logger.info(f"Available ONNX Runtime execution providers: {available_providers}")
@@ -64,10 +65,20 @@ class InsightFaceEngine:
                 self.active_device = "Multi-Core CPU"
                 self.gpu_available = self._detect_system_gpu()
 
+        except Exception:
+            self.providers = ["CPUExecutionProvider"]
+            self.active_device = "Multi-Core CPU"
+
+    def _ensure_initialized(self):
+        """Lazy load ONNX models into memory when required (thread-safe)."""
+        if self._is_initialized and self.app is not None:
+            return
+
+        try:
             # Initialize InsightFace model pack (buffalo_sc lightweight high-accuracy model pack)
-            # Downloads/loads ONNX models (~15MB) into ~/.insightface/models/
             self.app = FaceAnalysis(name="buffalo_sc", providers=self.providers)
             self.app.prepare(ctx_id=0, det_size=(640, 640))
+            self._is_initialized = True
             logger.info(f"InsightFace engine initialized successfully on {self.active_device}.")
 
         except Exception as e:
@@ -78,6 +89,7 @@ class InsightFaceEngine:
                 self.gpu_available = self._detect_system_gpu()
                 self.app = FaceAnalysis(name="buffalo_sc", providers=self.providers)
                 self.app.prepare(ctx_id=0, det_size=(640, 640))
+                self._is_initialized = True
             except Exception as cpu_err:
                 logger.error(f"Failed to initialize InsightFace CPU fallback: {cpu_err}")
 
@@ -101,7 +113,8 @@ class InsightFaceEngine:
     def set_device_preference(self, preference: str) -> str:
         """Update hardware device preference."""
         self.device_preference = preference
-        self._init_engine()
+        self._is_initialized = False
+        self._configure_providers()
         return self.active_device
 
     def get_device_info(self) -> dict[str, Any]:
@@ -120,6 +133,7 @@ class InsightFaceEngine:
         Detects frontal, 180° profile, tilted, and dark faces down to 10x10 pixels.
         Returns bounding boxes in [top, right, bottom, left] order.
         """
+        self._ensure_initialized()
         if self.app is None:
             return []
 
@@ -142,6 +156,7 @@ class InsightFaceEngine:
         """
         Extract 512-dimensional normalized ArcFace embeddings.
         """
+        self._ensure_initialized()
         if self.app is None:
             return []
 
