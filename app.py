@@ -2,13 +2,14 @@
 Photo Face Organizer Application Entry Point.
 
 Initializes application services, face recognition engine, configuration,
-and PySide6 QApplication main loop.
-Disables bytecode caching (pycache) so changes are instantly reflected on every launch.
+logging to file/console, crash error hooks, and PySide6 QApplication main loop.
+Disables bytecode caching (pycache) in dev mode.
 """
 
 import logging
 import os
 import sys
+import traceback
 from pathlib import Path
 
 # Disable Python bytecode (.pyc) caching to guarantee fresh code is loaded on every launch
@@ -29,7 +30,7 @@ def _clean_pycache():
 if not getattr(sys, "frozen", False):
     _clean_pycache()
 
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QMessageBox
 
 from config import Config
 from domain.duplicate_detector import DuplicateDetector
@@ -45,11 +46,54 @@ from ui.main_window import MainWindow
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
 
 
+def _setup_crash_logging(config: Config):
+    """Setup persistent file logging and global uncaught exception crash handler."""
+    log_file = config.app_data_dir / "photo_face_organizer.log"
+    crash_file = config.app_data_dir / "crash_log.txt"
+
+    try:
+        config.app_data_dir.mkdir(parents=True, exist_ok=True)
+        file_handler = logging.FileHandler(log_file, encoding="utf-8")
+        file_handler.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s"))
+        logging.getLogger().addHandler(file_handler)
+    except Exception as e:
+        print(f"Failed to initialize log file: {e}")
+
+    def uncaught_exception_hook(exc_type, exc_value, exc_traceback):
+        if issubclass(exc_type, KeyboardInterrupt):
+            sys.__excepthook__(exc_type, exc_value, exc_traceback)
+            return
+
+        err_str = "".join(traceback.format_exception(exc_type, exc_value, exc_traceback))
+        logging.critical(f"Uncaught Exception:\n{err_str}")
+
+        try:
+            with open(crash_file, "w", encoding="utf-8") as f:
+                f.write(err_str)
+        except Exception:
+            pass
+
+        try:
+            msg_box = QMessageBox()
+            msg_box.setIcon(QMessageBox.Critical)
+            msg_box.setWindowTitle("Application Error")
+            msg_box.setText("An unexpected error occurred.")
+            msg_box.setInformativeText(f"Error details saved to:\n{crash_file}\n\nError: {exc_value}")
+            msg_box.setDetailedText(err_str)
+            msg_box.exec()
+        except Exception:
+            pass
+
+    sys.excepthook = uncaught_exception_hook
+
+
 def main():
     app = QApplication(sys.argv)
     app.setApplicationName("Photo Face Organizer")
 
     config = Config()
+    _setup_crash_logging(config)
+
     settings_service = SettingsService(config)
 
     device_pref = settings_service.get("device_preference", "Auto")
