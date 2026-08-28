@@ -79,9 +79,10 @@ class UnknownFaceService:
                         pass
         return unknowns
 
-    def group_unknown_faces(self, threshold: float = 50.0) -> list[dict[str, Any]]:
+    def group_unknown_faces(self, threshold: float = 80.0) -> list[dict[str, Any]]:
         """
-        Clusters unknown faces using greedy distance thresholding.
+        Clusters unknown faces with high precision (default 80%+ similarity threshold).
+        Enforces 100% group purity by requiring candidate faces to match ALL existing member faces in a group.
         Returns list of groups: [{'group_id': ..., 'group_name': ..., 'faces': [...]}]
         """
         all_faces = self.list_unknown_faces()
@@ -102,18 +103,24 @@ class UnknownFaceService:
             group_faces = [face]
             visited.add(f_id)
 
-            ref_emb = face["embedding"]
-
             for other in all_faces:
                 o_id = other["id"]
                 if o_id in visited:
                     continue
 
                 o_emb = other["embedding"]
-                dist = float(np.linalg.norm(ref_emb - o_emb))
-                score = calibrate_match_score(dist)
 
-                if score >= threshold:
+                # Purity Check: Candidate 'other' face must score >= 80% against ALL existing members in this group
+                matches_all_members = True
+                for member in group_faces:
+                    m_emb = member["embedding"]
+                    dist = float(np.linalg.norm(m_emb - o_emb))
+                    score = calibrate_match_score(dist)
+                    if score < threshold:
+                        matches_all_members = False
+                        break
+
+                if matches_all_members:
                     group_faces.append(other)
                     visited.add(o_id)
 

@@ -60,6 +60,37 @@ def test_profile_creation_and_reference_addition():
         assert len(updated_p["embeddings"]) == 1
 
 
+def test_profile_validations():
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        config = Config(app_data_dir=Path(tmp_dir))
+        engine = MockFaceEngine()
+        p_svc = ProfileService(config, engine)
+
+        # 1. Test empty name validation
+        import pytest
+        with pytest.raises(ValueError, match="empty"):
+            p_svc.create_profile("   ")
+
+        # 2. Test duplicate profile name validation
+        p_svc.create_profile("Harsh")
+        with pytest.raises(ValueError, match="already exists"):
+            p_svc.create_profile("harsh")
+
+        # 3. Test 0 faces validation
+        class NoFaceEngine(MockFaceEngine):
+            def detect_faces(self, image, model="hog"):
+                return []
+
+        p_svc_no_face = ProfileService(config, NoFaceEngine())
+        p = p_svc_no_face.get_profile(p_svc_no_face.list_profiles()[0]["id"])
+        img_path = Path(tmp_dir) / "no_face.jpg"
+        Image.new("RGB", (100, 100)).save(img_path)
+
+        success, msg = p_svc_no_face.add_reference_photo(p["id"], img_path)
+        assert success is False
+        assert "No face detected" in msg
+
+
 def test_unknown_face_grouping_and_conversion():
     with tempfile.TemporaryDirectory() as tmp_dir:
         config = Config(app_data_dir=Path(tmp_dir))

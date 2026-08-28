@@ -96,7 +96,16 @@ class ProfileService:
         is_group_profile: bool = False,
         compulsory_profile_ids: list[str] | None = None,
     ) -> dict[str, Any]:
-        """Create a new profile."""
+        """Create a new profile with name validation and duplicate name checking."""
+        clean_name = name.strip()
+        if not clean_name:
+            raise ValueError("Profile name cannot be empty.")
+
+        # Check duplicate profile name
+        for p in self.list_profiles():
+            if p.get("name", "").lower() == clean_name.lower():
+                raise ValueError(f"A profile with name '{clean_name}' already exists.")
+
         p_id = str(uuid.uuid4())
         p_dir = self.profiles_dir / p_id
         p_dir.mkdir(parents=True, exist_ok=True)
@@ -105,7 +114,7 @@ class ProfileService:
 
         profile_data = {
             "id": p_id,
-            "name": name.strip(),
+            "name": clean_name,
             "notes": notes.strip(),
             "is_group_profile": is_group_profile,
             "compulsory_profile_ids": compulsory_profile_ids or [],
@@ -117,10 +126,18 @@ class ProfileService:
         return profile_data
 
     def rename_profile(self, profile_id: str, new_name: str) -> dict[str, Any] | None:
-        """Rename an existing profile."""
+        """Rename an existing profile with duplicate checking."""
+        clean_name = new_name.strip()
+        if not clean_name:
+            raise ValueError("Profile name cannot be empty.")
+
+        for p in self.list_profiles():
+            if p["id"] != profile_id and p.get("name", "").lower() == clean_name.lower():
+                raise ValueError(f"A profile with name '{clean_name}' already exists.")
+
         profile = self.get_profile(profile_id)
         if profile:
-            profile["name"] = new_name.strip()
+            profile["name"] = clean_name
             self._save_profile(profile)
             return profile
         return None
@@ -162,13 +179,16 @@ class ProfileService:
         profile_id: str,
         image_path: Path,
         selected_face_index: int | None = None,
-        use_fallback_if_no_face: bool = True
+        use_fallback_if_no_face: bool = False
     ) -> tuple[bool, str]:
         """
-        Adds a reference photo to profile.
-        If face detection returns 0 faces and use_fallback_if_no_face is True,
-        uses full image bounding box so the user's reference photo is always added successfully.
+        Adds a reference photo to profile with strict validations:
+        1. Face Must Be Detected (0 faces -> Error).
+        2. Exactly 1 Face Allowed (2+ faces -> Error).
+        3. Single Person Consistency Check (Must match existing profile reference photos >= 50% score).
         """
+        import numpy as np
+
         profile = self.get_profile(profile_id)
         if not profile:
             return False, "Profile not found"
@@ -177,18 +197,17 @@ class ProfileService:
         if pil_img is None:
             return False, "Could not load reference image"
 
-        is_fallback = False
+        # STRICT VALIDATION 1: Face Must Be Detected
         if len(locations) == 0:
             if use_fallback_if_no_face:
-                # Fallback to full image bounding box (top=0, right=width, bottom=height, left=0)
                 width, height = pil_img.size
                 locations = [(0, width, height, 0)]
-                is_fallback = True
             else:
-                return False, "No face detected in reference photo"
+                return False, "No face detected in reference photo. Please select a photo containing a clear human face."
 
-        if len(locations) > 1 and selected_face_index is None:
-            return False, "MULTIPLE_FACES"
+        # STRICT VALIDATION 2: Exactly 1 Face Allowed
+        if len(locations) > 1 and not profile.get("is_group_profile"):
+            return False, f"Multiple faces ({len(locations)} faces) detected in this photo. Reference photos for a person profile must contain only 1 face."
 
         idx = selected_face_index if (selected_face_index is not None and selected_face_index < len(locations)) else 0
         target_bbox = [locations[idx]]
@@ -196,11 +215,25 @@ class ProfileService:
         encodings = self.face_engine.create_embeddings(pil_img, target_bbox)
 
         if not encodings:
-            # If dlib embedding fails on exact box, create a fallback zero vector or average embedding
-            import numpy as np
-            encoding = np.zeros(128, dtype=np.float64)
+            return False, "Could not generate face embedding for selected face."
         else:
             encoding = encodings[0]
+
+        # STRICT VALIDATION 3: Person Consistency Check (no different person photos in 1 profile)
+        existing_embs = profile.get("embeddings", [])
+        if existing_embs and not profile.get("is_group_profile"):
+            highest_score = 0.0
+            for ref_emb in existing_embs:
+                ref_arr = np.asarray(ref_emb, dtype=np.float64)
+                score = self.face_engine.calculate_match_score(encoding, ref_arr)
+                if score > highest_score:
+                    highest_score = score
+
+            if highest_score < 50.0:
+                return False, (
+                    f"The face in this photo appears to belong to a different person "
+                    f"({highest_score:.1f}% match) than the existing reference photos in this profile."
+                )
 
         # Copy reference photo into profile's storage
         ref_id = str(uuid.uuid4())
@@ -224,14 +257,13 @@ class ProfileService:
             "filename": ref_filename,
             "bbox": list(locations[idx]),
             "stored_path": str(ref_dest_path),
-            "is_fallback": is_fallback
+            "is_fallback": False
         }
         profile.setdefault("references", []).append(ref_entry)
         profile.setdefault("embeddings", []).append(encoding.tolist())
 
         self._save_profile(profile)
-        msg = "Reference photo added successfully (Full image fallback used)" if is_fallback else "Reference photo added successfully"
-        return True, msg
+        return True, "Reference photo added successfully"
 
     def remove_reference_photo(self, profile_id: str, ref_id: str) -> bool:
         """Remove reference photo and its associated encoding from profile."""

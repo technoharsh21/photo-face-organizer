@@ -247,12 +247,15 @@ class PeoplePage(QWidget):
             compulsory_ids = dlg.selected_compulsory_ids
 
             if name:
-                new_p = self.profile_service.create_profile(
-                    name=name,
-                    is_group_profile=is_group,
-                    compulsory_profile_ids=compulsory_ids,
-                )
-                self.refresh(select_profile_id=new_p["id"])
+                try:
+                    new_p = self.profile_service.create_profile(
+                        name=name,
+                        is_group_profile=is_group,
+                        compulsory_profile_ids=compulsory_ids,
+                    )
+                    self.refresh(select_profile_id=new_p["id"])
+                except ValueError as ve:
+                    QMessageBox.warning(self, "Profile Creation Error", str(ve))
 
     def _edit_group_settings(self):
         if not self.current_profile_id:
@@ -270,7 +273,10 @@ class PeoplePage(QWidget):
                 compulsory_profile_ids=dlg.selected_compulsory_ids,
             )
             if dlg.profile_name != profile["name"]:
-                self.profile_service.rename_profile(self.current_profile_id, dlg.profile_name)
+                try:
+                    self.profile_service.rename_profile(self.current_profile_id, dlg.profile_name)
+                except ValueError as ve:
+                    QMessageBox.warning(self, "Rename Error", str(ve))
             self.refresh(select_profile_id=self.current_profile_id)
 
     def _rename_profile(self):
@@ -284,8 +290,11 @@ class PeoplePage(QWidget):
             self, "Rename Profile", "Enter New Profile Name:", text=profile["name"]
         )
         if ok and new_name.strip():
-            self.profile_service.rename_profile(self.current_profile_id, new_name.strip())
-            self.refresh(select_profile_id=self.current_profile_id)
+            try:
+                self.profile_service.rename_profile(self.current_profile_id, new_name.strip())
+                self.refresh(select_profile_id=self.current_profile_id)
+            except ValueError as ve:
+                QMessageBox.warning(self, "Rename Error", str(ve))
 
     def _delete_profile(self):
         if not self.current_profile_id:
