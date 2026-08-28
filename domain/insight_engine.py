@@ -11,6 +11,7 @@ Powered by Microsoft ONNX Runtime with automatic hardware GPU detection
 
 import io
 import logging
+import os
 import sys
 from pathlib import Path
 from typing import Any
@@ -19,16 +20,11 @@ import numpy as np
 import onnxruntime
 from PIL import Image
 
-class NullWriter:
-    def write(self, s):
-        pass
-    def flush(self):
-        pass
-
+# Guarantee sys.stdout/stderr are never None (PyInstaller --windowed on Windows)
 if sys.stdout is None:
-    sys.stdout = NullWriter()
+    sys.stdout = open(os.devnull, "w")
 if sys.stderr is None:
-    sys.stderr = NullWriter()
+    sys.stderr = open(os.devnull, "w")
 
 import insightface
 from insightface.app import FaceAnalysis
@@ -87,8 +83,15 @@ class InsightFaceEngine:
         if self._is_initialized and self.app is not None:
             return
 
+        # Guard stdout/stderr during InsightFace model loading (PyInstaller --windowed)
+        _orig_stdout = sys.stdout
+        _orig_stderr = sys.stderr
         try:
-            # Initialize InsightFace model pack (buffalo_sc lightweight high-accuracy model pack)
+            if sys.stdout is None:
+                sys.stdout = open(os.devnull, "w")
+            if sys.stderr is None:
+                sys.stderr = open(os.devnull, "w")
+
             self.app = FaceAnalysis(name="buffalo_sc", providers=self.providers)
             self.app.prepare(ctx_id=0, det_size=(640, 640))
             self._is_initialized = True

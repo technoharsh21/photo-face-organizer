@@ -13,20 +13,13 @@ import sys
 import traceback
 from pathlib import Path
 
-
-class NullWriter:
-
-    def write(self, s):
-        pass
-
-    def flush(self):
-        pass
-
-
+# PyInstaller --windowed mode sets sys.stdout/stderr to None on Windows.
+# InsightFace/ONNX internally call print() which crashes with 'NoneType' has no attribute 'write'.
+# Fix: replace None streams with real OS-level /dev/null file handles BEFORE any library imports.
 if sys.stdout is None:
-    sys.stdout = NullWriter()
+    sys.stdout = open(os.devnull, "w")
 if sys.stderr is None:
-    sys.stderr = NullWriter()
+    sys.stderr = open(os.devnull, "w")
 
 # Disable Python bytecode (.pyc) caching to guarantee fresh code is loaded on every launch
 sys.dont_write_bytecode = True
