@@ -1,4 +1,4 @@
-name: Build Windows & Linux Installers
+name: Build Windows, Linux & macOS Installers
 
 on:
   push:
@@ -62,7 +62,7 @@ jobs:
       - name: Install System Dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y cmake build-essential libgl1-mesa-glx libglib2.0-0 dpkg-dev
+          sudo apt-get install -y cmake build-essential libgl1-mesa-glx libglib2.0-0 dpkg-dev zip
 
       - name: Install Python Dependencies
         run: |
@@ -125,3 +125,48 @@ jobs:
         with:
           name: PhotoFaceOrganizer_Linux_Zip_Bundle
           path: PhotoFaceOrganizer_Linux.zip
+
+  build-macos:
+    name: Build macOS (.dmg Image & Zip Bundle)
+    runs-on: macos-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install System & Build Tools
+        run: |
+          brew install cmake || true
+
+      - name: Install Python Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install "setuptools<70" wheel pyinstaller
+          pip install PySide6 face_recognition Pillow watchfiles pytest
+
+      - name: Build macOS App Bundle with PyInstaller
+        run: |
+          pyinstaller --noconfirm --onedir --windowed --name "PhotoFaceOrganizer" --icon="icon.png" app.py
+
+      - name: Package macOS .dmg Disk Image & Zip Bundle
+        run: |
+          cd dist
+          zip -r ../PhotoFaceOrganizer_macOS.zip PhotoFaceOrganizer.app
+          hdiutil create -volname "PhotoFaceOrganizer" -srcfolder PhotoFaceOrganizer.app -ov -format UDZO ../PhotoFaceOrganizer_macOS.dmg
+          cd ..
+
+      - name: Upload macOS .dmg Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: PhotoFaceOrganizer_macOS_DMG
+          path: PhotoFaceOrganizer_macOS.dmg
+
+      - name: Upload macOS Zip Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: PhotoFaceOrganizer_macOS_Zip_Bundle
+          path: PhotoFaceOrganizer_macOS.zip

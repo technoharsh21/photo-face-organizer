@@ -33,9 +33,11 @@ describe("Release Architecture & Data System", () => {
     const winAsset = getPrimaryAssetForOS(latest, "windows");
     expect(winAsset).not.toBeNull();
     expect(winAsset?.type).toBe("exe");
+    expect(winAsset?.available).toBe(true);
 
     const macAsset = getPrimaryAssetForOS(latest, "macos");
     expect(macAsset).not.toBeNull();
-    expect(macAsset?.available).toBe(false); // Graceful handling of macOS interim status
+    expect(macAsset?.type).toBe("dmg");
+    expect(macAsset?.available).toBe(true); // macOS .dmg automated build is now fully active
   });
 });

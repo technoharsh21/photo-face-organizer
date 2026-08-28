@@ -40,7 +40,8 @@ export const RELEASES_DATA: Release[] = [
       "Automated nodemon-style dev auto-reloader and Pycache disabling",
       "Native Linux .deb installer package & Standalone ZIP package",
       "PyPI Python package support (pip / pipx install)",
-      "Automated GitHub Actions Windows installer workflow (.exe setup)"
+      "Automated GitHub Actions Windows installer workflow (.exe setup)",
+      "Automated macOS Disk Image (.dmg) & Zip bundle build pipeline"
     ],
     notes: [
       "First stable production-ready release of Photo Face Organizer.",
@@ -96,19 +97,17 @@ export const RELEASES_DATA: Release[] = [
       macos: [
         {
           name: "macOS Disk Image (.dmg)",
-          filename: "PhotoFaceOrganizer_1.0.0.dmg",
-          url: "#",
+          filename: "PhotoFaceOrganizer_macOS.dmg",
+          url: "https://github.com/technoharsh21/photo-face-organizer/releases/download/v1.0.0/PhotoFaceOrganizer_macOS.dmg",
           size: "150 MB (Est.)",
           type: "dmg",
           architecture: "Apple Silicon (M1/M2/M3) & Intel",
-          available: false,
-          notes: "macOS build pipeline coming soon. Run from source via Python 3.10+ in the interim."
+          available: true,
+          notes: "Native macOS disk image installer. Built automatically via GitHub Actions workflow."
         }
       ]
     },
-    knownIssues: [
-      "macOS .dmg installer pipeline is in progress; macOS users can currently run from source using Python 3.10+."
-    ]
+    knownIssues: []
   }
 ];
 
