@@ -99,10 +99,16 @@ class FaceCacheService:
                     if len(locations) == 0:
                         return [], []
 
-                    # Reshape into list of 128-d vectors
                     num_faces = len(locations)
+                    dim = encs_arr.size // num_faces if num_faces > 0 else 0
+
+                    # Strict 512-d InsightFace check: Ignore legacy 128-d cache entries
+                    if dim != 512 or (encs_arr.size % num_faces != 0):
+                        logger.info(f"Invalid/legacy cache embedding dimension {dim} for {file_path.name}. Auto-invalidating cache entry.")
+                        return None
+
                     encodings_list = [
-                        encs_arr[i * 128 : (i + 1) * 128] for i in range(num_faces)
+                        encs_arr[i * dim : (i + 1) * dim] for i in range(num_faces)
                     ]
                     return locations, encodings_list
         except Exception as e:

@@ -45,6 +45,13 @@ class ProfileService:
                         "stored_path": str(ref_path),
                     })
 
+        for ref in data.get("references", []):
+            if "stored_path" not in ref or not Path(ref["stored_path"]).exists():
+                fname = ref.get("filename", "")
+                alt_path = p_dir / "references" / fname
+                if alt_path.exists():
+                    ref["stored_path"] = str(alt_path)
+
         if "embeddings" not in data:
             data["embeddings"] = []
             # Check for legacy embedding json files
@@ -55,6 +62,32 @@ class ProfileService:
                         data["embeddings"] = json.load(f)
                 except Exception:
                     pass
+
+        # Check embedding dimension compatibility (e.g. 128-d legacy vs 512-d ArcFace)
+        need_reembed = False
+        if data.get("references") and data.get("embeddings"):
+            for emb in data["embeddings"]:
+                if len(emb) != 512 and hasattr(self.face_engine, "app"):
+                    need_reembed = True
+                    break
+        elif data.get("references") and not data.get("embeddings"):
+            need_reembed = True
+
+        if need_reembed:
+            new_embs = []
+            for ref in data.get("references", []):
+                ref_path = Path(ref.get("stored_path", ""))
+                if ref_path.exists():
+                    pil_img, err = load_image(ref_path)
+                    if pil_img is not None:
+                        bbox = ref.get("bbox")
+                        locs = [tuple(bbox)] if (bbox and len(bbox) == 4 and sum(bbox) > 0) else None
+                        embs = self.face_engine.create_embeddings(pil_img, locs)
+                        if embs:
+                            new_embs.append(embs[0].tolist())
+            if new_embs:
+                data["embeddings"] = new_embs
+                self._save_profile(data)
 
         return data
 
@@ -261,6 +294,50 @@ class ProfileService:
         }
         profile.setdefault("references", []).append(ref_entry)
         profile.setdefault("embeddings", []).append(encoding.tolist())
+
+        self._save_profile(profile)
+        return True, "Reference photo added successfully"
+
+    def add_reference_photo_direct(
+        self,
+        profile_id: str,
+        image_path: Path,
+        embedding: Any,
+    ) -> tuple[bool, str]:
+        """
+        Directly adds a reference photo crop with a pre-computed embedding to a profile.
+        Used for unknown face conversion to avoid re-detection failures on tiny crops.
+        """
+        import numpy as np
+
+        profile = self.get_profile(profile_id)
+        if not profile:
+            return False, "Profile not found"
+
+        if not image_path.exists():
+            return False, f"Image file {image_path} does not exist"
+
+        ref_id = str(uuid.uuid4())
+        ext = image_path.suffix.lower() if image_path.suffix else ".jpg"
+        ref_filename = f"ref_{ref_id}{ext}"
+        ref_dest_dir = self.profiles_dir / profile_id / "references"
+        ref_dest_dir.mkdir(parents=True, exist_ok=True)
+        ref_dest_path = ref_dest_dir / ref_filename
+
+        shutil.copy2(image_path, ref_dest_path)
+
+        emb_list = embedding.tolist() if isinstance(embedding, np.ndarray) else list(embedding)
+
+        ref_entry = {
+            "id": ref_id,
+            "filename": ref_filename,
+            "bbox": [0, 0, 0, 0],
+            "stored_path": str(ref_dest_path),
+            "is_fallback": False,
+        }
+
+        profile.setdefault("references", []).append(ref_entry)
+        profile.setdefault("embeddings", []).append(emb_list)
 
         self._save_profile(profile)
         return True, "Reference photo added successfully"

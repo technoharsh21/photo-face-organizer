@@ -43,117 +43,136 @@ class ResultsPage(QWidget):
 
     def _setup_ui(self):
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(24, 24, 24, 24)
-        layout.setSpacing(16)
+        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setSpacing(14)
 
-        header = QLabel("Scan Results")
-        header.setProperty("class", "PageHeader")
-        layout.addWidget(header)
-
-        # Overview Stats Card
+        # 1. Executive Scan Summary & Audit Card
         self.summary_card = QFrame()
-        self.summary_card.setProperty("class", "Card")
-        sc_layout = QHBoxLayout(self.summary_card)
+        self.summary_card.setStyleSheet("background-color: #111827; border: 1px solid #1f2937; border-radius: 12px; padding: 16px;")
+        sc_vlayout = QVBoxLayout(self.summary_card)
+        sc_vlayout.setSpacing(12)
 
-        self.lbl_processed = QLabel("Processed: 0")
-        self.lbl_matched = QLabel("Matched: 0")
-        self.lbl_no_match = QLabel("No Match: 0")
-        self.lbl_unknown = QLabel("Unknown: 0")
-        self.lbl_duration = QLabel("Duration: 0s")
+        # Top row stats metrics
+        stats_box = QHBoxLayout()
+        stats_box.setSpacing(12)
 
-        for l in [self.lbl_processed, self.lbl_matched, self.lbl_no_match, self.lbl_unknown, self.lbl_duration]:
-            l.setStyleSheet("font-size: 14px; font-weight: bold; color: #ffffff;")
-            sc_layout.addWidget(l)
+        self.c_processed = self._create_metric_badge("PROCESSED", "0", "#ffffff")
+        self.c_matched = self._create_metric_badge("MATCHED", "0", "#10b981")
+        self.c_no_match = self._create_metric_badge("NO MATCH", "0", "#f59e0b")
+        self.c_unknown = self._create_metric_badge("UNKNOWN", "0", "#ec4899")
+        self.c_duration = self._create_metric_badge("DURATION", "0s", "#38bdf8")
 
-        layout.addWidget(self.summary_card)
+        stats_box.addWidget(self.c_processed["frame"])
+        stats_box.addWidget(self.c_matched["frame"])
+        stats_box.addWidget(self.c_no_match["frame"])
+        stats_box.addWidget(self.c_unknown["frame"])
+        stats_box.addWidget(self.c_duration["frame"])
 
-        # File Audit Reconciliation Summary Card
-        self.audit_card = QFrame()
-        self.audit_card.setProperty("class", "Card")
-        ac_layout = QHBoxLayout(self.audit_card)
+        sc_vlayout.addLayout(stats_box)
 
-        self.lbl_audit_discovered = QLabel("Total Discovered: 0")
-        self.lbl_audit_accounted = QLabel("Accounted: 0 / 0 (100%)")
-        self.lbl_audit_missed = QLabel("Missed Photos: 0 (Zero Photos Lost)")
+        # Audit & Actions Row
+        audit_row = QHBoxLayout()
+        audit_row.setSpacing(12)
 
-        self.lbl_audit_discovered.setStyleSheet("color: #3b82f6; font-weight: bold;")
-        self.lbl_audit_accounted.setStyleSheet("color: #10b981; font-weight: bold;")
-        self.lbl_audit_missed.setStyleSheet("color: #10b981; font-weight: bold;")
+        self.lbl_audit_status = QLabel("<b>File Reconciliation Audit:</b> Accounted: 0 / 0 (100%) • 🟢 Zero Photos Lost")
+        self.lbl_audit_status.setStyleSheet("color: #10b981; font-size: 12px;")
+        audit_row.addWidget(self.lbl_audit_status)
 
-        ac_layout.addWidget(self.lbl_audit_discovered)
-        ac_layout.addWidget(self.lbl_audit_accounted)
-        ac_layout.addWidget(self.lbl_audit_missed)
-        layout.addWidget(self.audit_card)
-
-        # Actions Toolbar
-        actions_layout = QHBoxLayout()
+        audit_row.addStretch()
 
         self.btn_open_folder = QPushButton("📂 Open Output Folder")
         self.btn_open_folder.setProperty("class", "PrimaryButton")
         self.btn_open_folder.clicked.connect(self._open_output_folder)
-        actions_layout.addWidget(self.btn_open_folder)
+        audit_row.addWidget(self.btn_open_folder)
 
         self.btn_correct_match = QPushButton("🛠️ Correct Wrong Match")
         self.btn_correct_match.setProperty("class", "SecondaryButton")
         self.btn_correct_match.clicked.connect(self._correct_wrong_match)
-        actions_layout.addWidget(self.btn_correct_match)
+        audit_row.addWidget(self.btn_correct_match)
 
-        actions_layout.addStretch()
-        layout.addLayout(actions_layout)
+        sc_vlayout.addLayout(audit_row)
+        layout.addWidget(self.summary_card)
 
-        # Main Splitter (Left: Tree Breakdown, Right: Image Preview Card)
+        # 2. Main Splitter (Left: Tree Breakdown, Right: Image Preview Card)
         splitter = QSplitter(Qt.Horizontal)
 
-        # Left Tree
-        left_widget = QWidget()
+        # Left Tree Container Card
+        left_widget = QFrame()
+        left_widget.setProperty("class", "Card")
         left_layout = QVBoxLayout(left_widget)
-        left_layout.setContentsMargins(0, 0, 0, 0)
+        left_layout.setContentsMargins(12, 12, 12, 12)
+
+        left_hdr = QLabel("<b>Person Output Folders & Matched Photos</b>")
+        left_hdr.setStyleSheet("font-size: 13px; color: #ffffff;")
+        left_layout.addWidget(left_hdr)
 
         self.tree = QTreeWidget()
         self.tree.setHeaderLabels(["Person / Output Folder", "Count / Path"])
         self.tree.setColumnWidth(0, 260)
+        self.tree.setStyleSheet(
+            "QTreeWidget { background-color: #0f172a; border: 1px solid #1e293b; border-radius: 8px; color: #f8fafc; font-size: 13px; }"
+            "QTreeWidget::item { padding: 6px; border-bottom: 1px solid #1e293b; }"
+            "QTreeWidget::item:selected { background-color: #0284c7; color: #ffffff; font-weight: bold; }"
+            "QHeaderView::section { background-color: #1e293b; color: #38bdf8; font-weight: bold; padding: 6px; border: none; }"
+        )
         self.tree.itemSelectionChanged.connect(self._on_tree_selection_changed)
-        left_layout.addWidget(self.tree)
+        left_layout.addWidget(self.tree, 1)
 
         splitter.addWidget(left_widget)
 
-        # Right Image Preview Panel
+        # Right Image Preview Panel Card
         self.preview_frame = QFrame()
         self.preview_frame.setProperty("class", "Card")
         preview_layout = QVBoxLayout(self.preview_frame)
+        preview_layout.setContentsMargins(16, 16, 16, 16)
         preview_layout.setSpacing(12)
 
-        prev_title = QLabel("Photo Preview & Audit Info")
-        prev_title.setStyleSheet("font-size: 16px; font-weight: bold; color: #ffffff;")
+        prev_title = QLabel("<b>Photo Preview & Match Details</b>")
+        prev_title.setStyleSheet("font-size: 14px; font-weight: bold; color: #ffffff;")
         preview_layout.addWidget(prev_title)
 
         self.img_preview_lbl = QLabel("Select a photo from the left tree to view preview")
         self.img_preview_lbl.setAlignment(Qt.AlignCenter)
         self.img_preview_lbl.setStyleSheet(
-            "background-color: #181820; border-radius: 8px; color: #a0a0b0; padding: 20px; font-style: italic;"
+            "background-color: #0f172a; border: 1px dashed #334155; border-radius: 8px; color: #94a3b8; padding: 20px; font-size: 12px;"
         )
-        self.img_preview_lbl.setMinimumSize(320, 240)
-        preview_layout.addWidget(self.img_preview_lbl)
+        preview_layout.addWidget(self.img_preview_lbl, 1)
 
         self.lbl_photo_info = QLabel("")
         self.lbl_photo_info.setWordWrap(True)
-        self.lbl_photo_info.setStyleSheet("color: #e0e0e0; font-size: 12px;")
+        self.lbl_photo_info.setStyleSheet("color: #cbd5e1; font-size: 12px;")
         preview_layout.addWidget(self.lbl_photo_info)
 
-        preview_layout.addStretch()
         splitter.addWidget(self.preview_frame)
-        splitter.setSizes([450, 450])
+        splitter.setSizes([380, 520])
 
-        layout.addWidget(splitter)
+        layout.addWidget(splitter, 1)
+
+    def _create_metric_badge(self, title: str, val: str, color: str) -> dict[str, Any]:
+        frame = QFrame()
+        frame.setStyleSheet("background-color: #0f172a; border: 1px solid #1e293b; border-radius: 8px; padding: 8px 14px;")
+        l = QVBoxLayout(frame)
+        l.setContentsMargins(0, 0, 0, 0)
+        l.setSpacing(2)
+
+        lbl_t = QLabel(title)
+        lbl_t.setStyleSheet("font-size: 10px; font-weight: 800; color: #64748b; letter-spacing: 0.5px;")
+        lbl_v = QLabel(val)
+        lbl_v.setStyleSheet(f"font-size: 18px; font-weight: 800; color: {color};")
+
+        l.addWidget(lbl_t)
+        l.addWidget(lbl_v)
+
+        return {"frame": frame, "val": lbl_v}
 
     def load_results(self, summary: dict[str, Any]):
         """Load and display scan summary data."""
         self.summary_data = summary
-        self.lbl_processed.setText(f"Processed: {summary.get('processed', 0)}")
-        self.lbl_matched.setText(f"Matched: {summary.get('matched', 0)}")
-        self.lbl_no_match.setText(f"No Match: {summary.get('no_match', 0)}")
-        self.lbl_unknown.setText(f"Unknown: {summary.get('unknown_faces', 0)}")
-        self.lbl_duration.setText(f"Duration: {summary.get('duration_seconds', 0)}s")
+        self.c_processed["val"].setText(f"{summary.get('processed', 0)}")
+        self.c_matched["val"].setText(f"{summary.get('matched', 0)}")
+        self.c_no_match["val"].setText(f"{summary.get('no_match', 0)}")
+        self.c_unknown["val"].setText(f"{summary.get('unknown_faces', 0)}")
+        self.c_duration["val"].setText(f"{summary.get('duration_seconds', 0)}s")
 
         # Audit Summary Update
         tot = summary.get("total_files", summary.get("processed", 0))
@@ -161,15 +180,12 @@ class ResultsPage(QWidget):
         missed = summary.get("missed_files", max(0, tot - acc))
         pct = summary.get("reconciliation_percent", round((acc / tot) * 100.0, 1) if tot > 0 else 100.0)
 
-        self.lbl_audit_discovered.setText(f"Total Discovered: {tot}")
-        self.lbl_audit_accounted.setText(f"Accounted: {acc} / {tot} ({pct}%)")
-
         if missed == 0:
-            self.lbl_audit_missed.setText("Missed Photos: 0 (Zero Photos Lost)")
-            self.lbl_audit_missed.setStyleSheet("color: #10b981; font-weight: bold;")
+            self.lbl_audit_status.setText(f"<b>File Reconciliation Audit:</b> Accounted: {acc} / {tot} ({pct}%) • 🟢 Zero Photos Lost")
+            self.lbl_audit_status.setStyleSheet("color: #10b981; font-size: 12px;")
         else:
-            self.lbl_audit_missed.setText(f"Missed Photos: {missed} ⚠️")
-            self.lbl_audit_missed.setStyleSheet("color: #ef4444; font-weight: bold;")
+            self.lbl_audit_status.setText(f"<b>File Reconciliation Audit:</b> Accounted: {acc} / {tot} ({pct}%) • ⚠️ {missed} Missed Photos")
+            self.lbl_audit_status.setStyleSheet("color: #ef4444; font-size: 12px;")
 
         self.tree.clear()
         self._clear_preview()

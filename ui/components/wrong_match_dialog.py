@@ -49,16 +49,16 @@ class WrongMatchDialog(QDialog):
         layout = QVBoxLayout(self)
         layout.setSpacing(16)
 
-        title = QLabel(f"Correct Match for: {self.output_photo_path.name}")
-        title.setStyleSheet("font-size: 15px; font-weight: bold; color: #ffffff;")
+        title = QLabel(f"✏️ Correct Photo Match: {self.output_photo_path.name}")
+        title.setStyleSheet("font-size: 16px; font-weight: 800; color: #ffffff;")
         layout.addWidget(title)
 
         info = QLabel(
-            f"Currently stored in: <b>{self.current_folder_name}</b><br>"
-            "Correcting this match will remove the file from its current output folder and copy it to the correct target."
+            f"Currently assigned to: <b>{self.current_folder_name}</b><br/>"
+            "<span style='color: #10b981; font-size: 11px;'><b>Safety Guarantee:</b> Your original photo file will not be changed or deleted.</span>"
         )
         info.setWordWrap(True)
-        info.setStyleSheet("color: #a0a0b0;")
+        info.setStyleSheet("color: #cbd5e1; font-size: 12px;")
         layout.addWidget(info)
 
         # Destination Selection

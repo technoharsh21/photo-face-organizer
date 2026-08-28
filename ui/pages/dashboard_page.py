@@ -44,13 +44,8 @@ class DashboardPage(QWidget):
 
     def _setup_ui(self):
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(24, 24, 24, 24)
-        layout.setSpacing(20)
-
-        # Header
-        header = QLabel("Dashboard")
-        header.setProperty("class", "PageHeader")
-        layout.addWidget(header)
+        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setSpacing(16)
 
         # Stats Cards Grid
         stats_layout = QHBoxLayout()
@@ -68,31 +63,64 @@ class DashboardPage(QWidget):
 
         layout.addLayout(stats_layout)
 
-        # Quick Actions Bar
+        # Hero Banner Card with Quick Actions
         actions_frame = QFrame()
-        actions_frame.setProperty("class", "Card")
+        actions_frame.setStyleSheet("background-color: #111827; border: 1px solid #1f2937; border-radius: 12px; padding: 20px;")
         actions_layout = QHBoxLayout(actions_frame)
+        actions_layout.setContentsMargins(16, 16, 16, 16)
+        actions_layout.setSpacing(20)
 
-        act_title = QLabel("Quick Actions:")
-        act_title.setStyleSheet("font-weight: bold; font-size: 14px;")
-        actions_layout.addWidget(act_title)
+        hero_text_box = QVBoxLayout()
+        hero_text_box.setSpacing(4)
+        hero_title = QLabel("⚡ <b>InsightFace AI Photo Scanner</b>")
+        hero_title.setStyleSheet("font-size: 18px; font-weight: 800; color: #ffffff; border: none; background: transparent;")
+        hero_sub = QLabel("Organize your photo library with 99.86% AI accuracy. Zero false matches.")
+        hero_sub.setStyleSheet("color: #94a3b8; font-size: 12px; border: none; background: transparent;")
+        hero_text_box.addWidget(hero_title)
+        hero_text_box.addWidget(hero_sub)
 
-        btn_new_scan = QPushButton("🚀 Start New Scan")
-        btn_new_scan.setProperty("class", "PrimaryButton")
+        actions_layout.addLayout(hero_text_box, 1)
+
+        buttons_layout = QHBoxLayout()
+        buttons_layout.setSpacing(10)
+
+        btn_new_scan = QPushButton("🚀 Standard Scan")
+        btn_new_scan.setFixedHeight(38)
+        btn_new_scan.setStyleSheet(
+            "QPushButton { background-color: #10b981; color: #ffffff; font-weight: 700; border-radius: 8px; padding: 0 16px; font-size: 13px; border: 1px solid #059669; }"
+            "QPushButton:hover { background-color: #059669; }"
+        )
         btn_new_scan.clicked.connect(lambda: self.navigate_cb("New Scan"))
-        actions_layout.addWidget(btn_new_scan)
+        buttons_layout.addWidget(btn_new_scan)
 
-        btn_people = QPushButton("👥 Manage People")
-        btn_people.setProperty("class", "SecondaryButton")
+        btn_solo_scan = QPushButton("🎯 Solo Scan (0% False)")
+        btn_solo_scan.setFixedHeight(38)
+        btn_solo_scan.setStyleSheet(
+            "QPushButton { background-color: #0284c7; color: #ffffff; font-weight: 700; border-radius: 8px; padding: 0 16px; font-size: 13px; border: 1px solid #0369a1; }"
+            "QPushButton:hover { background-color: #0369a1; }"
+        )
+        btn_solo_scan.clicked.connect(lambda: self.navigate_cb("Solo Scan"))
+        buttons_layout.addWidget(btn_solo_scan)
+
+        btn_people = QPushButton("👥 People")
+        btn_people.setFixedHeight(38)
+        btn_people.setStyleSheet(
+            "QPushButton { background-color: #1e293b; color: #38bdf8; font-weight: 700; border-radius: 8px; padding: 0 16px; font-size: 13px; border: 1px solid #3b82f6; }"
+            "QPushButton:hover { background-color: #1d4ed8; color: #ffffff; }"
+        )
         btn_people.clicked.connect(lambda: self.navigate_cb("People"))
-        actions_layout.addWidget(btn_people)
+        buttons_layout.addWidget(btn_people)
 
         btn_unknowns = QPushButton("❓ Unknown Faces")
-        btn_unknowns.setProperty("class", "SecondaryButton")
+        btn_unknowns.setFixedHeight(38)
+        btn_unknowns.setStyleSheet(
+            "QPushButton { background-color: #1e293b; color: #38bdf8; font-weight: 700; border-radius: 8px; padding: 0 16px; font-size: 13px; border: 1px solid #3b82f6; }"
+            "QPushButton:hover { background-color: #1d4ed8; color: #ffffff; }"
+        )
         btn_unknowns.clicked.connect(lambda: self.navigate_cb("Unknown Faces"))
-        actions_layout.addWidget(btn_unknowns)
+        buttons_layout.addWidget(btn_unknowns)
 
-        actions_layout.addStretch()
+        actions_layout.addLayout(buttons_layout)
         layout.addWidget(actions_frame)
 
         # Recent Scans Section

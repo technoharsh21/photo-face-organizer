@@ -27,12 +27,12 @@ jobs:
           python -m pip install --upgrade pip
           pip install "setuptools<70" wheel pyinstaller cmake
           pip install dlib-bin
-          pip install PySide6 face_recognition Pillow watchfiles pytest
+          pip install PySide6 face_recognition insightface onnxruntime opencv-python-headless Pillow watchfiles pytest
 
       - name: Build Executable with PyInstaller
         shell: powershell
         run: |
-          pyinstaller --noconfirm --onedir --windowed --name "PhotoFaceOrganizer" --icon="icon.ico" --collect-data face_recognition_models --collect-data face_recognition --collect-submodules face_recognition --collect-submodules face_recognition_models app.py
+          pyinstaller --noconfirm --onedir --windowed --name "PhotoFaceOrganizer" --icon="icon.ico" --collect-data face_recognition_models --collect-data face_recognition --collect-data insightface --collect-data onnxruntime --collect-submodules face_recognition --collect-submodules face_recognition_models --collect-submodules insightface --collect-submodules onnxruntime app.py
 
       - name: Install Inno Setup & Compile Installer
         shell: powershell

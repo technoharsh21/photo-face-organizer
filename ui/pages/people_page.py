@@ -48,55 +48,84 @@ class PeoplePage(QWidget):
 
     def _setup_ui(self):
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(24, 24, 24, 24)
-        layout.setSpacing(16)
+        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setSpacing(14)
 
-        # Header
-        header = QLabel("People Management")
-        header.setProperty("class", "PageHeader")
-        layout.addWidget(header)
+        # 1. Compact Top Action Bar (No giant redundant headers or dead vertical space)
+        top_bar = QHBoxLayout()
+        top_bar.setSpacing(12)
 
-        # Actions Toolbar
-        tb_layout = QHBoxLayout()
-        btn_add_person = QPushButton("➕ Create Profile")
+        sub_title = QLabel("Add 1 or 2 reference photos per person for 99.86% AI matching precision.")
+        sub_title.setStyleSheet("color: #94a3b8; font-size: 13px;")
+        top_bar.addWidget(sub_title)
+
+        top_bar.addStretch()
+
+        btn_add_person = QPushButton("➕ Create New Profile")
         btn_add_person.setProperty("class", "PrimaryButton")
         btn_add_person.clicked.connect(self._create_profile)
-        tb_layout.addWidget(btn_add_person)
+        top_bar.addWidget(btn_add_person)
 
-        btn_bulk_import = QPushButton("📁 Bulk Import Profiles")
+        btn_bulk_import = QPushButton("📁 Bulk Import Folders")
         btn_bulk_import.setProperty("class", "SecondaryButton")
         btn_bulk_import.clicked.connect(self._bulk_import)
-        tb_layout.addWidget(btn_bulk_import)
+        top_bar.addWidget(btn_bulk_import)
 
-        tb_layout.addStretch()
-        layout.addLayout(tb_layout)
+        layout.addLayout(top_bar)
 
-        # Main Splitter (Left: Profile List, Right: Profile Details)
+        # 2. Main Splitter (Fills remaining vertical space cleanly with stretch factor 1)
         splitter = QSplitter(Qt.Horizontal)
 
-        # Left List
-        left_widget = QWidget()
+        # Left Column: Profile List Card
+        left_widget = QFrame()
+        left_widget.setProperty("class", "Card")
         left_layout = QVBoxLayout(left_widget)
-        left_layout.setContentsMargins(0, 0, 0, 0)
+        left_layout.setContentsMargins(14, 14, 14, 14)
+        left_layout.setSpacing(10)
+
+        left_hdr_box = QHBoxLayout()
+        left_hdr = QLabel("<b>People Profiles</b>")
+        left_hdr.setStyleSheet("font-size: 14px; color: #ffffff;")
+        self.lbl_profile_count = QLabel("0 Profiles")
+        self.lbl_profile_count.setStyleSheet("color: #38bdf8; font-weight: bold; font-size: 11px;")
+        left_hdr_box.addWidget(left_hdr)
+        left_hdr_box.addStretch()
+        left_hdr_box.addWidget(self.lbl_profile_count)
+        left_layout.addLayout(left_hdr_box)
+
+        # Search Filter Bar
+        self.txt_search = QLineEdit()
+        self.txt_search.setPlaceholderText("🔍 Search people...")
+        self.txt_search.textChanged.connect(self._filter_profiles)
+        left_layout.addWidget(self.txt_search)
 
         self.list_widget = QListWidget()
         self.list_widget.currentItemChanged.connect(self._on_profile_selected)
-        left_layout.addWidget(self.list_widget)
+        left_layout.addWidget(self.list_widget, 1)
 
         splitter.addWidget(left_widget)
 
-        # Right Profile Detail Panel
+        # Right Column: Selected Profile Detail Panel Card
         self.detail_card = QFrame()
         self.detail_card.setProperty("class", "Card")
         detail_layout = QVBoxLayout(self.detail_card)
+        detail_layout.setContentsMargins(16, 16, 16, 16)
+        detail_layout.setSpacing(16)
 
-        # Profile Header
+        # Unified Profile Header Toolbar (Single Row with Profile Name & All Actions)
         p_header_layout = QHBoxLayout()
+        p_header_layout.setSpacing(8)
+
         self.lbl_profile_name = QLabel("Select a Person")
-        self.lbl_profile_name.setProperty("class", "SubHeader")
+        self.lbl_profile_name.setStyleSheet("font-size: 20px; font-weight: 800; color: #ffffff;")
         p_header_layout.addWidget(self.lbl_profile_name)
 
         p_header_layout.addStretch()
+
+        self.btn_add_ref = QPushButton("📷 Add Reference Photo")
+        self.btn_add_ref.setProperty("class", "PrimaryButton")
+        self.btn_add_ref.clicked.connect(self._add_reference_photo)
+        p_header_layout.addWidget(self.btn_add_ref)
 
         self.btn_group_type = QPushButton("👥 Group Settings")
         self.btn_group_type.setProperty("class", "SecondaryButton")
@@ -115,17 +144,13 @@ class PeoplePage(QWidget):
 
         detail_layout.addLayout(p_header_layout)
 
-        # Reference Photos Title & Add Button
-        ref_header = QHBoxLayout()
-        ref_header.addWidget(QLabel("Reference Photos (Used for Matching):"))
-        ref_header.addStretch()
-
-        self.btn_add_ref = QPushButton("📷 Add Reference Photo")
-        self.btn_add_ref.setProperty("class", "PrimaryButton")
-        self.btn_add_ref.clicked.connect(self._add_reference_photo)
-        ref_header.addWidget(self.btn_add_ref)
-
-        detail_layout.addLayout(ref_header)
+        # Reference Photos Section Title
+        ref_title_box = QHBoxLayout()
+        ref_sec_title = QLabel("<b>Reference Photos (Used for AI Matching):</b>")
+        ref_sec_title.setStyleSheet("color: #cbd5e1; font-size: 13px;")
+        ref_title_box.addWidget(ref_sec_title)
+        ref_title_box.addStretch()
+        detail_layout.addLayout(ref_title_box)
 
         # Reference Thumbnails Scroll Area
         self.ref_scroll = QScrollArea()
@@ -134,17 +159,25 @@ class PeoplePage(QWidget):
 
         self.ref_container = QWidget()
         self.ref_grid = QHBoxLayout(self.ref_container)
-        self.ref_grid.setContentsMargins(0, 0, 0, 0)
-        self.ref_grid.setSpacing(12)
+        self.ref_grid.setContentsMargins(4, 4, 4, 4)
+        self.ref_grid.setSpacing(14)
+        self.ref_grid.setAlignment(Qt.AlignTop | Qt.AlignLeft)
 
         self.ref_scroll.setWidget(self.ref_container)
-        detail_layout.addWidget(self.ref_scroll)
+        detail_layout.addWidget(self.ref_scroll, 1)
 
         splitter.addWidget(self.detail_card)
-        splitter.setSizes([300, 600])
+        splitter.setSizes([280, 640])
 
-        layout.addWidget(splitter)
+        layout.addWidget(splitter, 1)
         self.refresh()
+
+    def _filter_profiles(self, query: str):
+        """Filter profile list items based on search text."""
+        q = query.strip().lower()
+        for i in range(self.list_widget.count()):
+            item = self.list_widget.item(i)
+            item.setHidden(q not in item.text().lower())
 
     def refresh(self, select_profile_id: str | None = None):
         """Reload profile list from disk while preserving active selection."""
@@ -154,6 +187,7 @@ class PeoplePage(QWidget):
         self.list_widget.clear()
 
         profiles = self.profile_service.list_profiles()
+        self.lbl_profile_count.setText(f"{len(profiles)} Profile{'s' if len(profiles) != 1 else ''}")
         selected_item = None
 
         for p in profiles:
@@ -209,28 +243,38 @@ class PeoplePage(QWidget):
         references = profile.get("references", [])
 
         if not references:
-            no_ref_lbl = QLabel("No reference photos added yet. Click 'Add Reference Photo' above.")
-            no_ref_lbl.setStyleSheet("color: #a0a0b0; font-style: italic;")
-            self.ref_grid.addWidget(no_ref_lbl)
+            no_ref_card = QFrame()
+            no_ref_card.setStyleSheet("background-color: #0f172a; border: 1px dashed #334155; border-radius: 8px; padding: 20px;")
+            n_layout = QVBoxLayout(no_ref_card)
+            no_ref_lbl = QLabel("📷 <b>No reference photos added yet.</b><br/><span style='color: #94a3b8;'>Click <b>'📷 Add Reference Photo'</b> above to upload a clear face image for matching.</span>")
+            no_ref_lbl.setWordWrap(True)
+            no_ref_lbl.setStyleSheet("color: #f8fafc; font-size: 12px;")
+            n_layout.addWidget(no_ref_lbl)
+            self.ref_grid.addWidget(no_ref_card)
             return
 
         for ref in references:
             card = QFrame()
             card.setFrameShape(QFrame.StyledPanel)
-            card.setStyleSheet("background-color: #181820; border-radius: 6px; padding: 6px;")
+            card.setStyleSheet("background-color: #0f172a; border: 1px solid #1e293b; border-radius: 8px; padding: 6px;")
+            card.setFixedSize(140, 180)
             l = QVBoxLayout(card)
+            l.setContentsMargins(6, 6, 6, 6)
+            l.setSpacing(6)
 
             stored_path = ref.get("stored_path")
             if stored_path and Path(stored_path).exists():
-                pix = QPixmap(stored_path).scaled(100, 100, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+                pix = QPixmap(stored_path).scaled(110, 110, Qt.KeepAspectRatio, Qt.SmoothTransformation)
                 img_lbl = QLabel()
                 img_lbl.setPixmap(pix)
                 img_lbl.setAlignment(Qt.AlignCenter)
+                img_lbl.setStyleSheet("border-radius: 6px; background-color: #1e293b;")
                 l.addWidget(img_lbl)
 
-            btn_del = QPushButton("Remove")
+            btn_del = QPushButton("🗑 Remove")
             btn_del.setProperty("class", "DangerButton")
-            btn_del.setFixedSize(80, 24)
+            btn_del.setFixedHeight(24)
+            btn_del.setStyleSheet("font-size: 11px; padding: 0 6px;")
             ref_id = ref.get("id")
             btn_del.clicked.connect(lambda _, r_id=ref_id: self._remove_reference(r_id))
             l.addWidget(btn_del, alignment=Qt.AlignCenter)

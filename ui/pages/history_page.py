@@ -47,17 +47,17 @@ class HistoryPage(QWidget):
 
     def _setup_ui(self):
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(24, 24, 24, 24)
-        layout.setSpacing(16)
+        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setSpacing(14)
 
-        header = QLabel("Scan History")
-        header.setProperty("class", "PageHeader")
-        layout.addWidget(header)
-
-        # Toolbar
         tb = QHBoxLayout()
+        sub_title = QLabel("View past scan records, resume interrupted runs, inspect results, or open output folders.")
+        sub_title.setStyleSheet("color: #94a3b8; font-size: 13px;")
+        tb.addWidget(sub_title)
 
-        btn_refresh = QPushButton("🔄 Refresh")
+        tb.addStretch()
+
+        btn_refresh = QPushButton("🔄 Refresh Log")
         btn_refresh.setProperty("class", "SecondaryButton")
         btn_refresh.clicked.connect(self.refresh)
         tb.addWidget(btn_refresh)
@@ -67,7 +67,6 @@ class HistoryPage(QWidget):
         btn_clear.clicked.connect(self._clear_history)
         tb.addWidget(btn_clear)
 
-        tb.addStretch()
         layout.addLayout(tb)
 
         # History Table
@@ -79,7 +78,7 @@ class HistoryPage(QWidget):
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         self.table.horizontalHeader().setSectionResizeMode(6, QHeaderView.ResizeToContents)
         self.table.setColumnWidth(6, 260)
-        layout.addWidget(self.table)
+        layout.addWidget(self.table, 1)
 
     def refresh(self):
         """Refresh scan history table."""

@@ -34,7 +34,7 @@ from PySide6.QtWidgets import QApplication, QMessageBox
 
 from config import Config
 from domain.duplicate_detector import DuplicateDetector
-from domain.face_engine import FaceRecognitionEngine
+from domain.insight_engine import InsightFaceEngine
 from services.history_service import HistoryService
 from services.output_service import OutputService
 from services.profile_service import ProfileService
@@ -102,7 +102,8 @@ def main():
     face_cache_service = FaceCacheService(config, settings_service)
 
     device_pref = settings_service.get("device_preference", "Auto")
-    face_engine = FaceRecognitionEngine(device_preference=device_pref)
+    from domain.insight_engine import InsightFaceEngine
+    face_engine = InsightFaceEngine(device_preference=device_pref)
 
     duplicate_detector = DuplicateDetector(config.duplicate_index_file)
     output_service = OutputService(duplicate_detector)

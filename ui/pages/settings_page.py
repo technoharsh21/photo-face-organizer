@@ -41,12 +41,8 @@ class SettingsPage(QWidget):
 
     def _setup_ui(self):
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(24, 24, 24, 24)
-        layout.setSpacing(20)
-
-        header = QLabel("Application Settings")
-        header.setProperty("class", "PageHeader")
-        layout.addWidget(header)
+        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setSpacing(14)
 
         # Settings Card
         card = QFrame()
@@ -80,6 +76,24 @@ class SettingsPage(QWidget):
         c_layout.addWidget(cache_desc)
 
         layout.addWidget(card)
+
+        # AI Hardware Acceleration Status Card
+        hw_card = QFrame()
+        hw_card.setProperty("class", "Card")
+        hw_card.setStyleSheet("background-color: #121824; border: 1px solid #1e3a8a; border-radius: 8px; padding: 14px;")
+        hw_layout = QVBoxLayout(hw_card)
+        hw_layout.setSpacing(6)
+
+        hw_layout.addWidget(QLabel("<b>AI Hardware Acceleration Status:</b>"))
+        self.lbl_hw_status = QLabel()
+        self.lbl_hw_status.setStyleSheet("font-size: 13px; font-weight: bold; color: #10b981;")
+        hw_layout.addWidget(self.lbl_hw_status)
+
+        self.lbl_model_info = QLabel()
+        self.lbl_model_info.setStyleSheet("font-size: 11px; color: #a0a0b0;")
+        hw_layout.addWidget(self.lbl_model_info)
+
+        layout.addWidget(hw_card)
 
         # Storage Info & Cache Management Card
         storage_card = QFrame()
@@ -120,10 +134,24 @@ class SettingsPage(QWidget):
         self.refresh()
 
     def refresh(self):
-        """Refresh displayed settings values."""
+        """Refresh displayed settings values and AI hardware status."""
         self.combo_perf.setCurrentText(self.settings_service.get("performance_mode", "Maximum Performance"))
         self.spin_threshold.setValue(int(self.settings_service.get("matching_threshold", 50)))
         self.chk_enable_cache.setChecked(self.settings_service.get("enable_face_cache", True))
+
+        if hasattr(self.face_engine, "get_device_info"):
+            info = self.face_engine.get_device_info()
+            dev = info.get("active_device", "Multi-Core CPU")
+            gpu_active = info.get("gpu_available", False)
+
+            if gpu_active:
+                self.lbl_hw_status.setText(f"🟢 Active AI Hardware: {dev} (GPU Accelerated)")
+                self.lbl_hw_status.setStyleSheet("font-size: 13px; font-weight: bold; color: #10b981;")
+            else:
+                self.lbl_hw_status.setText(f"🟢 Active AI Hardware: {dev} (Process-Isolated Multi-Core)")
+                self.lbl_hw_status.setStyleSheet("font-size: 13px; font-weight: bold; color: #60a5fa;")
+
+            self.lbl_model_info.setText(f"AI Vision Model: {info.get('model_used', 'InsightFace SCRFD + ArcFace 512-d')}")
 
     def _save(self):
         self.settings_service.update({

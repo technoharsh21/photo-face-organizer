@@ -59,28 +59,26 @@ class SoloScanPage(QWidget):
 
     def _setup_ui(self):
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(24, 24, 24, 24)
-        layout.setSpacing(16)
+        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setSpacing(14)
 
-        header = QLabel("👤 Solo Photo Scan Wizard")
-        header.setProperty("class", "PageHeader")
-        layout.addWidget(header)
+        # Wizard Step Header Card (Breadcrumbs)
+        step_card = QFrame()
+        step_card.setProperty("class", "StepHeader")
+        self.steps_bar = QHBoxLayout(step_card)
+        self.steps_bar.setContentsMargins(12, 8, 12, 8)
+        self.steps_bar.setSpacing(8)
 
-        # Wizard Step Header Buttons
-        self.steps_bar = QHBoxLayout()
-        self.step_buttons = []
-        step_names = ["1. Sources", "2. Profiles", "3. Output & Mode", "4. Performance", "5. Review"]
+        self.step_labels = []
+        step_names = ["1. Source Folders", "2. Select People", "3. Output & Mode", "4. AI Settings", "5. Review & Start"]
 
         for i, name in enumerate(step_names):
-            btn = QPushButton(name)
-            btn.setProperty("class", "NavButton")
-            btn.setCheckable(True)
-            btn.setEnabled(False)
-            btn.clicked.connect(lambda _, idx=i: self.stacked_widget.setCurrentIndex(idx))
-            self.steps_bar.addWidget(btn)
-            self.step_buttons.append(btn)
+            lbl = QLabel(name)
+            lbl.setProperty("class", "StepPillActive" if i == 0 else "StepPill")
+            self.steps_bar.addWidget(lbl)
+            self.step_labels.append(lbl)
 
-        layout.addLayout(self.steps_bar)
+        layout.addWidget(step_card)
 
         # Wizard Stacked Pages
         self.stacked_widget = QStackedWidget()
@@ -96,7 +94,7 @@ class SoloScanPage(QWidget):
         # Step 5: Review & Start
         self.stacked_widget.addWidget(self._create_step5_review())
 
-        layout.addWidget(self.stacked_widget)
+        layout.addWidget(self.stacked_widget, 1)
 
         # Navigation Controls Footer
         nav_footer = QHBoxLayout()
@@ -204,33 +202,82 @@ class SoloScanPage(QWidget):
         h.addStretch()
         l.addLayout(h)
 
-        # Operation Mode Options (Copy vs Move)
+        # Operation Mode Options (Copy vs Move Interactive Cards)
         mode_box = QFrame()
-        mode_box.setStyleSheet("background-color: #1e1e24; border-radius: 8px; padding: 12px; margin-top: 12px;")
+        mode_box.setStyleSheet("background-color: #141923; border: 1px solid #2a3447; border-radius: 10px; padding: 16px; margin-top: 12px;")
         mb_layout = QVBoxLayout(mode_box)
+        mb_layout.setSpacing(12)
 
-        mb_layout.addWidget(QLabel("File Operation Mode:"))
+        mb_layout.addWidget(QLabel("<b>Choose File Operation Mode:</b>"))
 
-        self.rad_copy_mode = QRadioButton("📁 Copy Mode (Recommended): Copy photos to destination (Keep original source files)")
+        # 1. Copy Mode Card
+        self.card_copy = QFrame()
+        self.card_copy.setCursor(Qt.PointingHandCursor)
+        copy_layout = QHBoxLayout(self.card_copy)
+        copy_layout.setContentsMargins(12, 12, 12, 12)
+
+        self.rad_copy_mode = QRadioButton()
         self.rad_copy_mode.setChecked(True)
-        self.rad_copy_mode.setStyleSheet("color: #ffffff; font-size: 13px;")
-        mb_layout.addWidget(self.rad_copy_mode)
 
-        self.rad_move_mode = QRadioButton("✂️ Move Mode (Copy → Verify 100% → Confirm Delete Original Files)")
-        self.rad_move_mode.setStyleSheet("color: #ffffff; font-size: 13px;")
-        mb_layout.addWidget(self.rad_move_mode)
-
-        info_lbl = QLabel(
-            "<i>Note on Move Mode: Photos are copied first. After the scan finishes and 100% of copies pass disk size verification, "
-            "the application will ask for your final confirmation before removing verified source photos.</i>"
+        copy_lbl = QLabel(
+            "<b>📁 Copy Mode (Recommended & Safe)</b><br/>"
+            "<span style='color: #cbd5e1; font-size: 12px;'>"
+            "Safely copies matched photos into your organized person folders. Original source photos remain 100% untouched."
+            "</span>"
         )
-        info_lbl.setWordWrap(True)
-        info_lbl.setStyleSheet("color: #a0a0b0; font-size: 11px; margin-top: 4px;")
-        mb_layout.addWidget(info_lbl)
+        copy_lbl.setWordWrap(True)
+        copy_layout.addWidget(self.rad_copy_mode)
+        copy_layout.addWidget(copy_lbl, 1)
+
+        # 2. Move Mode Card
+        self.card_move = QFrame()
+        self.card_move.setCursor(Qt.PointingHandCursor)
+        move_layout = QHBoxLayout(self.card_move)
+        move_layout.setContentsMargins(12, 12, 12, 12)
+
+        self.rad_move_mode = QRadioButton()
+
+        move_lbl = QLabel(
+            "<b>✂️ Move Mode (Safe Verification Mode)</b><br/>"
+            "<span style='color: #cbd5e1; font-size: 12px;'>"
+            "Copies photos first → Verifies 100% disk integrity → Asks for final confirmation before deleting original source photos."
+            "</span>"
+        )
+        move_lbl.setWordWrap(True)
+        move_layout.addWidget(self.rad_move_mode)
+        move_layout.addWidget(move_lbl, 1)
+
+        mb_layout.addWidget(self.card_copy)
+        mb_layout.addWidget(self.card_move)
+
+        self.rad_copy_mode.toggled.connect(self._update_operation_mode_cards)
+        self.rad_move_mode.toggled.connect(self._update_operation_mode_cards)
+
+        self.card_copy.mousePressEvent = lambda e: self.rad_copy_mode.setChecked(True)
+        self.card_move.mousePressEvent = lambda e: self.rad_move_mode.setChecked(True)
+
+        self._update_operation_mode_cards()
 
         l.addWidget(mode_box)
         l.addStretch()
         return widget
+
+    def _update_operation_mode_cards(self):
+        """Update visual highlight cards for Copy Mode vs Move Mode selection."""
+        if self.rad_copy_mode.isChecked():
+            self.card_copy.setStyleSheet(
+                "background-color: #064e3b; border: 2px solid #10b981; border-radius: 8px;"
+            )
+            self.card_move.setStyleSheet(
+                "background-color: #1e293b; border: 1px solid #334155; border-radius: 8px;"
+            )
+        else:
+            self.card_copy.setStyleSheet(
+                "background-color: #1e293b; border: 1px solid #334155; border-radius: 8px;"
+            )
+            self.card_move.setStyleSheet(
+                "background-color: #78350f; border: 2px solid #f59e0b; border-radius: 8px;"
+            )
 
     # STEP 4: PERFORMANCE
     def _create_step4_performance(self) -> QWidget:
@@ -382,8 +429,13 @@ class SoloScanPage(QWidget):
         self._update_step_buttons(idx)
 
     def _update_step_buttons(self, idx: int):
-        for i, btn in enumerate(self.step_buttons):
-            btn.setChecked(i == idx)
+        for i, lbl in enumerate(self.step_labels):
+            if i == idx:
+                lbl.setProperty("class", "StepPillActive")
+            else:
+                lbl.setProperty("class", "StepPill")
+            lbl.style().unpolish(lbl)
+            lbl.style().polish(lbl)
 
         self.btn_prev.setEnabled(idx > 0)
         if idx == 4:  # Review Step

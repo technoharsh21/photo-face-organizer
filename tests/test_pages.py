@@ -12,7 +12,7 @@ from PySide6.QtWidgets import QApplication
 
 from config import Config
 from domain.duplicate_detector import DuplicateDetector
-from domain.face_engine import FaceRecognitionEngine
+from domain.insight_engine import InsightFaceEngine
 from services.history_service import HistoryService
 from services.output_service import OutputService
 from services.profile_service import ProfileService
@@ -35,7 +35,7 @@ def test_all_pages_load_and_navigate(qapp, tmp_path):
     settings = SettingsService(config)
 
     # Use CPU mode for test runner
-    engine = FaceRecognitionEngine(device_preference="CPU")
+    engine = InsightFaceEngine(device_preference="CPU")
 
     detector = DuplicateDetector(config.duplicate_index_file)
     output_svc = OutputService(detector)

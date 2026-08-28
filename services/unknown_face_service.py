@@ -114,8 +114,11 @@ class UnknownFaceService:
                 matches_all_members = True
                 for member in group_faces:
                     m_emb = member["embedding"]
-                    dist = float(np.linalg.norm(m_emb - o_emb))
-                    score = calibrate_match_score(dist)
+                    if m_emb.shape != o_emb.shape:
+                        matches_all_members = False
+                        break
+
+                    score = self.profile_service.face_engine.calculate_match_score(m_emb, o_emb)
                     if score < threshold:
                         matches_all_members = False
                         break
@@ -160,19 +163,59 @@ class UnknownFaceService:
         # 1. Create new profile
         profile = self.profile_service.create_profile(profile_name)
 
-        # 2. Add each unknown face as a reference photo
+        # 2. Add each unknown face as a reference photo directly using its pre-computed embedding
         for gf in group_faces:
             crop_path = Path(gf["crop_path"])
-            if crop_path.exists():
-                self.profile_service.add_reference_photo(
+            emb = gf.get("embedding")
+            u_id = gf["id"]
+
+            if emb is None:
+                emb_path = self.unknown_dir / u_id / "embedding.npy"
+                if emb_path.exists():
+                    emb = np.load(str(emb_path))
+
+            if crop_path.exists() and emb is not None:
+                success, _ = self.profile_service.add_reference_photo_direct(
                     profile_id=profile["id"],
                     image_path=crop_path,
-                    selected_face_index=0
+                    embedding=emb,
                 )
-            # Delete unknown face record
-            self.delete_unknown_face(gf["id"])
+                if success:
+                    self.delete_unknown_face(u_id)
 
         return self.profile_service.get_profile(profile["id"])
+
+    def add_group_to_existing_profile(self, group_id: str, profile_id: str) -> dict[str, Any] | None:
+        """
+        Appends unknown face crops from a group as reference photos to an existing Profile (profile_id),
+        and removes the transferred unknown faces from storage.
+        """
+        all_faces = self.list_unknown_faces()
+        group_faces = [f for f in all_faces if f.get("group_id") == group_id]
+
+        if not group_faces:
+            return None
+
+        for gf in group_faces:
+            crop_path = Path(gf["crop_path"])
+            emb = gf.get("embedding")
+            u_id = gf["id"]
+
+            if emb is None:
+                emb_path = self.unknown_dir / u_id / "embedding.npy"
+                if emb_path.exists():
+                    emb = np.load(str(emb_path))
+
+            if crop_path.exists() and emb is not None:
+                success, _ = self.profile_service.add_reference_photo_direct(
+                    profile_id=profile_id,
+                    image_path=crop_path,
+                    embedding=emb,
+                )
+                if success:
+                    self.delete_unknown_face(u_id)
+
+        return self.profile_service.get_profile(profile_id)
 
     def delete_unknown_face(self, unknown_id: str) -> bool:
         """Remove single unknown face directory."""

@@ -41,24 +41,26 @@ class ProcessingPage(QWidget):
 
     def _setup_ui(self):
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(24, 24, 24, 24)
-        layout.setSpacing(20)
+        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setSpacing(14)
 
-        header = QLabel("Scanning & Processing Photos")
-        header.setProperty("class", "PageHeader")
-        layout.addWidget(header)
+        sub_title = QLabel("InsightFace SCRFD 360° face detection & ArcFace neural embedding in progress...")
+        sub_title.setStyleSheet("color: #94a3b8; font-size: 13px;")
+        layout.addWidget(sub_title)
 
         # Status & Progress Card
         card = QFrame()
         card.setProperty("class", "Card")
+        card.setStyleSheet("background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%); border: 1px solid #38bdf8; border-radius: 12px; padding: 20px;")
         card_layout = QVBoxLayout(card)
+        card_layout.setSpacing(12)
 
         self.lbl_status = QLabel("Status: Processing...")
-        self.lbl_status.setStyleSheet("font-size: 16px; font-weight: bold; color: #3b82f6;")
+        self.lbl_status.setStyleSheet("font-size: 16px; font-weight: bold; color: #38bdf8;")
         card_layout.addWidget(self.lbl_status)
 
-        self.lbl_file = QLabel("Current File: Initiating...")
-        self.lbl_file.setStyleSheet("color: #a0a0b0; font-size: 13px;")
+        self.lbl_file = QLabel("Current File: Initiating scan...")
+        self.lbl_file.setStyleSheet("color: #cbd5e1; font-size: 13px; font-family: monospace;")
         card_layout.addWidget(self.lbl_file)
 
         self.progress_bar = QProgressBar()
@@ -67,8 +69,8 @@ class ProcessingPage(QWidget):
         self.progress_bar.setFixedHeight(24)
         card_layout.addWidget(self.progress_bar)
 
-        self.lbl_speed_eta = QLabel("Speed: -- fps | ETA: --")
-        self.lbl_speed_eta.setStyleSheet("color: #a0a0b0; font-size: 12px;")
+        self.lbl_speed_eta = QLabel("Speed: -- photos/sec | ETA: --")
+        self.lbl_speed_eta.setStyleSheet("color: #94a3b8; font-size: 12px; font-weight: bold;")
         card_layout.addWidget(self.lbl_speed_eta)
 
         layout.addWidget(card)

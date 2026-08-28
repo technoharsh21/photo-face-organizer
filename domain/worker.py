@@ -156,102 +156,93 @@ class ScanWorker(QThread):
     def is_cancelled(self) -> bool:
         return self._is_cancelled
 
+    def _process_single_photo(self, file_path: Path) -> dict[str, Any]:
+        """Process single photo using self.face_engine and self.matcher in thread safety."""
+        file_path_str = str(file_path)
+        try:
+            pil_img, err = load_image(file_path)
+            if pil_img is None:
+                return {"status": "unreadable", "file_path": file_path_str, "error": err or "Unreadable image"}
+
+            # 1. Detect faces using self.face_engine (InsightFace 512-d)
+            face_locations = self.face_engine.detect_faces(pil_img)
+            if not face_locations:
+                return {
+                    "status": "no_faces",
+                    "file_path": file_path_str,
+                    "matched_names": set(),
+                    "face_results": [],
+                    "face_crops": [],
+                }
+
+            # 2. Extract encodings and crops
+            face_encodings = self.face_engine.create_embeddings(pil_img, face_locations)
+            face_crops = self.face_engine.extract_faces(pil_img, face_locations)
+
+            # 3. Evaluate matches against 512-d profile embeddings
+            matched_person_names, face_results = self.matcher.evaluate_photo_matches(
+                face_encodings=face_encodings,
+                face_locations=face_locations,
+                profiles=self.profiles,
+            )
+
+            return {
+                "status": "success",
+                "file_path": file_path_str,
+                "matched_names": matched_person_names,
+                "face_results": face_results,
+                "face_crops": face_crops,
+            }
+        except Exception as e:
+            return {"status": "error", "file_path": file_path_str, "error": str(e)}
+
     def run(self):
         start_time = time.time()
-        logger.info(f"Starting scan worker {self.scan_id} on {self.total_files} files using {self.max_workers} CPU process workers.")
+        logger.info(f"Starting scan worker {self.scan_id} on {self.total_files} files using InsightFace AI Engine.")
 
-        remaining_indices = [
-            i for i in range(self.start_index, self.total_files)
-            if str(self.files[i]) not in self.processed_files
-        ]
+        for i in range(self.start_index, self.total_files):
+            if self._is_cancelled:
+                logger.info("Scan worker cancelled by user.")
+                self._save_checkpoint("Cancelled", self.processed_count)
+                self.finished_signal.emit(self._build_summary("Cancelled", time.time() - start_time))
+                return
 
-        if not remaining_indices:
-            self._save_checkpoint("Completed", self.total_files)
-            self.finished_signal.emit(self._build_summary("Completed", 0))
-            return
+            while self._is_paused and not self._is_cancelled:
+                time.sleep(0.2)
+                self._save_checkpoint("Paused", self.processed_count)
 
-        batch_size = max(1, self.max_workers * 2)
+            file_path = self.files[i]
+            str_path = str(file_path)
 
-        try:
-            for chunk_start in range(0, len(remaining_indices), batch_size):
-                chunk_indices = remaining_indices[chunk_start : chunk_start + batch_size]
+            if str_path not in self.processed_files:
+                res = self._process_single_photo(file_path)
+                self._apply_file_result(file_path, res)
+                self.processed_count += 1
+                self.processed_files.add(str_path)
 
-                # Check Pause
-                while self._is_paused and not self._is_cancelled:
-                    time.sleep(0.2)
-                    self._save_checkpoint("Paused", self.processed_count)
+                if self.processed_count % 5 == 0 or self.processed_count == self.total_files:
+                    self._save_checkpoint("Running", self.processed_count)
 
-                # Check Cancel
-                if self._is_cancelled:
-                    logger.info("Scan worker cancelled by user.")
-                    self._save_checkpoint("Cancelled", self.processed_count)
-                    self.finished_signal.emit(self._build_summary("Cancelled", time.time() - start_time))
-                    return
+                elapsed = time.time() - start_time
+                files_per_sec = self.processed_count / elapsed if elapsed > 0 else 0
+                remaining_files = self.total_files - self.processed_count
+                eta_seconds = remaining_files / files_per_sec if files_per_sec > 0 else 0
 
-                # Process batch in parallel processes across all CPU cores
-                with ProcessPoolExecutor(max_workers=self.max_workers) as executor:
-                    future_to_idx = {
-                        executor.submit(
-                            _process_photo_task_multiprocess,
-                            (str(self.files[idx]), self.profiles, self.threshold),
-                        ): idx
-                        for idx in chunk_indices
-                    }
-
-                    for future in as_completed(future_to_idx):
-                        if self._is_cancelled:
-                            break
-                        idx = future_to_idx[future]
-                        file_path = self.files[idx]
-                        str_path = str(file_path)
-
-                        try:
-                            res = future.result()
-                            self._apply_file_result(file_path, res)
-                        except Exception as e:
-                            logger.error(f"Error processing {file_path}: {e}")
-                            self.error_count += 1
-                            self.errors_log.append({"file": str_path, "error": str(e)})
-
-                        self.processed_count += 1
-                        self.processed_files.add(str_path)
-
-                        if self.processed_count % 5 == 0 or self.processed_count == self.total_files:
-                            self._save_checkpoint("Running", self.processed_count)
-
-                        elapsed = time.time() - start_time
-                        files_per_sec = self.processed_count / elapsed if elapsed > 0 else 0
-                        remaining_files = self.total_files - self.processed_count
-                        eta_seconds = remaining_files / files_per_sec if files_per_sec > 0 else 0
-
-                        self.progress_signal.emit({
-                            "scan_id": self.scan_id,
-                            "current_file": file_path.name,
-                            "current_index": self.processed_count,
-                            "total_files": self.total_files,
-                            "progress_percent": round((self.processed_count / self.total_files) * 100.0, 1),
-                            "processed": self.processed_count,
-                            "matched": self.matched_count,
-                            "no_match": self.no_match_count,
-                            "unknown_faces": self.unknown_faces_count,
-                            "skipped": self.skipped_count,
-                            "errors": self.error_count,
-                            "speed_fps": round(files_per_sec, 2),
-                            "eta_seconds": round(eta_seconds, 1),
-                        })
-
-        except Exception as pool_err:
-            logger.warning(f"ProcessPoolExecutor failed, falling back to sequential: {pool_err}")
-            # Fallback to safe sequential execution if process pool is restricted
-            for i in range(self.processed_count, self.total_files):
-                if self._is_cancelled:
-                    break
-                file_path = self.files[i]
-                if str(file_path) not in self.processed_files:
-                    res = _process_photo_task_multiprocess((str(file_path), self.profiles, self.threshold))
-                    self._apply_file_result(file_path, res)
-                    self.processed_count += 1
-                    self.processed_files.add(str(file_path))
+                self.progress_signal.emit({
+                    "scan_id": self.scan_id,
+                    "current_file": file_path.name,
+                    "current_index": self.processed_count,
+                    "total_files": self.total_files,
+                    "progress_percent": round((self.processed_count / self.total_files) * 100.0, 1),
+                    "processed": self.processed_count,
+                    "matched": self.matched_count,
+                    "no_match": self.no_match_count,
+                    "unknown_faces": self.unknown_faces_count,
+                    "skipped": self.skipped_count,
+                    "errors": self.error_count,
+                    "speed_fps": round(files_per_sec, 2),
+                    "eta_seconds": round(eta_seconds, 1),
+                })
 
         # Scan completed successfully
         elapsed_total = time.time() - start_time

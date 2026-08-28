@@ -41,13 +41,13 @@ class FaceSelectorDialog(QDialog):
         layout = QVBoxLayout(self)
         layout.setSpacing(16)
 
-        header = QLabel("Multiple faces were detected in this reference photo.")
-        header.setStyleSheet("font-size: 15px; font-weight: bold; color: #ffffff;")
+        header = QLabel("👤 Select the Correct Person's Face")
+        header.setStyleSheet("font-size: 16px; font-weight: 800; color: #ffffff;")
         layout.addWidget(header)
 
-        instruction = QLabel("Please select the correct face for this profile. The app will generate encodings for this face only.")
+        instruction = QLabel(f"<b>Detected {len(self.face_crops)} faces</b> in this reference photo. Click to select the face that belongs to this person:")
         instruction.setWordWrap(True)
-        instruction.setStyleSheet("color: #a0a0b0;")
+        instruction.setStyleSheet("color: #38bdf8; font-size: 12px;")
         layout.addWidget(instruction)
 
         scroll = QScrollArea(self)

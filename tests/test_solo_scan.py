@@ -7,21 +7,21 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from domain.face_engine import FaceRecognitionEngine
+from domain.insight_engine import InsightFaceEngine
 from domain.solo_matcher import SoloFaceMatcher
 from services.solo_scan_service import SoloScanService
 
 
 @pytest.fixture
 def mock_face_engine():
-    return FaceRecognitionEngine(device_preference="CPU")
+    return InsightFaceEngine(device_preference="CPU")
 
 
 def test_solo_matcher_filtering(mock_face_engine):
     matcher = SoloFaceMatcher(face_engine=mock_face_engine, threshold=50.0)
 
-    dummy_enc1 = np.ones(128, dtype=np.float64)
-    dummy_enc2 = np.zeros(128, dtype=np.float64)
+    dummy_enc1 = np.ones(512, dtype=np.float64)
+    dummy_enc2 = np.zeros(512, dtype=np.float64)
 
     profiles = [
         {"id": "p1", "name": "Harsh", "embeddings": [dummy_enc1.tolist()]},

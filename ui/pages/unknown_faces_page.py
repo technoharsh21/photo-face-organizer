@@ -13,6 +13,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
     QFrame,
+    QGridLayout,
     QHBoxLayout,
     QInputDialog,
     QLabel,
@@ -42,36 +43,33 @@ class UnknownFacesPage(QWidget):
 
     def _setup_ui(self):
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(24, 24, 24, 24)
-        layout.setSpacing(16)
+        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setSpacing(14)
 
-        header = QLabel("Unknown (Unmatched) Faces")
-        header.setProperty("class", "PageHeader")
-        layout.addWidget(header)
-
-        # Toolbar
         tb_layout = QHBoxLayout()
+        sub_title = QLabel("Inspect unidentified faces. Auto-group similar faces and convert them into new person profiles with 1 click.")
+        sub_title.setStyleSheet("color: #94a3b8; font-size: 13px;")
+        tb_layout.addWidget(sub_title)
 
-        btn_cluster = QPushButton("🔄 Group Similar Faces")
+        tb_layout.addStretch()
+
+        btn_cluster = QPushButton("✨ Auto-Group Similar Faces (80% Precision)")
         btn_cluster.setProperty("class", "PrimaryButton")
-        btn_cluster.setFixedHeight(34)
-        btn_cluster.setStyleSheet("padding: 0 16px; font-weight: bold;")
         btn_cluster.clicked.connect(self._run_clustering)
         tb_layout.addWidget(btn_cluster)
 
-        tb_layout.addStretch()
         layout.addLayout(tb_layout)
 
         # Main Splitter (Left: Groups List, Right: Group Faces Grid)
         splitter = QSplitter(Qt.Horizontal)
 
-        left_w = QWidget()
+        left_w = QFrame()
+        left_w.setProperty("class", "Card")
         left_l = QVBoxLayout(left_w)
-        left_l.setContentsMargins(0, 0, 0, 0)
+        left_l.setContentsMargins(12, 12, 12, 12)
         left_l.setSpacing(8)
 
-        left_lbl = QLabel("Unknown Person Groups")
-        left_lbl.setStyleSheet("font-weight: bold; color: #a0a0b0; font-size: 13px;")
+        left_lbl = QLabel("<b>Unknown Face Clusters:</b>")
         left_l.addWidget(left_lbl)
 
         self.groups_list = QListWidget()
@@ -93,12 +91,18 @@ class UnknownFacesPage(QWidget):
         # Actions
         actions_l = QHBoxLayout()
 
-        self.btn_convert = QPushButton("⭐ Convert Group to Profile")
+        self.btn_convert = QPushButton("⭐ Convert Group to New Profile")
         self.btn_convert.setProperty("class", "PrimaryButton")
         self.btn_convert.setFixedHeight(32)
         self.btn_convert.setStyleSheet("background-color: #10b981; color: #ffffff; font-weight: bold; padding: 0 16px;")
         self.btn_convert.clicked.connect(self._convert_group_to_profile)
         actions_l.addWidget(self.btn_convert)
+
+        self.btn_add_to_existing = QPushButton("➕ Add to Existing Profile")
+        self.btn_add_to_existing.setFixedHeight(32)
+        self.btn_add_to_existing.setStyleSheet("background-color: #0284c7; color: #ffffff; font-weight: bold; border-radius: 8px; padding: 0 14px; border: 1px solid #0369a1;")
+        self.btn_add_to_existing.clicked.connect(self._add_group_to_existing_profile)
+        actions_l.addWidget(self.btn_add_to_existing)
 
         self.btn_rename_grp = QPushButton("✏️ Rename Group")
         self.btn_rename_grp.setProperty("class", "SecondaryButton")
@@ -116,17 +120,18 @@ class UnknownFacesPage(QWidget):
         self.scroll.setStyleSheet("background: transparent; border: none;")
 
         self.scroll_content = QWidget()
-        self.grid_layout = QHBoxLayout(self.scroll_content)
-        self.grid_layout.setContentsMargins(4, 4, 4, 4)
-        self.grid_layout.setSpacing(12)
+        self.grid_layout = QGridLayout(self.scroll_content)
+        self.grid_layout.setContentsMargins(8, 8, 8, 8)
+        self.grid_layout.setSpacing(14)
+        self.grid_layout.setAlignment(Qt.AlignTop | Qt.AlignLeft)
 
         self.scroll.setWidget(self.scroll_content)
-        right_l.addWidget(self.scroll)
+        right_l.addWidget(self.scroll, 1)
 
         splitter.addWidget(right_frame)
         splitter.setSizes([260, 600])
 
-        layout.addWidget(splitter)
+        layout.addWidget(splitter, 1)
 
     def refresh(self):
         """Refresh unknown face groups list."""
@@ -142,6 +147,9 @@ class UnknownFacesPage(QWidget):
             item = QListWidgetItem(f"{g_name} ({faces_cnt} faces)")
             item.setData(Qt.UserRole, g.get("group_id"))
             self.groups_list.addItem(item)
+
+        if self.groups_list.count() > 0:
+            self.groups_list.setCurrentRow(0)
 
         if not self.groups:
             self.group_title_lbl.setText("No unknown faces stored.")
@@ -169,18 +177,31 @@ class UnknownFacesPage(QWidget):
             if child.widget():
                 child.widget().deleteLater()
 
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        if hasattr(self, "current_faces") and self.current_faces:
+            self._display_faces(self.current_faces)
+
     def _display_faces(self, faces: list[dict[str, Any]]):
         self._clear_faces_grid()
+        self.current_faces = faces
 
-        for f in faces:
+        card_width = 145
+        spacing = 14
+        viewport_w = self.scroll.viewport().width()
+        available_w = max(400, viewport_w - 24)
+        cols = max(2, available_w // (card_width + spacing))
+
+        for idx, f in enumerate(faces):
             card = QFrame()
             card.setFrameShape(QFrame.StyledPanel)
             card.setStyleSheet(
-                "background-color: #181820; border: 1px solid #2a2a3a; border-radius: 8px; padding: 10px;"
+                "background-color: #0f172a; border: 1px solid #1e293b; border-radius: 8px; padding: 8px;"
             )
-            card.setFixedWidth(150)
+            card.setFixedSize(140, 200)
             l = QVBoxLayout(card)
-            l.setSpacing(8)
+            l.setContentsMargins(6, 6, 6, 6)
+            l.setSpacing(6)
 
             crop_path = f.get("crop_path")
             if crop_path and Path(crop_path).exists():
@@ -188,7 +209,7 @@ class UnknownFacesPage(QWidget):
                 img_lbl = QLabel()
                 img_lbl.setPixmap(pix)
                 img_lbl.setAlignment(Qt.AlignCenter)
-                img_lbl.setStyleSheet("border-radius: 6px;")
+                img_lbl.setStyleSheet("border-radius: 6px; background-color: #1e293b;")
                 l.addWidget(img_lbl)
 
             src_path_str = f.get("source_photo_path", "")
@@ -196,20 +217,20 @@ class UnknownFacesPage(QWidget):
             src_lbl = QLabel(f"From: {src_file}")
             src_lbl.setWordWrap(True)
             src_lbl.setToolTip(src_path_str)
-            src_lbl.setStyleSheet("font-size: 11px; color: #e0e0e0; font-weight: bold;")
+            src_lbl.setStyleSheet("font-size: 10px; color: #94a3b8;")
             l.addWidget(src_lbl)
 
             btn_del = QPushButton("🗑 Delete")
             btn_del.setProperty("class", "DangerButton")
-            btn_del.setFixedHeight(26)
-            btn_del.setStyleSheet("font-size: 11px; padding: 0 8px;")
+            btn_del.setFixedHeight(24)
+            btn_del.setStyleSheet("font-size: 11px; padding: 0 6px;")
             f_id = f.get("id")
             btn_del.clicked.connect(lambda _, u_id=f_id: self._delete_face(u_id))
             l.addWidget(btn_del)
 
-            self.grid_layout.addWidget(card)
-
-        self.grid_layout.addStretch()
+            row = idx // cols
+            col = idx % cols
+            self.grid_layout.addWidget(card, row, col)
 
     def _rename_group(self):
         if not self.current_group_id:
@@ -231,6 +252,25 @@ class UnknownFacesPage(QWidget):
             profile = self.unknown_face_service.convert_group_to_profile(self.current_group_id, name.strip())
             if profile:
                 QMessageBox.information(self, "Success", f"Created Profile '{profile['name']}' from unknown face group.")
+                self.refresh()
+
+    def _add_group_to_existing_profile(self):
+        if not self.current_group_id:
+            return
+
+        profiles = self.unknown_face_service.profile_service.list_profiles()
+        if not profiles:
+            QMessageBox.warning(self, "No Profiles Found", "No person profiles exist yet. Please create a profile first or use 'Convert Group to New Profile'.")
+            return
+
+        items = [f"{p['name']} ({len(p.get('references', []))} refs)" for p in profiles]
+        item, ok = QInputDialog.getItem(self, "Add to Existing Profile", "Select Target Person Profile:", items, 0, False)
+        if ok and item:
+            idx = items.index(item)
+            target_p = profiles[idx]
+            updated_p = self.unknown_face_service.add_group_to_existing_profile(self.current_group_id, target_p["id"])
+            if updated_p:
+                QMessageBox.information(self, "Success", f"Successfully added unknown face group to profile '{updated_p['name']}'.")
                 self.refresh()
 
     def _delete_face(self, unknown_id: str):
