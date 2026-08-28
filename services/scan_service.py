@@ -100,6 +100,7 @@ class ScanService:
         recursive: bool = True,
         device_preference: str = "Auto",
         performance_mode: str = "Balanced",
+        operation_mode: str = "copy",
         threshold: float = 50.0,
     ) -> tuple[ScanWorker, dict[str, Any]]:
         """
@@ -139,6 +140,7 @@ class ScanService:
             "device_preference": device_preference,
             "active_device": active_device,
             "performance_mode": performance_mode,
+            "operation_mode": operation_mode,
             "threshold": threshold,
             "total_files": 0,
         }
@@ -163,6 +165,7 @@ class ScanService:
             unknown_face_service=self.unknown_face_service,
             threshold=threshold,
             performance_mode=performance_mode,
+            operation_mode=operation_mode,
             start_index=0,
         )
 
@@ -173,6 +176,67 @@ class ScanService:
         worker.finished_signal.connect(self._on_worker_finished)
 
         return worker, scan_meta
+
+    def verify_copied_photos(self, copied_file_pairs: list[tuple[str, str]]) -> tuple[bool, int, list[str]]:
+        """
+        Verifies that 100% of target output files exist and match the size of original source files.
+        Used for safe Move Mode deletion confirmation.
+
+        :return: (is_100_percent_verified, count_verified, list_of_verified_source_paths)
+        """
+        if not copied_file_pairs:
+            return True, 0, []
+
+        verified_sources: set[str] = set()
+        failed_count = 0
+
+        for src_str, target_str in copied_file_pairs:
+            src = Path(src_str)
+            tgt = Path(target_str)
+
+            if not tgt.exists():
+                logger.warning(f"Verification failed: Target file missing: {target_str}")
+                failed_count += 1
+                continue
+
+            try:
+                tgt_size = tgt.stat().st_size
+                src_size = src.stat().st_size if src.exists() else -1
+
+                if tgt_size == 0 or tgt_size != src_size:
+                    logger.warning(f"Verification failed: Size mismatch for {src_str} ({src_size} vs {tgt_size})")
+                    failed_count += 1
+                else:
+                    verified_sources.add(str(src))
+            except Exception as e:
+                logger.warning(f"Verification check exception for {src_str}: {e}")
+                failed_count += 1
+
+        if failed_count == 0:
+            return True, len(verified_sources), list(verified_sources)
+        else:
+            return False, failed_count, []
+
+    def delete_verified_sources(self, source_paths: list[str]) -> tuple[int, int]:
+        """
+        Safely deletes verified original source files from disk after user confirmation.
+
+        :return: (successfully_deleted_count, error_count)
+        """
+        deleted_count = 0
+        error_count = 0
+
+        for src_str in source_paths:
+            src = Path(src_str)
+            if src.exists():
+                try:
+                    src.unlink()
+                    deleted_count += 1
+                except Exception as e:
+                    logger.error(f"Failed to delete source file {src_str}: {e}")
+                    error_count += 1
+
+        return deleted_count, error_count
 
     def resume_scan(self, scan_id: str) -> tuple[ScanWorker, dict[str, Any]] | None:
         """

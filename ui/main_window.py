@@ -317,7 +317,7 @@ class MainWindow(QMainWindow):
         if op_mode == "move" and copied_pairs:
             from PySide6.QtWidgets import QMessageBox
 
-            verified, count, verified_sources = self.solo_scan_service.verify_copied_photos(copied_pairs)
+            verified, count, verified_sources = self.scan_service.verify_copied_photos(copied_pairs)
             if verified and count > 0:
                 answer = QMessageBox.question(
                     self,
@@ -328,7 +328,7 @@ class MainWindow(QMainWindow):
                     QMessageBox.No,
                 )
                 if answer == QMessageBox.Yes:
-                    del_count, err_count = self.solo_scan_service.delete_verified_sources(verified_sources)
+                    del_count, err_count = self.scan_service.delete_verified_sources(verified_sources)
                     QMessageBox.information(
                         self,
                         "Source Photos Cleaned",

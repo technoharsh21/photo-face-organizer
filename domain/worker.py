@@ -95,6 +95,7 @@ class ScanWorker(QThread):
         unknown_face_service: UnknownFaceService,
         threshold: float = 50.0,
         performance_mode: str = "Maximum Performance",
+        operation_mode: str = "copy",
         start_index: int = 0,
         initial_stats: dict[str, Any] | None = None,
         sources: list[str] | None = None,
@@ -113,6 +114,7 @@ class ScanWorker(QThread):
         self.unknown_face_service = unknown_face_service
         self.threshold = threshold
         self.performance_mode = performance_mode
+        self.operation_mode = operation_mode
         self.start_index = start_index
 
         self._is_paused = False
@@ -131,6 +133,7 @@ class ScanWorker(QThread):
         self.processed_files: set[str] = set(init.get("processed_files", []))
         self.errors_log: list[dict[str, str]] = init.get("errors_log", [])
         self.source_to_output_map: dict[str, list[str]] = init.get("source_to_output_map", {})
+        self.copied_file_pairs: list[tuple[str, str]] = init.get("copied_file_pairs", [])
 
         self.matcher = FaceMatcher(face_engine=face_engine, threshold=threshold)
 
@@ -307,6 +310,8 @@ class ScanWorker(QThread):
         for _, target, copy_status in copies:
             if target is not None:
                 output_targets.append(str(target))
+                if "copied" in copy_status.lower() or "skipped" in copy_status.lower():
+                    self.copied_file_pairs.append((str_path, str(target)))
             else:
                 output_targets.append(f"Output Status: {copy_status}")
                 if "error" in copy_status.lower():
@@ -333,6 +338,8 @@ class ScanWorker(QThread):
             "processed_files": list(self.processed_files),
             "errors_log": self.errors_log,
             "source_to_output_map": self.source_to_output_map,
+            "operation_mode": self.operation_mode,
+            "copied_file_pairs": self.copied_file_pairs,
         }
         try:
             with open(self.checkpoint_file, "w", encoding="utf-8") as f:
@@ -362,4 +369,6 @@ class ScanWorker(QThread):
             "output_dir": str(self.output_dir),
             "errors_log": self.errors_log,
             "source_to_output_map": self.source_to_output_map,
+            "operation_mode": self.operation_mode,
+            "copied_file_pairs": self.copied_file_pairs,
         }

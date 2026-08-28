@@ -91,6 +91,47 @@ def test_profile_validations():
         assert "No face detected" in msg
 
 
+def test_scan_service_move_mode_verification(tmp_path):
+    src_dir = tmp_path / "sources"
+    tgt_dir = tmp_path / "target"
+    src_dir.mkdir()
+    tgt_dir.mkdir()
+
+    src_file = src_dir / "photo.jpg"
+    tgt_file = tgt_dir / "photo.jpg"
+
+    data = b"image content 12345"
+    src_file.write_bytes(data)
+    tgt_file.write_bytes(data)
+
+    from services.history_service import HistoryService
+    from services.output_service import OutputService
+    from domain.duplicate_detector import DuplicateDetector
+    from services.scan_service import ScanService
+
+    cfg = Config(app_data_dir=tmp_path / "appdata")
+    fe = MockFaceEngine()
+    dd = DuplicateDetector(cfg.duplicate_index_file)
+    ops = OutputService(dd)
+    ps = ProfileService(cfg, fe)
+    ufs = UnknownFaceService(cfg, ps)
+    hs = HistoryService(cfg)
+
+    scan_svc = ScanService(cfg, fe, ops, ufs, hs, ps)
+
+    copied_pairs = [(str(src_file), str(tgt_file))]
+
+    verified, count, verified_sources = scan_svc.verify_copied_photos(copied_pairs)
+    assert verified is True
+    assert count == 1
+    assert str(src_file) in verified_sources
+
+    del_count, err_count = scan_svc.delete_verified_sources(verified_sources)
+    assert del_count == 1
+    assert err_count == 0
+    assert not src_file.exists()
+    assert tgt_file.exists()
+
 def test_unknown_face_grouping_and_conversion():
     with tempfile.TemporaryDirectory() as tmp_dir:
         config = Config(app_data_dir=Path(tmp_dir))

@@ -20,6 +20,7 @@ from PySide6.QtWidgets import (
     QListWidgetItem,
     QMessageBox,
     QPushButton,
+    QRadioButton,
     QSpinBox,
     QStackedWidget,
     QVBoxLayout,
@@ -179,13 +180,13 @@ class NewScanPage(QWidget):
 
         return widget
 
-    # STEP 3: OUTPUT FOLDER
+    # STEP 3: OUTPUT FOLDER & OPERATION MODE
     def _create_step3_output(self) -> QWidget:
         widget = QFrame()
         widget.setProperty("class", "Card")
         l = QVBoxLayout(widget)
 
-        l.addWidget(QLabel("Select Destination Output Directory:"))
+        l.addWidget(QLabel("Destination Directory & Operation Mode:"))
 
         h = QHBoxLayout()
         self.output_dir_input = QPushButton("Select Output Folder...")
@@ -200,17 +201,82 @@ class NewScanPage(QWidget):
         h.addStretch()
         l.addLayout(h)
 
-        info = QLabel(
-            "<b>Output Structure:</b> Copies of matched photos will be organized into folders named after each person.<br>"
-            "Unmatched photos will be saved in 'No Match'.<br>"
-            "<b>Safety Guarantee:</b> Original source photos will NEVER be moved, modified, or deleted."
-        )
-        info.setWordWrap(True)
-        info.setStyleSheet("color: #a0a0b0; margin-top: 20px;")
-        l.addWidget(info)
+        # Operation Mode Options (Copy vs Move Interactive Cards)
+        mode_box = QFrame()
+        mode_box.setStyleSheet("background-color: #141923; border: 1px solid #2a3447; border-radius: 10px; padding: 16px; margin-top: 12px;")
+        mb_layout = QVBoxLayout(mode_box)
+        mb_layout.setSpacing(12)
 
+        mb_layout.addWidget(QLabel("<b>Choose File Operation Mode:</b>"))
+
+        # 1. Copy Mode Card
+        self.card_copy = QFrame()
+        self.card_copy.setCursor(Qt.PointingHandCursor)
+        copy_layout = QHBoxLayout(self.card_copy)
+        copy_layout.setContentsMargins(12, 12, 12, 12)
+
+        self.rad_copy_mode = QRadioButton()
+        self.rad_copy_mode.setChecked(True)
+
+        copy_lbl = QLabel(
+            "<b>📁 Copy Mode (Recommended & Safe)</b><br/>"
+            "<span style='color: #cbd5e1; font-size: 12px;'>"
+            "Safely copies matched photos into your organized person folders. Original source photos remain 100% untouched."
+            "</span>"
+        )
+        copy_lbl.setWordWrap(True)
+        copy_layout.addWidget(self.rad_copy_mode)
+        copy_layout.addWidget(copy_lbl, 1)
+
+        # 2. Move Mode Card
+        self.card_move = QFrame()
+        self.card_move.setCursor(Qt.PointingHandCursor)
+        move_layout = QHBoxLayout(self.card_move)
+        move_layout.setContentsMargins(12, 12, 12, 12)
+
+        self.rad_move_mode = QRadioButton()
+
+        move_lbl = QLabel(
+            "<b>✂️ Move Mode (Safe Verification Mode)</b><br/>"
+            "<span style='color: #cbd5e1; font-size: 12px;'>"
+            "Copies photos first → Verifies 100% disk integrity → Asks for final confirmation before deleting original source photos."
+            "</span>"
+        )
+        move_lbl.setWordWrap(True)
+        move_layout.addWidget(self.rad_move_mode)
+        move_layout.addWidget(move_lbl, 1)
+
+        mb_layout.addWidget(self.card_copy)
+        mb_layout.addWidget(self.card_move)
+
+        self.rad_copy_mode.toggled.connect(self._update_operation_mode_cards)
+        self.rad_move_mode.toggled.connect(self._update_operation_mode_cards)
+
+        self.card_copy.mousePressEvent = lambda e: self.rad_copy_mode.setChecked(True)
+        self.card_move.mousePressEvent = lambda e: self.rad_move_mode.setChecked(True)
+
+        self._update_operation_mode_cards()
+
+        l.addWidget(mode_box)
         l.addStretch()
         return widget
+
+    def _update_operation_mode_cards(self):
+        """Update visual highlight cards for Copy Mode vs Move Mode selection."""
+        if self.rad_copy_mode.isChecked():
+            self.card_copy.setStyleSheet(
+                "background-color: #064e3b; border: 2px solid #10b981; border-radius: 8px;"
+            )
+            self.card_move.setStyleSheet(
+                "background-color: #1e293b; border: 1px solid #334155; border-radius: 8px;"
+            )
+        else:
+            self.card_copy.setStyleSheet(
+                "background-color: #1e293b; border: 1px solid #334155; border-radius: 8px;"
+            )
+            self.card_move.setStyleSheet(
+                "background-color: #78350f; border: 2px solid #f59e0b; border-radius: 8px;"
+            )
 
     # STEP 4: PERFORMANCE
     def _create_step4_performance(self) -> QWidget:
@@ -390,10 +456,11 @@ class NewScanPage(QWidget):
                 sel_p_names.append(item.text())
                 self.selected_profile_ids.add(item.data(Qt.UserRole))
 
+        op_mode_str = "Move (Safe Verification Mode)" if self.rad_move_mode.isChecked() else "Copy (Originals Retained)"
         out_path = getattr(self, "output_dir_path", "Not Selected")
-        self.lbl_review_output.setText(f"• Output Folder: {out_path}")
+        self.lbl_review_output.setText(f"• Output Folder: {out_path} ({op_mode_str})")
         self.lbl_review_settings.setText(
-            f"• Mode: {self.combo_perf.currentText()} | Threshold: {self.spin_threshold.value()}"
+            f"• Mode: {self.combo_perf.currentText()} | Threshold: {self.spin_threshold.value()}% | File Mode: {'Move' if self.rad_move_mode.isChecked() else 'Copy'}"
         )
 
     def _go_next(self):
@@ -434,6 +501,8 @@ class NewScanPage(QWidget):
             QMessageBox.warning(self, "Output Directory Error", f"Could not create output directory:\n{e}")
             return
 
+        op_mode = "move" if self.rad_move_mode.isChecked() else "copy"
+
         worker, scan_meta = self.scan_service.start_new_scan(
             sources=self.sources,
             profile_ids=list(self.selected_profile_ids),
@@ -441,6 +510,7 @@ class NewScanPage(QWidget):
             recursive=self.chk_recursive.isChecked(),
             device_preference="Auto",
             performance_mode=self.combo_perf.currentText(),
+            operation_mode=op_mode,
             threshold=float(self.spin_threshold.value()),
         )
 

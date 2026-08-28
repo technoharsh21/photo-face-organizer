@@ -28,7 +28,7 @@ def test_face_cache_service_crud():
 
         # Save cache entry
         locs = [(10, 50, 60, 10)]
-        encs = [np.ones(128, dtype=np.float64)]
+        encs = [np.ones(512, dtype=np.float64)]
 
         cache_svc.save_cached_faces(dummy_file, locs, encs)
 

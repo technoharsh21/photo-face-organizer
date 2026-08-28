@@ -151,6 +151,7 @@ class InsightFaceEngine:
         """
         self._ensure_initialized()
         if self.app is None:
+            logger.warning("detect_faces: InsightFace app is None, returning empty.")
             return []
 
         img_bgr = self._to_numpy_bgr(image)

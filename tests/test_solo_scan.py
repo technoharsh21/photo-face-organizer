@@ -68,7 +68,7 @@ def test_solo_scan_service_verification(tmp_path):
     from services.unknown_face_service import UnknownFaceService
 
     cfg = Config(app_data_dir=tmp_path / "appdata")
-    fe = FaceRecognitionEngine(device_preference="CPU")
+    fe = InsightFaceEngine(device_preference="CPU")
     dd = DuplicateDetector(cfg.duplicate_index_file)
     ops = OutputService(dd)
     ps = ProfileService(cfg, fe)
