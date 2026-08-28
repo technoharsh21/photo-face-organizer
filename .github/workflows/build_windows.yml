@@ -24,8 +24,8 @@ jobs:
         shell: powershell
         run: |
           python -m pip install --upgrade pip
-          pip install "setuptools<70 fonttools" wheel pyinstaller cmake
-          pip install dlib-bin || pip install dlib
+          pip install "setuptools<70" wheel pyinstaller cmake
+          pip install dlib-bin
           pip install PySide6 face_recognition Pillow watchfiles pytest
 
       - name: Build Executable with PyInstaller
