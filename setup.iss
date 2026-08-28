@@ -1,5 +1,4 @@
-; Inno Setup Script for Photo Face Organizer (Windows 11 / 64-bit Installer)
-; Configured for native 64-bit Windows installation and SmartApp Control compatibility
+; Inno Setup Script for Photo Face Organizer (Windows 11 / 64-bit Standard Admin Installer)
 
 [Setup]
 AppId={{C6A7B8E9-4F2A-4D3B-9C1E-8F7A6B5C4D3E}}
@@ -16,8 +15,6 @@ SetupIconFile=icon.ico
 Compression=lzma2/max
 SolidCompression=yes
 WizardStyle=modern
-PrivilegesRequired=lowest
-PrivilegesRequiredOverridesAllowed=commandline dialog
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
