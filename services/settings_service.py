@@ -12,7 +12,7 @@ from config import Config
 
 DEFAULT_SETTINGS: dict[str, Any] = {
     "device_preference": "Auto",           # "Auto", "CPU", "GPU"
-    "performance_mode": "Balanced",         # "Eco", "Balanced", "Maximum Performance"
+    "performance_mode": "Maximum Performance", # "Eco", "Balanced", "Maximum Performance"
     "matching_threshold": 50.0,            # Match score threshold (0 - 100)
     "recursive_scan": True,                # Default recursive directory scan
     "auto_group_unknowns": True,           # Group similar unknown faces automatically

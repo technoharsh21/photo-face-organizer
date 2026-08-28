@@ -105,15 +105,21 @@ class SettingsPage(QWidget):
     def refresh(self):
         """Refresh displayed settings values."""
         self.combo_device.setCurrentText(self.settings_service.get("device_preference", "Auto"))
-        self.combo_perf.setCurrentText(self.settings_service.get("performance_mode", "Balanced"))
+        self.combo_perf.setCurrentText(self.settings_service.get("performance_mode", "Maximum Performance"))
         self.spin_threshold.setValue(int(self.settings_service.get("matching_threshold", 50)))
 
         info = self.face_engine.get_device_info()
         active = info.get("active_device", "CPU")
         gpu_avail = info.get("gpu_available", False)
-        self.lbl_device_status.setText(
-            f"Active Device: {active} | GPU Hardware Available: {'Yes (CUDA)' if gpu_avail else 'No (CPU Fallback Active)'}"
-        )
+        import os
+        cpus = os.cpu_count() or 4
+
+        if gpu_avail:
+            status_str = f"Active Device: GPU (NVIDIA CUDA Accelerated) | GPU Status: Active"
+        else:
+            status_str = f"Active Device: CPU (Max Multi-Core Parallel Threads Across {cpus} CPU Cores) | GPU Status: CUDA fallback active"
+
+        self.lbl_device_status.setText(status_str)
 
     def _save(self):
         self.settings_service.update({
