@@ -58,12 +58,12 @@ class InsightFaceEngine:
             logger.info(f"Available ONNX Runtime execution providers: {available_providers}")
 
             if "CUDAExecutionProvider" in available_providers and self.device_preference != "CPU":
-                self.providers = ["CUDAExecutionProvider", "CPUExecutionProvider"]
-                self.active_device = "NVIDIA CUDA GPU"
+                self.providers = [("CUDAExecutionProvider", {"device_id": 0}), "CPUExecutionProvider"]
+                self.active_device = "NVIDIA CUDA GPU (GeForce GTX)"
                 self.gpu_available = True
             elif "DmlExecutionProvider" in available_providers and self.device_preference != "CPU":
-                self.providers = ["DmlExecutionProvider", "CPUExecutionProvider"]
-                self.active_device = "DirectX 12 / DirectML GPU"
+                self.providers = [("DmlExecutionProvider", {"device_id": 0}), "CPUExecutionProvider"]
+                self.active_device = "DirectX 12 GPU (NVIDIA GTX)"
                 self.gpu_available = True
             elif "OpenVINOExecutionProvider" in available_providers and self.device_preference != "CPU":
                 self.providers = ["OpenVINOExecutionProvider", "CPUExecutionProvider"]
