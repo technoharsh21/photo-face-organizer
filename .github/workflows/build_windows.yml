@@ -62,7 +62,7 @@ jobs:
       - name: Install System Dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y cmake build-essential libgl1-mesa-glx libglib2.0-0 dpkg-dev zip
+          sudo apt-get install -y cmake build-essential libgl1 libglx-mesa0 libglib2.0-0 dpkg-dev zip
 
       - name: Install Python Dependencies
         run: |
