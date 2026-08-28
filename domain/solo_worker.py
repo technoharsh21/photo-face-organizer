@@ -21,6 +21,7 @@ from PySide6.QtCore import QThread, Signal
 from domain.face_engine import FaceEngine
 from domain.image_loader import load_image
 from domain.solo_matcher import SoloFaceMatcher
+from services.face_cache_service import FaceCacheService
 from services.output_service import OutputService
 from services.unknown_face_service import UnknownFaceService
 
@@ -47,6 +48,7 @@ class SoloScanWorker(QThread):
         face_engine: FaceEngine,
         output_service: OutputService,
         unknown_face_service: UnknownFaceService,
+        face_cache_service: FaceCacheService | None = None,
         threshold: float = 70.0,
         performance_mode: str = "Maximum Performance",
         operation_mode: str = "copy",
@@ -62,6 +64,7 @@ class SoloScanWorker(QThread):
         self.face_engine = face_engine
         self.output_service = output_service
         self.unknown_face_service = unknown_face_service
+        self.face_cache_service = face_cache_service
         self.threshold = threshold
         self.performance_mode = performance_mode
         self.operation_mode = operation_mode  # "copy" or "move"
@@ -173,13 +176,26 @@ class SoloScanWorker(QThread):
             return
 
         try:
-            # 1. Dual-Pass Face Detection
-            # Pass 1: Standard scale detection (upsample=1)
-            face_locations = self.face_engine.detect_faces(pil_img, upsample_num_times=1)
+            # Check Disk Cache
+            cached = self.face_cache_service.get_cached_faces(file_path) if self.face_cache_service else None
+            if cached is not None:
+                face_locations, face_encodings = cached
+            else:
+                # 1. Dual-Pass Face Detection
+                # Pass 1: Standard scale detection (upsample=1)
+                face_locations = self.face_engine.detect_faces(pil_img, upsample_num_times=1)
 
-            # If 0 faces found at standard scale, try upsample=2 to find smaller/distant faces
-            if not face_locations:
-                face_locations = self.face_engine.detect_faces(pil_img, upsample_num_times=2)
+                # If 0 faces found at standard scale, try upsample=2 to find smaller/distant faces
+                if not face_locations:
+                    face_locations = self.face_engine.detect_faces(pil_img, upsample_num_times=2)
+
+                if face_locations:
+                    face_encodings = self.face_engine.create_embeddings(pil_img, face_locations)
+                else:
+                    face_encodings = []
+
+                if self.face_cache_service:
+                    self.face_cache_service.save_cached_faces(file_path, face_locations, face_encodings)
 
             # STRICT SOLO FILTER: If face_locations != 1 (0 faces or 2+ faces), exclude photo!
             if len(face_locations) != 1:
@@ -189,8 +205,6 @@ class SoloScanWorker(QThread):
                 ]
                 return
 
-            # 2. Exactly 1 face detected -> Extract encodings & crop
-            face_encodings = self.face_engine.create_embeddings(pil_img, face_locations)
             face_crops = self.face_engine.extract_faces(pil_img, face_locations)
 
             # 3. Evaluate solo matches

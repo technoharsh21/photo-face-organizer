@@ -38,6 +38,7 @@ class Config:
         self.duplicates_dir = self.app_data_dir / "duplicates"
         self.settings_dir = self.app_data_dir / "settings"
         self.history_dir = self.app_data_dir / "history"
+        self.cache_dir = self.app_data_dir / "cache"
         
         self.ensure_directories()
         
@@ -51,6 +52,7 @@ class Config:
             self.duplicates_dir,
             self.settings_dir,
             self.history_dir,
+            self.cache_dir,
         ]:
             d.mkdir(parents=True, exist_ok=True)
             

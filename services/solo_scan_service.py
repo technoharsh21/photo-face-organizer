@@ -16,6 +16,7 @@ from config import Config
 from domain.face_engine import FaceEngine
 from domain.scanner import discover_photos
 from domain.solo_worker import SoloScanWorker
+from services.face_cache_service import FaceCacheService
 from services.history_service import HistoryService
 from services.output_service import OutputService
 from services.profile_service import ProfileService
@@ -35,6 +36,7 @@ class SoloScanService:
         unknown_face_service: UnknownFaceService,
         history_service: HistoryService,
         profile_service: ProfileService,
+        face_cache_service: FaceCacheService | None = None,
     ):
         self.config = config
         self.face_engine = face_engine
@@ -42,6 +44,7 @@ class SoloScanService:
         self.unknown_face_service = unknown_face_service
         self.history_service = history_service
         self.profile_service = profile_service
+        self.face_cache_service = face_cache_service
 
         self.current_worker: SoloScanWorker | None = None
         self.active_scan_data: dict[str, Any] | None = None
@@ -113,6 +116,7 @@ class SoloScanService:
             face_engine=self.face_engine,
             output_service=self.output_service,
             unknown_face_service=self.unknown_face_service,
+            face_cache_service=self.face_cache_service,
             threshold=threshold,
             performance_mode=performance_mode,
             operation_mode=operation_mode,

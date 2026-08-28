@@ -230,14 +230,56 @@ class NewScanPage(QWidget):
         l.addWidget(self.combo_perf)
 
         # Matching threshold
-        l.addWidget(QLabel("Matching Threshold (Default 50):"))
+        l.addWidget(QLabel("Matching Precision Threshold (1% - 100%):"))
         self.spin_threshold = QSpinBox()
         self.spin_threshold.setRange(1, 100)
-        self.spin_threshold.setValue(int(self.settings_service.get("matching_threshold", 50)))
+        self.spin_threshold.setValue(int(self.settings_service.get("matching_threshold", 55)))
         l.addWidget(self.spin_threshold)
+
+        self.lbl_threshold_desc = QLabel()
+        self.lbl_threshold_desc.setWordWrap(True)
+        l.addWidget(self.lbl_threshold_desc)
+
+        self.spin_threshold.valueChanged.connect(self._update_threshold_guidance)
+        self._update_threshold_guidance(self.spin_threshold.value())
 
         l.addStretch()
         return widget
+
+    def _update_threshold_guidance(self, value: int):
+        if value >= 85:
+            text = (
+                f"🔒 <b>{value}% (Ultra-Strict Precision):</b> Identifies near-identical faces only. "
+                f"Zero false positives. Best if you have a twin or close family member with similar facial structure."
+            )
+            style = "color: #34d399; font-size: 12px; background: #064e3b; padding: 10px; border-radius: 6px; margin-top: 6px;"
+        elif value >= 70:
+            text = (
+                f"🎯 <b>{value}% (High Precision — Recommended for Solo Scan):</b> Highly accurate single-person matching. "
+                f"Guarantees other people's photos will NEVER enter your profile folder."
+            )
+            style = "color: #10b981; font-size: 12px; background: #064e3b; padding: 10px; border-radius: 6px; margin-top: 6px;"
+        elif value >= 55:
+            text = (
+                f"⚖️ <b>{value}% (Balanced Mode — Recommended for Standard Scans):</b> Standard matching for solo & group photos. "
+                f"Captures your face across different smiles, hairstyles, and lighting."
+            )
+            style = "color: #60a5fa; font-size: 12px; background: #1e3a8a; padding: 10px; border-radius: 6px; margin-top: 6px;"
+        elif value >= 40:
+            text = (
+                f"👓 <b>{value}% (Extended Range — Side Angles & Sunglasses):</b> Matches photos with sunglasses, hats, "
+                f"or turned sideways (profile view). May occasionally include similar-looking friends."
+            )
+            style = "color: #fbbf24; font-size: 12px; background: #78350f; padding: 10px; border-radius: 6px; margin-top: 6px;"
+        else:
+            text = (
+                f"🔍 <b>{value}% (Maximum Sensitivity — Dark & Blurry Photos):</b> Very loose matching for low-resolution "
+                f"or dark nighttime photos. Higher chance of including non-matching faces."
+            )
+            style = "color: #f87171; font-size: 12px; background: #7f1d1d; padding: 10px; border-radius: 6px; margin-top: 6px;"
+
+        self.lbl_threshold_desc.setText(text)
+        self.lbl_threshold_desc.setStyleSheet(style)
 
     # STEP 5: REVIEW
     def _create_step5_review(self) -> QWidget:

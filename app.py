@@ -87,6 +87,7 @@ def _setup_crash_logging(config: Config):
     sys.excepthook = uncaught_exception_hook
 
 
+from services.face_cache_service import FaceCacheService
 from services.solo_scan_service import SoloScanService
 
 
@@ -98,6 +99,7 @@ def main():
     _setup_crash_logging(config)
 
     settings_service = SettingsService(config)
+    face_cache_service = FaceCacheService(config, settings_service)
 
     device_pref = settings_service.get("device_preference", "Auto")
     face_engine = FaceRecognitionEngine(device_preference=device_pref)
@@ -125,6 +127,7 @@ def main():
         unknown_face_service=unknown_face_service,
         history_service=history_service,
         profile_service=profile_service,
+        face_cache_service=face_cache_service,
     )
 
     main_window = MainWindow(
@@ -137,6 +140,7 @@ def main():
         unknown_face_service=unknown_face_service,
         history_service=history_service,
         settings_service=settings_service,
+        face_cache_service=face_cache_service,
     )
 
     main_window.show()

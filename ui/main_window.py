@@ -22,13 +22,14 @@ from PySide6.QtWidgets import (
 
 from config import Config
 from domain.face_engine import FaceEngine
+from services.face_cache_service import FaceCacheService
 from services.history_service import HistoryService
 from services.output_service import OutputService
 from services.profile_service import ProfileService
 from services.scan_service import ScanService
 from services.settings_service import SettingsService
-from services.unknown_face_service import UnknownFaceService
 from services.solo_scan_service import SoloScanService
+from services.unknown_face_service import UnknownFaceService
 from ui.components.crash_recovery_dialog import CrashRecoveryDialog
 from ui.pages.dashboard_page import DashboardPage
 from ui.pages.history_page import HistoryPage
@@ -56,12 +57,14 @@ class MainWindow(QMainWindow):
         history_service: HistoryService,
         settings_service: SettingsService,
         solo_scan_service: SoloScanService | None = None,
+        face_cache_service: FaceCacheService | None = None,
     ):
         super().__init__()
         self.config = config
         self.face_engine = face_engine
         self.profile_service = profile_service
         self.scan_service = scan_service
+        self.face_cache_service = face_cache_service
         self.solo_scan_service = solo_scan_service or SoloScanService(
             config=config,
             face_engine=face_engine,
@@ -69,6 +72,7 @@ class MainWindow(QMainWindow):
             unknown_face_service=unknown_face_service,
             history_service=history_service,
             profile_service=profile_service,
+            face_cache_service=face_cache_service,
         )
         self.output_service = output_service
         self.unknown_face_service = unknown_face_service
@@ -103,7 +107,7 @@ class MainWindow(QMainWindow):
         self.page_results = ResultsPage(self.profile_service, self.output_service)
         self.page_unknown_faces = UnknownFacesPage(self.unknown_face_service)
         self.page_history = HistoryPage(self.history_service, self.scan_service, self._on_view_history_results, self._on_resume_history_scan)
-        self.page_settings = SettingsPage(self.settings_service, self.face_engine)
+        self.page_settings = SettingsPage(self.settings_service, self.face_engine, self.face_cache_service)
 
         self.page_map = {
             "Dashboard": (0, self.page_dashboard),
