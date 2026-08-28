@@ -3,6 +3,7 @@ Main Window Module for Photo Face Organizer.
 
 Assembles sidebar navigation, page switching stacked widget, crash recovery prompt,
 and central application workflow.
+Locks navigation tabs during active scanning to prevent tab switching during processing.
 """
 
 from typing import Any
@@ -62,6 +63,7 @@ class MainWindow(QMainWindow):
         self.unknown_face_service = unknown_face_service
         self.history_service = history_service
         self.settings_service = settings_service
+        self.is_scanning_active = False
 
         self.setWindowTitle("Photo Face Organizer")
         self.resize(1100, 720)
@@ -158,7 +160,21 @@ class MainWindow(QMainWindow):
         # Initial refresh
         self.page_dashboard.refresh()
 
+    def _set_navigation_enabled(self, enabled: bool):
+        """Enable or disable sidebar navigation tabs during active scanning."""
+        self.is_scanning_active = not enabled
+        for btn in self.nav_buttons.values():
+            btn.setEnabled(enabled)
+            if not enabled:
+                btn.setToolTip("Scan processing in progress. Cancel or wait for scan completion to switch tabs.")
+            else:
+                btn.setToolTip("")
+
     def navigate_to(self, page_name: str):
+        # Prevent tab switching during active scan unless navigating to Processing
+        if self.is_scanning_active and page_name != "Processing" and page_name != "Results":
+            return
+
         if page_name in self.page_map:
             idx, widget = self.page_map[page_name]
             self.content_stack.setCurrentIndex(idx)
@@ -188,10 +204,12 @@ class MainWindow(QMainWindow):
                 self.scan_service.discard_recovery(scan_id)
 
     def _on_scan_started(self, worker, scan_meta):
+        self._set_navigation_enabled(False)
         self.navigate_to("Processing")
         self.page_processing.start_monitoring(worker)
 
     def _on_scan_finished(self, summary: dict[str, Any]):
+        self._set_navigation_enabled(True)
         self.page_results.load_results(summary)
         self.navigate_to("Results")
 
@@ -203,5 +221,6 @@ class MainWindow(QMainWindow):
         res = self.scan_service.resume_scan(scan_id)
         if res:
             worker, scan_meta = res
+            self._set_navigation_enabled(False)
             self.navigate_to("Processing")
             self.page_processing.start_monitoring(worker)
