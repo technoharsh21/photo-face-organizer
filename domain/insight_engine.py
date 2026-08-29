@@ -87,10 +87,12 @@ class InsightFaceEngine:
         _orig_stdout = sys.stdout
         _orig_stderr = sys.stderr
         try:
-            if sys.stdout is None:
-                sys.stdout = open(os.devnull, "w")
-            if sys.stderr is None:
-                sys.stderr = open(os.devnull, "w")
+            try:
+                import cv2
+                cpu_cores = os.cpu_count() or 4
+                cv2.setNumThreads(cpu_cores)
+            except Exception:
+                pass
 
             self.app = FaceAnalysis(name="buffalo_sc", providers=self.providers)
             self.app.prepare(ctx_id=0, det_size=(640, 640))
