@@ -99,8 +99,9 @@ class InsightFaceEngine:
             gpu_name = self.get_system_gpu_name()
 
             if self.device_preference == "CPU":
+                cpu_name = self.get_system_cpu_name()
                 self.providers = ["CPUExecutionProvider"]
-                self.active_device = "Multi-Core CPU"
+                self.active_device = f"Multi-Core CPU ({cpu_name})"
             elif "CUDAExecutionProvider" in available_providers and self.device_preference in ("Auto", "CUDA"):
                 self.providers = ["CUDAExecutionProvider", "CPUExecutionProvider"]
                 self.active_device = f"NVIDIA CUDA GPU ({gpu_name})"
@@ -114,13 +115,63 @@ class InsightFaceEngine:
                 self.providers = ["CoreMLExecutionProvider", "CPUExecutionProvider"]
                 self.active_device = "Apple CoreML GPU"
             else:
+                cpu_name = self.get_system_cpu_name()
                 self.providers = ["CPUExecutionProvider"]
-                self.active_device = "Multi-Core CPU"
+                self.active_device = f"Multi-Core CPU ({cpu_name})"
 
         except Exception as e:
             logger.warning(f"Error configuring execution providers: {e}")
+            cpu_name = self.get_system_cpu_name()
             self.providers = ["CPUExecutionProvider"]
-            self.active_device = "Multi-Core CPU"
+            self.active_device = f"Multi-Core CPU ({cpu_name})"
+
+    def get_system_cpu_name(self) -> str:
+        """Detect the exact real CPU model name on Linux/Windows/macOS."""
+        import subprocess
+        import sys
+
+        cores = os.cpu_count() or 4
+        cores_str = f"{cores} Cores"
+
+        try:
+            if sys.platform == "linux":
+                if Path("/proc/cpuinfo").exists():
+                    text = Path("/proc/cpuinfo").read_text(encoding="utf-8", errors="ignore")
+                    for line in text.splitlines():
+                        if "model name" in line.lower():
+                            parts = line.split(":", 1)
+                            if len(parts) == 2:
+                                name = parts[1].strip()
+                                return f"{name} ({cores_str})"
+                out = subprocess.check_output("lscpu", shell=True, text=True, stderr=subprocess.DEVNULL)
+                for line in out.splitlines():
+                    if "model name" in line.lower():
+                        parts = line.split(":", 1)
+                        if len(parts) == 2:
+                            name = parts[1].strip()
+                            return f"{name} ({cores_str})"
+
+            elif sys.platform == "win32":
+                try:
+                    out = subprocess.check_output(
+                        'powershell -Command "Get-CimInstance -ClassName Win32_Processor | Select-Object -ExpandProperty Name"',
+                        shell=True, text=True, stderr=subprocess.DEVNULL
+                    )
+                    name = out.strip().splitlines()[0] if out.strip() else ""
+                    if name:
+                        return f"{name} ({cores_str})"
+                except Exception:
+                    pass
+
+            elif sys.platform == "darwin":
+                out = subprocess.check_output("sysctl -n machdep.cpu.brand_string", shell=True, text=True, stderr=subprocess.DEVNULL)
+                if out.strip():
+                    return f"{out.strip()} ({cores_str})"
+
+        except Exception:
+            pass
+
+        return f"{cores_str}"
 
     def _ensure_initialized(self):
         """Lazy load ONNX models into memory when required with cascading GPU fallback."""
