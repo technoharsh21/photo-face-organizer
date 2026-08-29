@@ -22,7 +22,7 @@ class MockFaceEngine(FaceEngine):
         return [Image.new("RGB", (40, 50), color="red")]
 
     def create_embeddings(self, image, face_locations=None):
-        return [np.zeros(128)]
+        return [np.ones(512)]
 
     def compare_embeddings(self, embedding1, embedding2):
         return 0.0
@@ -179,4 +179,26 @@ def test_delete_unknown_group():
 
         del_cnt = u_svc.delete_group(g_id)
         assert del_cnt == 2
+        assert len(u_svc.list_unknown_faces()) == 0
+
+
+def test_skip_known_profile_faces_in_unknown_store():
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        config = Config(app_data_dir=Path(tmp_dir))
+        engine = MockFaceEngine()
+        p_svc = ProfileService(config, engine)
+        u_svc = UnknownFaceService(config, p_svc)
+
+        # Create a profile "Harsh" with dummy embedding
+        p = p_svc.create_profile("Harsh")
+        ref_path = Path(tmp_dir) / "ref.jpg"
+        Image.new("RGB", (50, 50)).save(ref_path)
+        p_svc.add_reference_photo(p["id"], ref_path)
+
+        crop = Image.new("RGB", (50, 50), color="blue")
+        known_emb = np.ones(512)
+
+        # Attempt to store a face matching Harsh's profile -> Should return None (skipped)
+        result = u_svc.store_unknown_face(crop, known_emb, "unmatched_photo.jpg", [0, 50, 50, 0], "scan_123")
+        assert result is None
         assert len(u_svc.list_unknown_faces()) == 0

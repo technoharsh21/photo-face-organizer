@@ -8,6 +8,8 @@ Allows renaming groups, deleting individual unknown faces, or converting unknown
 """
 
 import json
+import logging
+import time
 import uuid
 from pathlib import Path
 from typing import Any
@@ -19,6 +21,8 @@ from config import Config
 from domain.calibration import calibrate_match_score
 from services.profile_service import ProfileService
 
+logger = logging.getLogger(__name__)
+
 
 class UnknownFaceService:
     """Manages storage, clustering, viewing, and converting of unknown (unmatched) faces."""
@@ -28,6 +32,43 @@ class UnknownFaceService:
         self.profile_service = profile_service
         self.unknown_dir = config.unknown_faces_dir
         self.unknown_dir.mkdir(parents=True, exist_ok=True)
+        self._profiles_cache: list[tuple[str, list[np.ndarray]]] = []
+        self._profiles_cache_time: float = 0.0
+
+    def _get_profile_embeddings_cache(self) -> list[tuple[str, list[np.ndarray]]]:
+        """Fetch and cache pre-converted numpy arrays for all profiles in the system (refreshed every 5s)."""
+        now = time.time()
+        if self._profiles_cache and (now - self._profiles_cache_time) < 5.0:
+            return self._profiles_cache
+
+        cache = []
+        for p in self.profile_service.list_profiles():
+            name = p.get("name", "Unknown")
+            embs = [np.asarray(e, dtype=np.float64) for e in p.get("embeddings", []) if len(e) > 0]
+            if embs:
+                cache.append((name, embs))
+
+        self._profiles_cache = cache
+        self._profiles_cache_time = now
+        return cache
+
+    def is_known_profile_face(self, face_encoding: np.ndarray, threshold: float = 50.0) -> bool:
+        """
+        Check if face_encoding matches ANY existing profile in the system.
+        Prevents faces belonging to existing profiles from cluttering Unknown Faces.
+        """
+        if face_encoding is None or face_encoding.size == 0 or np.allclose(face_encoding, 0):
+            return False
+
+        profiles_cache = self._get_profile_embeddings_cache()
+        for p_name, embs in profiles_cache:
+            for ref_arr in embs:
+                if ref_arr.shape == face_encoding.shape:
+                    score = self.profile_service.face_engine.calculate_match_score(face_encoding, ref_arr)
+                    if score >= threshold:
+                        logger.info(f"Face matches existing profile '{p_name}' ({score:.1f}%). Skipping unknown face registration.")
+                        return True
+        return False
 
     def store_unknown_face(
         self,
@@ -36,8 +77,15 @@ class UnknownFaceService:
         source_photo_path: str,
         bounding_box: list[int],
         scan_id: str,
-    ) -> dict[str, Any]:
-        """Save cropped image, encoding, and metadata for an unknown face."""
+        check_existing_profiles: bool = True,
+    ) -> dict[str, Any] | None:
+        """
+        Save cropped image, encoding, and metadata for an unknown face.
+        Returns None if face belongs to an existing profile in the system.
+        """
+        if check_existing_profiles and self.is_known_profile_face(face_encoding):
+            return None
+
         u_id = str(uuid.uuid4())
         u_dir = self.unknown_dir / u_id
         u_dir.mkdir(parents=True, exist_ok=True)

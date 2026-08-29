@@ -280,17 +280,18 @@ class ScanWorker(QThread):
         face_results = res.get("face_results", [])
         face_crops = res.get("face_crops", [])
 
-        # Record unknown faces
+        # Record unknown faces (skips faces belonging to any existing profile in the system)
         for face_res, crop in zip(face_results, face_crops):
             if not face_res.is_match or not face_res.matched_profile_name:
-                self.unknown_faces_count += 1
-                self.unknown_face_service.store_unknown_face(
+                stored = self.unknown_face_service.store_unknown_face(
                     face_crop=crop,
                     face_encoding=face_res.face_encoding,
                     source_photo_path=str_path,
                     bounding_box=list(face_res.bounding_box),
                     scan_id=self.scan_id,
                 )
+                if stored is not None:
+                    self.unknown_faces_count += 1
 
         # Route copies
         if matched_person_names:
