@@ -31,9 +31,13 @@ def test_batch_add_reference_photos_from_folder():
         engine = MockFaceEngineForBatch()
         profile_service = ProfileService(config, engine)
 
-        # Create profile
+        # Create profile with initial reference photo
         profile = profile_service.create_profile("Harsh Test")
         p_id = profile["id"]
+
+        init_img = Path(tmp_dir) / "anchor.jpg"
+        Image.new("RGB", (100, 100), color="red").save(init_img)
+        profile_service.add_reference_photo(p_id, init_img)
 
         # Create temporary folder with 3 test images
         img_dir = Path(tmp_dir) / "test_photos"
@@ -47,8 +51,14 @@ def test_batch_add_reference_photos_from_folder():
 
         assert added == 3
         assert total == 3
-        assert "Successfully added 3" in msg
+        assert "Successfully trained profile" in msg
 
         updated = profile_service.get_profile(p_id)
-        assert len(updated.get("embeddings", [])) == 3
-        assert len(updated.get("references", [])) == 3
+        # 1 initial + 3 batch = 4
+        assert len(updated.get("embeddings", [])) == 4
+        assert len(updated.get("references", [])) == 4
+
+        # Test outlier pruning
+        removed, remaining = profile_service.prune_profile_outliers(p_id, min_similarity=60.0)
+        assert removed == 0
+        assert remaining == 4

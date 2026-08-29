@@ -135,6 +135,13 @@ class PeoplePage(QWidget):
         self.btn_batch_train.clicked.connect(self._batch_train_profile)
         p_header_layout.addWidget(self.btn_batch_train)
 
+        self.btn_clean_outliers = QPushButton("🧹 Clean Outliers")
+        self.btn_clean_outliers.setProperty("class", "SecondaryButton")
+        self.btn_clean_outliers.setCursor(Qt.PointingHandCursor)
+        self.btn_clean_outliers.setToolTip("Scan reference photos and automatically remove any that belong to a different person.")
+        self.btn_clean_outliers.clicked.connect(self._clean_outliers)
+        p_header_layout.addWidget(self.btn_clean_outliers)
+
         self.btn_group_type = QPushButton("👥 Group Settings")
         self.btn_group_type.setProperty("class", "SecondaryButton")
         self.btn_group_type.clicked.connect(self._edit_group_settings)
@@ -472,6 +479,39 @@ class PeoplePage(QWidget):
             QMessageBox.warning(self, "No Facial Vectors Added", msg)
 
         self.refresh(select_profile_id=profile_id)
+
+    def _clean_outliers(self):
+        if not self.current_profile_id:
+            return
+
+        profile = self.profile_service.get_profile(self.current_profile_id)
+        if not profile:
+            return
+
+        p_name = profile.get("name", "this person")
+        res = QMessageBox.question(
+            self,
+            "Clean Profile Outliers",
+            f"Would you like to scan and remove any reference photos in '{p_name}' that do not match the core identity?\n\n"
+            "This fixes accuracy if wrong people were accidentally imported during batch training.",
+            QMessageBox.Yes | QMessageBox.No,
+        )
+        if res == QMessageBox.Yes:
+            removed, remaining = self.profile_service.prune_profile_outliers(self.current_profile_id, min_similarity=60.0)
+            if removed > 0:
+                QMessageBox.information(
+                    self,
+                    "Outliers Cleaned",
+                    f"🧹 Successfully purged {removed} outlier photos that did not match {p_name}.\n\n"
+                    f"{remaining} verified reference photos remain for high-precision recognition.",
+                )
+            else:
+                QMessageBox.information(
+                    self,
+                    "Profile Clean",
+                    f"✅ All {remaining} reference photos cleanly match {p_name}'s facial identity!",
+                )
+            self.refresh(select_profile_id=self.current_profile_id)
 
 
 class ProfileBatchTrainWorker(QThread):

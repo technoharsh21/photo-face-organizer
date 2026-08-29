@@ -47,17 +47,24 @@ class SoloFaceMatcher:
                 continue
 
             embeddings = profile.get("embeddings", [])
-            p_best_score = 0.0
-
+            scores = []
             for ref_emb in embeddings:
                 ref_arr = np.asarray(ref_emb, dtype=np.float64)
-                # Ignore invalid or all-zero fallback embeddings
-                if np.all(ref_arr == 0):
-                    continue
+                if ref_arr.size > 0:
+                    score = self.face_engine.calculate_match_score(face_encoding, ref_arr)
+                    scores.append(score)
 
-                score = self.face_engine.calculate_match_score(face_encoding, ref_arr)
-                if score > p_best_score:
-                    p_best_score = score
+            if not scores:
+                profile_best_scores[p_id] = 0.0
+                continue
+
+            sorted_scores = sorted(scores, reverse=True)
+            if len(sorted_scores) >= 3:
+                p_best_score = 0.60 * sorted_scores[0] + 0.25 * sorted_scores[1] + 0.15 * sorted_scores[2]
+            elif len(sorted_scores) == 2:
+                p_best_score = 0.70 * sorted_scores[0] + 0.30 * sorted_scores[1]
+            else:
+                p_best_score = sorted_scores[0]
 
             profile_best_scores[p_id] = p_best_score
 

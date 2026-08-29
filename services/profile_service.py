@@ -321,12 +321,27 @@ class ProfileService:
         if not photo_paths:
             return 0, 0, "No supported photos found in selected directory"
 
-        added_cnt = 0
-        existing_embs = [
+        # Extract fixed, immutable baseline anchor embeddings
+        raw_embs = profile.get("embeddings", [])
+        baseline_anchor_embs = [
             np.asarray(e, dtype=np.float64)
-            for e in profile.get("embeddings", [])
+            for e in raw_embs
             if e is not None and len(e) == 512
         ]
+
+        if not baseline_anchor_embs:
+            return 0, len(photo_paths), (
+                "Please add at least 1 clear reference photo manually to this profile first "
+                "so the AI has a trusted baseline identity to compare against."
+            )
+
+        # Compute trusted anchor centroid
+        stacked = np.array(baseline_anchor_embs)
+        mean_vec = np.mean(stacked, axis=0)
+        norm = np.linalg.norm(mean_vec)
+        anchor_centroid = mean_vec / norm if norm > 0 else mean_vec
+
+        candidates = []
 
         for p_path in photo_paths:
             try:
@@ -338,76 +353,147 @@ class ProfileService:
                 if not locations:
                     continue
 
-                best_idx = 0
-                if len(locations) > 1:
-                    if not existing_embs:
-                        continue  # Multiple faces and no baseline -> skip to avoid wrong person
-                    best_score = -1.0
-                    all_embs = self.face_engine.create_embeddings(pil_img, locations)
-                    for idx, emb in enumerate(all_embs):
-                        for ref_arr in existing_embs:
-                            sc = self.face_engine.calculate_match_score(emb, ref_arr)
-                            if sc > best_score:
-                                best_score = sc
-                                best_idx = idx
-                    if best_score < 45.0:
-                        continue
-
-                target_bbox = locations[best_idx]
-                embs = self.face_engine.create_embeddings(pil_img, [target_bbox])
-                if not embs:
+                all_embs = self.face_engine.create_embeddings(pil_img, locations)
+                if not all_embs:
                     continue
 
-                new_emb = embs[0]
+                # Find candidate face that strictly matches the anchor centroid >= 65%
+                best_face_idx = None
+                best_face_score = -1.0
 
-                # Consistency verification if baseline embeddings exist
-                if existing_embs:
-                    is_consistent = False
-                    for ref_arr in existing_embs:
-                        sc = self.face_engine.calculate_match_score(new_emb, ref_arr)
-                        if sc >= 45.0:
-                            is_consistent = True
-                            break
-                    if not is_consistent:
-                        continue
+                for idx, emb in enumerate(all_embs):
+                    c_score = self.face_engine.calculate_match_score(emb, anchor_centroid)
+                    # Check max match against individual baseline anchors
+                    max_anchor_sc = max(self.face_engine.calculate_match_score(emb, ref) for ref in baseline_anchor_embs)
+                    effective_score = max(c_score, max_anchor_sc)
 
-                # Add face crop as reference photo
-                crops = self.face_engine.extract_faces(pil_img, [target_bbox])
-                face_crop = crops[0] if crops else pil_img
+                    # STRICT FILTER: Candidate face MUST achieve >= 65.0% match with the anchor
+                    if effective_score >= 65.0 and effective_score > best_face_score:
+                        best_face_score = effective_score
+                        best_face_idx = idx
 
-                ref_id = str(uuid.uuid4())
-                ref_filename = f"ref_{ref_id}.jpg"
-                ref_dest_dir = self.profiles_dir / profile_id / "references"
-                ref_dest_dir.mkdir(parents=True, exist_ok=True)
-                ref_dest_path = ref_dest_dir / ref_filename
-
-                face_crop.save(ref_dest_path, format="JPEG", quality=92)
-                quality_info = self.assess_reference_quality(pil_img, list(target_bbox))
-
-                ref_entry = {
-                    "id": ref_id,
-                    "filename": ref_filename,
-                    "bbox": target_bbox,
-                    "stored_path": str(ref_dest_path),
-                    "is_fallback": False,
-                    "quality": quality_info,
-                }
-
-                profile.setdefault("references", []).append(ref_entry)
-                profile.setdefault("embeddings", []).append(new_emb.tolist())
-                existing_embs.append(new_emb)
-                added_cnt += 1
+                if best_face_idx is not None:
+                    target_bbox = locations[best_face_idx]
+                    best_emb = all_embs[best_face_idx]
+                    q_info = self.assess_reference_quality(pil_img, list(target_bbox))
+                    candidates.append({
+                        "score": best_face_score,
+                        "quality_stars": q_info.get("stars", 3),
+                        "quality_info": q_info,
+                        "pil_img": pil_img,
+                        "bbox": target_bbox,
+                        "embedding": best_emb,
+                        "source_path": p_path,
+                    })
 
             except Exception as e:
                 logger.warning(f"Error processing {p_path} during batch training: {e}")
 
+        if not candidates:
+            return 0, len(photo_paths), f"No photos in the folder matched {profile.get('name', 'this person')} with high confidence (>= 65% match)."
+
+        # Sort candidates by match confidence and quality (highest match first)
+        candidates.sort(key=lambda c: (c["score"], c["quality_stars"]), reverse=True)
+
+        # Cap batch import to the top 15 most distinct, highest-confidence facial vectors
+        selected_candidates = candidates[:15]
+        added_cnt = 0
+
+        ref_dest_dir = self.profiles_dir / profile_id / "references"
+        ref_dest_dir.mkdir(parents=True, exist_ok=True)
+
+        for c in selected_candidates:
+            ref_id = str(uuid.uuid4())
+            ref_filename = f"ref_{ref_id}.jpg"
+            ref_dest_path = ref_dest_dir / ref_filename
+
+            crops = self.face_engine.extract_faces(c["pil_img"], [c["bbox"]])
+            face_crop = crops[0] if crops else c["pil_img"]
+            face_crop.save(ref_dest_path, format="JPEG", quality=92)
+
+            ref_entry = {
+                "id": ref_id,
+                "filename": ref_filename,
+                "bbox": c["bbox"],
+                "stored_path": str(ref_dest_path),
+                "is_fallback": False,
+                "quality": c["quality_info"],
+            }
+
+            profile.setdefault("references", []).append(ref_entry)
+            profile.setdefault("embeddings", []).append(c["embedding"].tolist())
+            added_cnt += 1
+
         if added_cnt > 0:
             self._save_profile(profile)
-            msg = f"Successfully added {added_cnt} facial reference vectors from {len(photo_paths)} photos."
+            msg = f"Successfully trained profile with {added_cnt} high-confidence facial vectors from {len(photo_paths)} photos."
         else:
             msg = f"No matching facial vectors found in {len(photo_paths)} photos."
 
         return added_cnt, len(photo_paths), msg
+
+    def prune_profile_outliers(self, profile_id: str, min_similarity: float = 60.0) -> tuple[int, int]:
+        """
+        Prunes outlier reference photos from a profile that do not match the core identity.
+        Prevents profile contamination when wrong photos were added.
+        Returns (removed_count, remaining_count).
+        """
+        import numpy as np
+
+        profile = self.get_profile(profile_id)
+        if not profile:
+            return 0, 0
+
+        references = profile.get("references", [])
+        raw_embs = profile.get("embeddings", [])
+
+        if len(references) <= 1 or len(raw_embs) <= 1:
+            return 0, len(references)
+
+        valid_embs = []
+        valid_indices = []
+        for idx, e in enumerate(raw_embs):
+            if e is not None and len(e) == 512:
+                valid_embs.append(np.asarray(e, dtype=np.float64))
+                valid_indices.append(idx)
+
+        if not valid_embs:
+            return 0, len(references)
+
+        # Compute core centroid from top reference embeddings
+        stacked = np.array(valid_embs)
+        mean_vec = np.mean(stacked, axis=0)
+        norm = np.linalg.norm(mean_vec)
+        centroid = mean_vec / norm if norm > 0 else mean_vec
+
+        keep_references = []
+        keep_embeddings = []
+        removed_count = 0
+
+        for idx, ref in enumerate(references):
+            if idx < len(raw_embs):
+                emb = np.asarray(raw_embs[idx], dtype=np.float64)
+                score = self.face_engine.calculate_match_score(emb, centroid)
+                if score >= min_similarity:
+                    keep_references.append(ref)
+                    keep_embeddings.append(raw_embs[idx])
+                else:
+                    # Remove outlier reference file
+                    removed_count += 1
+                    try:
+                        stored_path = ref.get("stored_path")
+                        if stored_path and Path(stored_path).exists():
+                            Path(stored_path).unlink()
+                    except Exception:
+                        pass
+            else:
+                keep_references.append(ref)
+
+        profile["references"] = keep_references
+        profile["embeddings"] = keep_embeddings
+        self._save_profile(profile)
+
+        return removed_count, len(keep_references)
 
     @staticmethod
     def assess_reference_quality(pil_img: Image.Image, bbox: list[int]) -> dict[str, Any]:

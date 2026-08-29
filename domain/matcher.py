@@ -89,18 +89,25 @@ class FaceMatcher:
                 profile_best_scores[p_id] = 0.0
                 continue
 
-            best_p_score = 0.0
+            scores = []
             for ref_emb in embeddings:
                 ref_arr = np.asarray(ref_emb, dtype=np.float64)
-                score = self.face_engine.calculate_match_score(face_encoding, ref_arr)
-                best_p_score = max(best_p_score, score)
+                if ref_arr.size > 0:
+                    score = self.face_engine.calculate_match_score(face_encoding, ref_arr)
+                    scores.append(score)
 
-            # Centroid Embedding Averaging: compare against normalized mean vector for multi-photo profiles
-            if len(embeddings) >= 2 and hasattr(self.face_engine, "compute_profile_centroid"):
-                centroid = self.face_engine.compute_profile_centroid(embeddings)
-                if centroid is not None:
-                    c_score = self.face_engine.calculate_match_score(face_encoding, centroid)
-                    best_p_score = max(best_p_score, c_score)
+            if not scores:
+                profile_best_scores[p_id] = 0.0
+                continue
+
+            sorted_scores = sorted(scores, reverse=True)
+            if len(sorted_scores) >= 3:
+                # Robust Consensus Scoring: requires support from multiple reference vectors
+                best_p_score = 0.60 * sorted_scores[0] + 0.25 * sorted_scores[1] + 0.15 * sorted_scores[2]
+            elif len(sorted_scores) == 2:
+                best_p_score = 0.70 * sorted_scores[0] + 0.30 * sorted_scores[1]
+            else:
+                best_p_score = sorted_scores[0]
 
             # Apply discriminative SVM classifier margin adjustment
             final_p_score = self.classifier_service.evaluate_discriminative_margin(
