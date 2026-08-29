@@ -226,6 +226,16 @@ class UnknownFaceService:
             return True
         return False
 
+    def delete_group(self, group_id: str) -> int:
+        """Delete all unknown faces belonging to group_id."""
+        all_faces = self.list_unknown_faces()
+        group_faces = [f for f in all_faces if f.get("group_id") == group_id]
+        deleted_count = 0
+        for gf in group_faces:
+            if self.delete_unknown_face(gf["id"]):
+                deleted_count += 1
+        return deleted_count
+
     def _update_metadata(self, face: dict[str, Any]):
         """Persist metadata to disk (excluding embedding numpy array)."""
         u_id = face["id"]

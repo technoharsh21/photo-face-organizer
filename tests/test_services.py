@@ -158,3 +158,25 @@ def test_unknown_face_grouping_and_conversion():
         # Unknown faces should be cleared
         remaining = u_svc.list_unknown_faces()
         assert len(remaining) == 0
+
+
+def test_delete_unknown_group():
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        config = Config(app_data_dir=Path(tmp_dir))
+        engine = MockFaceEngine()
+        p_svc = ProfileService(config, engine)
+        u_svc = UnknownFaceService(config, p_svc)
+
+        crop = Image.new("RGB", (50, 50), color="green")
+        emb = np.zeros(128)
+
+        u1 = u_svc.store_unknown_face(crop, emb, "photo1.jpg", [0, 50, 50, 0], "scan_1")
+        u2 = u_svc.store_unknown_face(crop, emb, "photo2.jpg", [0, 50, 50, 0], "scan_1")
+
+        groups = u_svc.group_unknown_faces(threshold=50.0)
+        assert len(groups) == 1
+        g_id = groups[0]["group_id"]
+
+        del_cnt = u_svc.delete_group(g_id)
+        assert del_cnt == 2
+        assert len(u_svc.list_unknown_faces()) == 0

@@ -111,6 +111,13 @@ class UnknownFacesPage(QWidget):
         self.btn_rename_grp.clicked.connect(self._rename_group)
         actions_l.addWidget(self.btn_rename_grp)
 
+        self.btn_delete_grp = QPushButton("🗑 Delete Group")
+        self.btn_delete_grp.setProperty("class", "DangerButton")
+        self.btn_delete_grp.setFixedHeight(32)
+        self.btn_delete_grp.setStyleSheet("padding: 0 14px; font-weight: bold; background-color: #ef4444; color: #ffffff; border-radius: 8px;")
+        self.btn_delete_grp.clicked.connect(self._delete_group)
+        actions_l.addWidget(self.btn_delete_grp)
+
         actions_l.addStretch()
         right_l.addLayout(actions_l)
 
@@ -276,4 +283,24 @@ class UnknownFacesPage(QWidget):
     def _delete_face(self, unknown_id: str):
         if unknown_id:
             self.unknown_face_service.delete_unknown_face(unknown_id)
+            self.refresh()
+
+    def _delete_group(self):
+        if not self.current_group_id:
+            return
+
+        grp = next((g for g in self.groups if g.get("group_id") == self.current_group_id), None)
+        grp_name = grp.get("group_name", "this group") if grp else "this group"
+        face_cnt = len(grp.get("faces", [])) if grp else 0
+
+        confirm = QMessageBox.question(
+            self,
+            "Delete Unknown Group",
+            f"Are you sure you want to delete '{grp_name}' ({face_cnt} faces)?\n\nThis action cannot be undone.",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
+        )
+        if confirm == QMessageBox.Yes:
+            self.unknown_face_service.delete_group(self.current_group_id)
+            self.current_group_id = None
             self.refresh()
