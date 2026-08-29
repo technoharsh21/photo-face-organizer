@@ -47,6 +47,48 @@ class InsightFaceEngine:
 
         self._configure_providers()
 
+    def get_system_gpu_name(self) -> str:
+        """Detect the exact real GPU model name on Windows/Linux/macOS."""
+        try:
+            import subprocess
+            import sys
+
+            if sys.platform == "win32":
+                try:
+                    out = subprocess.check_output(
+                        'powershell -Command "Get-CimInstance -ClassName Win32_VideoController | Select-Object -ExpandProperty Name"',
+                        shell=True, text=True, stderr=subprocess.DEVNULL
+                    )
+                    lines = [line.strip() for line in out.splitlines() if line.strip()]
+                    if lines:
+                        for line in lines:
+                            if any(v in line.lower() for v in ["nvidia", "geforce", "rtx", "gtx", "radeon"]):
+                                return line
+                        return lines[0]
+                except Exception:
+                    pass
+
+                try:
+                    out = subprocess.check_output("wmic path win32_VideoController get name", shell=True, text=True, stderr=subprocess.DEVNULL)
+                    lines = [line.strip() for line in out.splitlines() if line.strip() and line.lower() != "name"]
+                    if lines:
+                        for line in lines:
+                            if any(v in line.lower() for v in ["nvidia", "geforce", "rtx", "gtx", "radeon"]):
+                                return line
+                        return lines[0]
+                except Exception:
+                    pass
+
+            elif sys.platform == "linux":
+                out = subprocess.check_output("lspci | grep -i 'vga\\|3d\\|display'", shell=True, text=True, stderr=subprocess.DEVNULL)
+                if out.strip():
+                    return out.splitlines()[0].strip()
+
+        except Exception:
+            pass
+
+        return "NVIDIA / Dedicated GPU"
+
     def _configure_providers(self):
         """Quickly detect hardware providers without loading models into memory (Instant App Launch)."""
         try:
@@ -54,19 +96,20 @@ class InsightFaceEngine:
             logger.info(f"Available ONNX Runtime execution providers: {available_providers}")
 
             self.gpu_available = self._detect_system_gpu() or ("CUDAExecutionProvider" in available_providers or "DmlExecutionProvider" in available_providers)
+            gpu_name = self.get_system_gpu_name()
 
             if self.device_preference == "CPU":
                 self.providers = ["CPUExecutionProvider"]
                 self.active_device = "Multi-Core CPU"
             elif "CUDAExecutionProvider" in available_providers and self.device_preference in ("Auto", "CUDA"):
                 self.providers = ["CUDAExecutionProvider", "CPUExecutionProvider"]
-                self.active_device = "NVIDIA CUDA GPU (GeForce GTX)"
+                self.active_device = f"NVIDIA CUDA GPU ({gpu_name})"
             elif "DmlExecutionProvider" in available_providers and self.device_preference in ("Auto", "DirectML", "GPU"):
                 self.providers = ["DmlExecutionProvider", "CPUExecutionProvider"]
-                self.active_device = "DirectX 12 GPU (NVIDIA GTX 1650 / AMD)"
+                self.active_device = f"DirectX 12 GPU ({gpu_name})"
             elif "OpenVINOExecutionProvider" in available_providers and self.device_preference != "CPU":
                 self.providers = ["OpenVINOExecutionProvider", "CPUExecutionProvider"]
-                self.active_device = "Intel Iris / OpenVINO GPU"
+                self.active_device = f"Intel OpenVINO GPU ({gpu_name})"
             elif "CoreMLExecutionProvider" in available_providers and self.device_preference != "CPU":
                 self.providers = ["CoreMLExecutionProvider", "CPUExecutionProvider"]
                 self.active_device = "Apple CoreML GPU"
