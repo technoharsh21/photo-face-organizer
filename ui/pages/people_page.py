@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from PIL import Image
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QThread, Signal
 from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
     QButtonGroup,
@@ -125,8 +125,15 @@ class PeoplePage(QWidget):
 
         self.btn_add_ref = QPushButton("📷 Add Reference Photo")
         self.btn_add_ref.setProperty("class", "PrimaryButton")
+        self.btn_add_ref.setCursor(Qt.PointingHandCursor)
         self.btn_add_ref.clicked.connect(self._add_reference_photo)
         p_header_layout.addWidget(self.btn_add_ref)
+
+        self.btn_batch_train = QPushButton("📁 Batch Train Profile from Folder")
+        self.btn_batch_train.setProperty("class", "SecondaryButton")
+        self.btn_batch_train.setCursor(Qt.PointingHandCursor)
+        self.btn_batch_train.clicked.connect(self._batch_train_profile)
+        p_header_layout.addWidget(self.btn_batch_train)
 
         self.btn_group_type = QPushButton("👥 Group Settings")
         self.btn_group_type.setProperty("class", "SecondaryButton")
@@ -426,6 +433,64 @@ class PeoplePage(QWidget):
             imported = self.profile_service.bulk_import_profiles(Path(folder))
             QMessageBox.information(self, "Bulk Import Complete", f"Imported {len(imported)} profiles.")
             self.refresh()
+
+    def _batch_train_profile(self):
+        if not self.current_profile_id:
+            return
+
+        folder = QFileDialog.getExistingDirectory(self, "Select Folder Containing Photos of Person")
+        if not folder:
+            return
+
+        profile = self.profile_service.get_profile(self.current_profile_id)
+        p_name = profile.get("name", "Person") if profile else "Person"
+
+        self.btn_batch_train.setEnabled(False)
+        self.btn_batch_train.setText("⏳ Training... Please wait")
+
+        self.worker = ProfileBatchTrainWorker(
+            profile_service=self.profile_service,
+            profile_id=self.current_profile_id,
+            folder_path=Path(folder),
+        )
+        self.worker.finished_signal.connect(
+            lambda added, total, msg, p_id=self.current_profile_id, name=p_name: self._on_batch_train_finished(added, total, msg, p_id, name)
+        )
+        self.worker.start()
+
+    def _on_batch_train_finished(self, added: int, total: int, msg: str, profile_id: str, profile_name: str):
+        self.btn_batch_train.setEnabled(True)
+        self.btn_batch_train.setText("📁 Batch Train Profile from Folder")
+
+        if added > 0:
+            QMessageBox.information(
+                self,
+                "Batch Training Complete",
+                f"✨ Successfully imported {added} facial reference vectors for {profile_name} from {total} photos!\n\nProfile recognition accuracy and context updated.",
+            )
+        else:
+            QMessageBox.warning(self, "No Facial Vectors Added", msg)
+
+        self.refresh(select_profile_id=profile_id)
+
+
+class ProfileBatchTrainWorker(QThread):
+    finished_signal = Signal(int, int, str)
+
+    def __init__(self, profile_service: ProfileService, profile_id: str, folder_path: Path):
+        super().__init__()
+        self.profile_service = profile_service
+        self.profile_id = profile_id
+        self.folder_path = folder_path
+
+    def run(self):
+        try:
+            added, total, msg = self.profile_service.batch_add_reference_photos_from_folder(
+                self.profile_id, self.folder_path
+            )
+            self.finished_signal.emit(added, total, msg)
+        except Exception as e:
+            self.finished_signal.emit(0, 0, str(e))
 
 
 class CreateProfileDialog(QDialog):

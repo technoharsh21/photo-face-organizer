@@ -301,6 +301,114 @@ class ProfileService:
         self._save_profile(profile)
         return True, "Reference photo added successfully"
 
+    def batch_add_reference_photos_from_folder(
+        self, profile_id: str, folder_path: Path, recursive: bool = True
+    ) -> tuple[int, int, str]:
+        """
+        Scans all photos in folder_path, extracts face vectors belonging to profile_id,
+        and batch imports them into profile.json for continuous learning.
+        Returns (added_count, total_scanned_files, message).
+        """
+        import uuid
+        import numpy as np
+        from domain.scanner import discover_photos
+
+        profile = self.get_profile(profile_id)
+        if not profile:
+            return 0, 0, "Profile not found"
+
+        photo_paths = discover_photos([str(folder_path)], recursive=recursive)
+        if not photo_paths:
+            return 0, 0, "No supported photos found in selected directory"
+
+        added_cnt = 0
+        existing_embs = [
+            np.asarray(e, dtype=np.float64)
+            for e in profile.get("embeddings", [])
+            if e is not None and len(e) == 512
+        ]
+
+        for p_path in photo_paths:
+            try:
+                pil_img, err = load_image(p_path)
+                if pil_img is None:
+                    continue
+
+                locations = self.face_engine.detect_faces(pil_img)
+                if not locations:
+                    continue
+
+                best_idx = 0
+                if len(locations) > 1:
+                    if not existing_embs:
+                        continue  # Multiple faces and no baseline -> skip to avoid wrong person
+                    best_score = -1.0
+                    all_embs = self.face_engine.create_embeddings(pil_img, locations)
+                    for idx, emb in enumerate(all_embs):
+                        for ref_arr in existing_embs:
+                            sc = self.face_engine.calculate_match_score(emb, ref_arr)
+                            if sc > best_score:
+                                best_score = sc
+                                best_idx = idx
+                    if best_score < 45.0:
+                        continue
+
+                target_bbox = locations[best_idx]
+                embs = self.face_engine.create_embeddings(pil_img, [target_bbox])
+                if not embs:
+                    continue
+
+                new_emb = embs[0]
+
+                # Consistency verification if baseline embeddings exist
+                if existing_embs:
+                    is_consistent = False
+                    for ref_arr in existing_embs:
+                        sc = self.face_engine.calculate_match_score(new_emb, ref_arr)
+                        if sc >= 45.0:
+                            is_consistent = True
+                            break
+                    if not is_consistent:
+                        continue
+
+                # Add face crop as reference photo
+                crops = self.face_engine.extract_faces(pil_img, [target_bbox])
+                face_crop = crops[0] if crops else pil_img
+
+                ref_id = str(uuid.uuid4())
+                ref_filename = f"ref_{ref_id}.jpg"
+                ref_dest_dir = self.profiles_dir / profile_id / "references"
+                ref_dest_dir.mkdir(parents=True, exist_ok=True)
+                ref_dest_path = ref_dest_dir / ref_filename
+
+                face_crop.save(ref_dest_path, format="JPEG", quality=92)
+                quality_info = self.assess_reference_quality(pil_img, list(target_bbox))
+
+                ref_entry = {
+                    "id": ref_id,
+                    "filename": ref_filename,
+                    "bbox": target_bbox,
+                    "stored_path": str(ref_dest_path),
+                    "is_fallback": False,
+                    "quality": quality_info,
+                }
+
+                profile.setdefault("references", []).append(ref_entry)
+                profile.setdefault("embeddings", []).append(new_emb.tolist())
+                existing_embs.append(new_emb)
+                added_cnt += 1
+
+            except Exception as e:
+                logger.warning(f"Error processing {p_path} during batch training: {e}")
+
+        if added_cnt > 0:
+            self._save_profile(profile)
+            msg = f"Successfully added {added_cnt} facial reference vectors from {len(photo_paths)} photos."
+        else:
+            msg = f"No matching facial vectors found in {len(photo_paths)} photos."
+
+        return added_cnt, len(photo_paths), msg
+
     @staticmethod
     def assess_reference_quality(pil_img: Image.Image, bbox: list[int]) -> dict[str, Any]:
         """
