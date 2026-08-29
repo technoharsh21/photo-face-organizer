@@ -42,6 +42,9 @@ class ProfileMatchResult:
         return self.matched_profile_id is not None
 
 
+from services.classifier_service import ProfileClassifierService
+
+
 class FaceMatcher:
     """
     Evaluates detected face encodings against reference profiles.
@@ -50,6 +53,8 @@ class FaceMatcher:
     def __init__(self, face_engine: FaceEngine, threshold: float = 50.0):
         self.face_engine = face_engine
         self.threshold = threshold
+        self.classifier_service = ProfileClassifierService()
+        self._last_profile_count = -1
 
     def match_face(
         self,
@@ -65,6 +70,11 @@ class FaceMatcher:
         best_profile_id: str | None = None
         best_profile_name: str | None = None
         highest_score: float = -1.0
+
+        # Auto-train fast discriminative classifier on-device when profile set changes
+        if len(profiles) != self._last_profile_count:
+            self.classifier_service.train_classifier(profiles)
+            self._last_profile_count = len(profiles)
 
         for profile in profiles:
             # Skip Group Profiles during individual face matching (Group Profiles are evaluated holistically in evaluate_photo_matches)
@@ -92,10 +102,15 @@ class FaceMatcher:
                     c_score = self.face_engine.calculate_match_score(face_encoding, centroid)
                     best_p_score = max(best_p_score, c_score)
 
-            profile_best_scores[p_id] = best_p_score
+            # Apply discriminative SVM classifier margin adjustment
+            final_p_score = self.classifier_service.evaluate_discriminative_margin(
+                face_encoding, p_id, best_p_score
+            )
 
-            if best_p_score > highest_score:
-                highest_score = best_p_score
+            profile_best_scores[p_id] = final_p_score
+
+            if final_p_score > highest_score:
+                highest_score = final_p_score
                 best_profile_id = p_id
                 best_profile_name = p_name
 
