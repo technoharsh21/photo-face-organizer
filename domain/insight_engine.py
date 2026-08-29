@@ -48,7 +48,7 @@ class InsightFaceEngine:
         self._configure_providers()
 
     def get_system_gpu_name(self) -> str:
-        """Detect the exact real GPU model name on Windows/Linux/macOS."""
+        """Dynamically fetch the exact real GPU model name in real-time from OS kernel queries."""
         try:
             import subprocess
             import sys
@@ -62,7 +62,7 @@ class InsightFaceEngine:
                     lines = [line.strip() for line in out.splitlines() if line.strip()]
                     if lines:
                         for line in lines:
-                            if any(v in line.lower() for v in ["nvidia", "geforce", "rtx", "gtx", "radeon"]):
+                            if any(v in line.lower() for v in ["nvidia", "geforce", "rtx", "gtx", "radeon", "amd"]):
                                 return line
                         return lines[0]
                 except Exception:
@@ -73,7 +73,7 @@ class InsightFaceEngine:
                     lines = [line.strip() for line in out.splitlines() if line.strip() and line.lower() != "name"]
                     if lines:
                         for line in lines:
-                            if any(v in line.lower() for v in ["nvidia", "geforce", "rtx", "gtx", "radeon"]):
+                            if any(v in line.lower() for v in ["nvidia", "geforce", "rtx", "gtx", "radeon", "amd"]):
                                 return line
                         return lines[0]
                 except Exception:
@@ -82,12 +82,28 @@ class InsightFaceEngine:
             elif sys.platform == "linux":
                 out = subprocess.check_output("lspci | grep -i 'vga\\|3d\\|display'", shell=True, text=True, stderr=subprocess.DEVNULL)
                 if out.strip():
-                    return out.splitlines()[0].strip()
+                    raw_line = out.splitlines()[0].strip()
+                    if ":" in raw_line:
+                        gpu_part = raw_line.split(":", 2)[-1].strip()
+                        # Clean bracketed names e.g. Advanced Micro Devices... [Radeon Vega Series]
+                        if "[" in gpu_part and "]" in gpu_part:
+                            start = gpu_part.rfind("[") + 1
+                            end = gpu_part.rfind("]")
+                            if start < end:
+                                bracket_name = gpu_part[start:end]
+                                return f"AMD/NVIDIA {bracket_name}"
+                        return gpu_part
+                    return raw_line
+
+            elif sys.platform == "darwin":
+                out = subprocess.check_output("system_profiler SPDisplaysDataType | grep 'Chipset Model'", shell=True, text=True, stderr=subprocess.DEVNULL)
+                if out.strip():
+                    return out.split(":", 1)[-1].strip()
 
         except Exception:
             pass
 
-        return "NVIDIA / Dedicated GPU"
+        return "GPU Accelerator"
 
     def _configure_providers(self):
         """Quickly detect hardware providers without loading models into memory (Instant App Launch)."""
