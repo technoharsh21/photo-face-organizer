@@ -550,7 +550,7 @@ class ProfileBatchTrainWorker(QThread):
 
 
 class CreateProfileDialog(QDialog):
-    """Dialog for creating or editing Individual or Group profiles."""
+    """Dialog for creating or editing Individual or Group profiles with smooth scrolling and fixed actions."""
 
     def __init__(
         self,
@@ -560,8 +560,9 @@ class CreateProfileDialog(QDialog):
     ):
         super().__init__(parent)
         self.initial_profile = initial_profile
-        self.setWindowTitle("Edit Profile Settings" if initial_profile else "Create New Profile")
-        self.setMinimumWidth(420)
+        self.setWindowTitle("⚙️ Edit Profile Settings" if initial_profile else "👤 Create New Profile")
+        self.setMinimumSize(480, 480)
+        self.resize(500, 560)
         self.existing_profiles = existing_profiles
 
         self.profile_name: str = initial_profile.get("name", "") if initial_profile else ""
@@ -573,26 +574,70 @@ class CreateProfileDialog(QDialog):
         self._setup_ui()
 
     def _setup_ui(self):
-        layout = QVBoxLayout(self)
-        layout.setSpacing(14)
+        # Dialog Root Layout
+        root_layout = QVBoxLayout(self)
+        root_layout.setContentsMargins(20, 20, 20, 20)
+        root_layout.setSpacing(14)
 
-        lbl_title = QLabel("Profile Settings" if self.initial_profile else "Create Profile")
-        lbl_title.setStyleSheet("font-size: 16px; font-weight: bold; color: #ffffff;")
-        layout.addWidget(lbl_title)
+        # Header Title
+        title_box = QVBoxLayout()
+        title_box.setSpacing(4)
+        lbl_title = QLabel("⚙️ Profile Settings" if self.initial_profile else "👤 Create Profile")
+        lbl_title.setStyleSheet("font-size: 18px; font-weight: 800; color: #ffffff;")
+        lbl_sub = QLabel(
+            "Configure person identity or group detection settings."
+            if not self.initial_profile
+            else "Update profile name and compulsory group members."
+        )
+        lbl_sub.setStyleSheet("color: #94a3b8; font-size: 12px;")
+        title_box.addWidget(lbl_title)
+        title_box.addWidget(lbl_sub)
+        root_layout.addLayout(title_box)
 
-        layout.addWidget(QLabel("Profile Name:"))
+        # Middle Form Content Area (Scrollable if screen is constrained)
+        form_scroll = QScrollArea()
+        form_scroll.setWidgetResizable(True)
+        form_scroll.setStyleSheet("background: transparent; border: none;")
+
+        form_widget = QWidget()
+        form_layout = QVBoxLayout(form_widget)
+        form_layout.setContentsMargins(0, 0, 0, 0)
+        form_layout.setSpacing(14)
+
+        # 1. Profile Name
+        name_card = QFrame()
+        name_card.setStyleSheet("background-color: #111827; border: 1px solid #1e293b; border-radius: 10px; padding: 12px;")
+        nc_layout = QVBoxLayout(name_card)
+        nc_layout.setSpacing(6)
+
+        lbl_name_tag = QLabel("<b>Profile Name:</b>")
+        lbl_name_tag.setStyleSheet("color: #ffffff; font-size: 13px;")
+        nc_layout.addWidget(lbl_name_tag)
+
         self.txt_name = QLineEdit()
-        self.txt_name.setPlaceholderText("e.g. Harsh, John, or Me & Friend")
+        self.txt_name.setPlaceholderText("e.g. Harsh, Mom, Dad, or Couple: Alex & Sam")
         if self.profile_name:
             self.txt_name.setText(self.profile_name)
-        layout.addWidget(self.txt_name)
+        nc_layout.addWidget(self.txt_name)
+        form_layout.addWidget(name_card)
 
-        layout.addWidget(QLabel("Profile Type:"))
-        self.radio_indiv = QRadioButton("Individual Person Profile")
-        self.radio_indiv.setStyleSheet("color: #ffffff;")
+        # 2. Profile Type
+        type_card = QFrame()
+        type_card.setStyleSheet("background-color: #111827; border: 1px solid #1e293b; border-radius: 10px; padding: 12px;")
+        tc_layout = QVBoxLayout(type_card)
+        tc_layout.setSpacing(10)
 
-        self.radio_group = QRadioButton("Group Profile (Requires ALL compulsory people to be present in photo)")
-        self.radio_group.setStyleSheet("color: #ffffff;")
+        lbl_type_tag = QLabel("<b>Profile Type:</b>")
+        lbl_type_tag.setStyleSheet("color: #ffffff; font-size: 13px;")
+        tc_layout.addWidget(lbl_type_tag)
+
+        self.radio_indiv = QRadioButton("👤 Individual Person Profile (Standard)")
+        self.radio_indiv.setStyleSheet("color: #ffffff; font-weight: 600;")
+        self.radio_indiv.setCursor(Qt.PointingHandCursor)
+
+        self.radio_group = QRadioButton("👥 Group Profile (Requires ALL compulsory members in photo)")
+        self.radio_group.setStyleSheet("color: #ffffff; font-weight: 600;")
+        self.radio_group.setCursor(Qt.PointingHandCursor)
 
         if self.is_group_profile:
             self.radio_group.setChecked(True)
@@ -603,47 +648,86 @@ class CreateProfileDialog(QDialog):
         self.btn_grp.addButton(self.radio_indiv, 0)
         self.btn_grp.addButton(self.radio_group, 1)
 
-        layout.addWidget(self.radio_indiv)
-        layout.addWidget(self.radio_group)
+        tc_layout.addWidget(self.radio_indiv)
+        tc_layout.addWidget(self.radio_group)
+        form_layout.addWidget(type_card)
 
-        # Compulsory Profiles selection frame
+        # 3. Compulsory Profiles Selection Box (Clean Bounded Scrollable List)
         self.compulsory_frame = QFrame()
-        self.compulsory_frame.setStyleSheet("background-color: #181820; border-radius: 6px; padding: 10px;")
+        self.compulsory_frame.setStyleSheet("background-color: #111827; border: 1px solid #1e293b; border-radius: 10px; padding: 12px;")
         cf_layout = QVBoxLayout(self.compulsory_frame)
-        cf_layout.setSpacing(6)
+        cf_layout.setSpacing(8)
 
-        cf_layout.addWidget(QLabel("Select Compulsory People for this Group:"))
-        self.compulsory_checkboxes = {}
+        self.lbl_compulsory_header = QLabel("<b>Select Compulsory People for this Group:</b>")
+        self.lbl_compulsory_header.setStyleSheet("color: #38bdf8; font-size: 13px;")
+        cf_layout.addWidget(self.lbl_compulsory_header)
+
+        # Search filter for people list
+        self.txt_filter_people = QLineEdit()
+        self.txt_filter_people.setPlaceholderText("🔍 Filter people...")
+        self.txt_filter_people.textChanged.connect(self._filter_compulsory_people)
+        cf_layout.addWidget(self.txt_filter_people)
+
+        # Scrollable ListWidget for Checkboxes
+        self.compulsory_list = QListWidget()
+        self.compulsory_list.setStyleSheet(
+            "QListWidget { background-color: #0b0f19; border: 1px solid #1e293b; border-radius: 8px; color: #f8fafc; padding: 4px; }"
+            "QListWidget::item { padding: 8px 10px; border-bottom: 1px solid #1e293b; }"
+            "QListWidget::item:hover { background-color: #1e293b; }"
+        )
+        self.compulsory_list.setFixedHeight(180)
 
         for p in self.existing_profiles:
             if not p.get("is_group_profile"):
-                chk = QCheckBox(p.get("name", "Unknown"))
-                chk.setStyleSheet("color: #e0e0e0;")
+                item = QListWidgetItem(f"👤  {p.get('name', 'Unknown')}")
+                item.setData(Qt.UserRole, p.get("id"))
+                item.setFlags(item.flags() | Qt.ItemIsUserCheckable)
                 if p.get("id") in self.selected_compulsory_ids:
-                    chk.setChecked(True)
-                cf_layout.addWidget(chk)
-                self.compulsory_checkboxes[p.get("id")] = chk
+                    item.setCheckState(Qt.Checked)
+                else:
+                    item.setCheckState(Qt.Unchecked)
+                self.compulsory_list.addItem(item)
 
-        self.compulsory_frame.setEnabled(self.is_group_profile)
-        layout.addWidget(self.compulsory_frame)
+        cf_layout.addWidget(self.compulsory_list)
+        form_layout.addWidget(self.compulsory_frame)
 
-        self.radio_group.toggled.connect(self.compulsory_frame.setEnabled)
+        # Toggle visibility of compulsory group frame based on type
+        self.compulsory_frame.setVisible(self.is_group_profile)
+        self.radio_group.toggled.connect(self.compulsory_frame.setVisible)
 
-        # Buttons
+        form_layout.addStretch()
+        form_scroll.setWidget(form_widget)
+        root_layout.addWidget(form_scroll, 1)
+
+        # Fixed Permanent Footer Action Buttons (ALWAYS VISIBLE)
         btn_layout = QHBoxLayout()
-        btn_layout.addStretch()
+        btn_layout.setSpacing(12)
 
         btn_cancel = QPushButton("Cancel")
         btn_cancel.setProperty("class", "SecondaryButton")
+        btn_cancel.setCursor(Qt.PointingHandCursor)
+        btn_cancel.setFixedHeight(38)
         btn_cancel.clicked.connect(self.reject)
         btn_layout.addWidget(btn_cancel)
 
-        btn_ok = QPushButton("Create Profile")
-        btn_ok.setProperty("class", "PrimaryButton")
-        btn_ok.clicked.connect(self._on_confirm)
-        btn_layout.addWidget(btn_ok)
+        btn_layout.addStretch()
 
-        layout.addLayout(btn_layout)
+        btn_text = "💾 Save Changes" if self.initial_profile else "👤 Create Profile"
+        self.btn_ok = QPushButton(btn_text)
+        self.btn_ok.setProperty("class", "PrimaryButton")
+        self.btn_ok.setCursor(Qt.PointingHandCursor)
+        self.btn_ok.setFixedHeight(38)
+        self.btn_ok.setStyleSheet("background-color: #10b981; color: #ffffff; font-weight: bold; padding: 0 20px;")
+        self.btn_ok.clicked.connect(self._on_confirm)
+        btn_layout.addWidget(self.btn_ok)
+
+        root_layout.addLayout(btn_layout)
+
+    def _filter_compulsory_people(self, query: str):
+        q = query.strip().lower()
+        for i in range(self.compulsory_list.count()):
+            item = self.compulsory_list.item(i)
+            item.setHidden(q not in item.text().lower())
 
     def _on_confirm(self):
         name = self.txt_name.text().strip()
@@ -655,9 +739,13 @@ class CreateProfileDialog(QDialog):
         self.is_group_profile = self.radio_group.isChecked()
 
         if self.is_group_profile:
-            self.selected_compulsory_ids = [
-                p_id for p_id, chk in self.compulsory_checkboxes.items() if chk.isChecked()
-            ]
+            selected_ids = []
+            for i in range(self.compulsory_list.count()):
+                item = self.compulsory_list.item(i)
+                if item.checkState() == Qt.Checked:
+                    selected_ids.append(item.data(Qt.UserRole))
+            self.selected_compulsory_ids = selected_ids
+
             if len(self.selected_compulsory_ids) < 2:
                 QMessageBox.warning(
                     self,

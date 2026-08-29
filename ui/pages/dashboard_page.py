@@ -44,21 +44,13 @@ class DashboardPage(QWidget):
         self._setup_ui()
 
     def _setup_ui(self):
-        page_layout = QVBoxLayout(self)
-        page_layout.setContentsMargins(0, 0, 0, 0)
-
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setStyleSheet("background: transparent; border: none;")
-
-        content = QWidget()
-        layout = QVBoxLayout(content)
+        layout = QVBoxLayout(self)
         layout.setContentsMargins(20, 20, 20, 20)
-        layout.setSpacing(16)
+        layout.setSpacing(14)
 
         # Stats Cards Grid
         stats_layout = QHBoxLayout()
-        stats_layout.setSpacing(16)
+        stats_layout.setSpacing(14)
 
         self.card_profiles = self._create_stat_card("Total Profiles", "0", "#3b82f6")
         self.card_processed = self._create_stat_card("Processed Photos", "0", "#10b981")
@@ -74,16 +66,16 @@ class DashboardPage(QWidget):
 
         # Hero Banner Card with Quick Actions
         actions_frame = QFrame()
-        actions_frame.setStyleSheet("background-color: #111827; border: 1px solid #1f2937; border-radius: 12px; padding: 20px;")
+        actions_frame.setStyleSheet("background-color: #111827; border: 1px solid #1f2937; border-radius: 12px; padding: 16px;")
         actions_layout = QHBoxLayout(actions_frame)
-        actions_layout.setContentsMargins(16, 16, 16, 16)
-        actions_layout.setSpacing(20)
+        actions_layout.setContentsMargins(14, 12, 14, 12)
+        actions_layout.setSpacing(16)
 
         hero_text_box = QVBoxLayout()
         hero_text_box.setSpacing(4)
         hero_title = QLabel("⚡ <b>InsightFace AI Photo Scanner</b>")
-        hero_title.setStyleSheet("font-size: 18px; font-weight: 800; color: #ffffff; border: none; background: transparent;")
-        hero_sub = QLabel("Organize your photo library with 99.86% AI accuracy. Zero false matches.")
+        hero_title.setStyleSheet("font-size: 16px; font-weight: 800; color: #ffffff; border: none; background: transparent;")
+        hero_sub = QLabel("Organize photo libraries with 99.86% AI accuracy and 0% false matches.")
         hero_sub.setStyleSheet("color: #94a3b8; font-size: 12px; border: none; background: transparent;")
         hero_text_box.addWidget(hero_title)
         hero_text_box.addWidget(hero_sub)
@@ -91,39 +83,43 @@ class DashboardPage(QWidget):
         actions_layout.addLayout(hero_text_box, 1)
 
         buttons_layout = QHBoxLayout()
-        buttons_layout.setSpacing(10)
+        buttons_layout.setSpacing(8)
 
         btn_new_scan = QPushButton("🚀 Standard Scan")
-        btn_new_scan.setFixedHeight(38)
+        btn_new_scan.setFixedHeight(36)
+        btn_new_scan.setCursor(Qt.PointingHandCursor)
         btn_new_scan.setStyleSheet(
-            "QPushButton { background-color: #10b981; color: #ffffff; font-weight: 700; border-radius: 8px; padding: 0 16px; font-size: 13px; border: 1px solid #059669; }"
+            "QPushButton { background-color: #10b981; color: #ffffff; font-weight: 700; border-radius: 8px; padding: 0 14px; font-size: 13px; border: 1px solid #059669; }"
             "QPushButton:hover { background-color: #059669; }"
         )
         btn_new_scan.clicked.connect(lambda: self.navigate_cb("New Scan"))
         buttons_layout.addWidget(btn_new_scan)
 
         btn_solo_scan = QPushButton("🎯 Solo Scan (0% False)")
-        btn_solo_scan.setFixedHeight(38)
+        btn_solo_scan.setFixedHeight(36)
+        btn_solo_scan.setCursor(Qt.PointingHandCursor)
         btn_solo_scan.setStyleSheet(
-            "QPushButton { background-color: #0284c7; color: #ffffff; font-weight: 700; border-radius: 8px; padding: 0 16px; font-size: 13px; border: 1px solid #0369a1; }"
+            "QPushButton { background-color: #0284c7; color: #ffffff; font-weight: 700; border-radius: 8px; padding: 0 14px; font-size: 13px; border: 1px solid #0369a1; }"
             "QPushButton:hover { background-color: #0369a1; }"
         )
         btn_solo_scan.clicked.connect(lambda: self.navigate_cb("Solo Scan"))
         buttons_layout.addWidget(btn_solo_scan)
 
         btn_people = QPushButton("👥 People")
-        btn_people.setFixedHeight(38)
+        btn_people.setFixedHeight(36)
+        btn_people.setCursor(Qt.PointingHandCursor)
         btn_people.setStyleSheet(
-            "QPushButton { background-color: #1e293b; color: #38bdf8; font-weight: 700; border-radius: 8px; padding: 0 16px; font-size: 13px; border: 1px solid #3b82f6; }"
+            "QPushButton { background-color: #1e293b; color: #38bdf8; font-weight: 700; border-radius: 8px; padding: 0 14px; font-size: 13px; border: 1px solid #3b82f6; }"
             "QPushButton:hover { background-color: #1d4ed8; color: #ffffff; }"
         )
         btn_people.clicked.connect(lambda: self.navigate_cb("People"))
         buttons_layout.addWidget(btn_people)
 
         btn_unknowns = QPushButton("❓ Unknown Faces")
-        btn_unknowns.setFixedHeight(38)
+        btn_unknowns.setFixedHeight(36)
+        btn_unknowns.setCursor(Qt.PointingHandCursor)
         btn_unknowns.setStyleSheet(
-            "QPushButton { background-color: #1e293b; color: #38bdf8; font-weight: 700; border-radius: 8px; padding: 0 16px; font-size: 13px; border: 1px solid #3b82f6; }"
+            "QPushButton { background-color: #1e293b; color: #38bdf8; font-weight: 700; border-radius: 8px; padding: 0 14px; font-size: 13px; border: 1px solid #3b82f6; }"
             "QPushButton:hover { background-color: #1d4ed8; color: #ffffff; }"
         )
         btn_unknowns.clicked.connect(lambda: self.navigate_cb("Unknown Faces"))
@@ -138,16 +134,17 @@ class DashboardPage(QWidget):
         layout.addWidget(scans_header)
 
         self.scans_list = QListWidget()
-        layout.addWidget(self.scans_list)
+        self.scans_list.setStyleSheet(
+            "QListWidget { background-color: #111827; border: 1px solid #1f2937; border-radius: 10px; color: #f8fafc; padding: 6px; }"
+            "QListWidget::item { padding: 8px 12px; border-bottom: 1px solid #1e293b; border-radius: 6px; margin-bottom: 2px; }"
+            "QListWidget::item:hover { background-color: #1e293b; }"
+        )
+        layout.addWidget(self.scans_list, 1)
 
         self.empty_label = QLabel("No scan history found. Create people and run your first scan!")
         self.empty_label.setAlignment(Qt.AlignCenter)
         self.empty_label.setStyleSheet("color: #a0a0b0; font-size: 14px; margin: 30px;")
         layout.addWidget(self.empty_label)
-
-        layout.addStretch()
-        scroll.setWidget(content)
-        page_layout.addWidget(scroll)
 
     def _create_stat_card(self, label_text: str, value_text: str, color: str) -> dict:
         frame = QFrame()

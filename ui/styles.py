@@ -171,46 +171,80 @@ QPushButton[class="DangerButton"]:hover, QPushButton.DangerButton:hover {
 }
 
 /* Inputs & Form Controls */
-QLineEdit, QSpinBox, QDoubleSpinBox, QComboBox {
+QLineEdit, QSpinBox, QDoubleSpinBox {
     background-color: #0f172a;
     border: 1px solid #334155;
     border-radius: 8px;
     padding: 8px 14px;
-    color: #f8fafc;
+    color: #ffffff;
     font-size: 13px;
+}
+
+QComboBox {
+    background-color: #0f172a;
+    border: 1px solid #3b82f6;
+    border-radius: 8px;
+    padding: 8px 36px 8px 14px;
+    color: #ffffff;
+    font-size: 13px;
+    font-weight: 600;
+    min-height: 22px;
+}
+
+QComboBox:hover {
+    border: 1px solid #60a5fa;
+    background-color: #1e293b;
 }
 
 QLineEdit:focus, QSpinBox:focus, QDoubleSpinBox:focus, QComboBox:focus {
     border: 2px solid #38bdf8;
     background-color: #1e293b;
+    color: #ffffff;
 }
 
 QComboBox::drop-down {
-    border: none;
-    padding-right: 10px;
+    subcontrol-origin: padding;
+    subcontrol-position: top right;
+    width: 32px;
+    border-left: 1px solid #334155;
+    border-top-right-radius: 8px;
+    border-bottom-right-radius: 8px;
+    background-color: #1e293b;
+}
+
+QComboBox::down-arrow {
+    image: none;
+    border-left: 5px solid transparent;
+    border-right: 5px solid transparent;
+    border-top: 6px solid #38bdf8;
+    width: 0px;
+    height: 0px;
 }
 
 QComboBox QAbstractItemView {
-    background-color: #1e293b;
-    color: #f8fafc;
+    background-color: #0f172a;
+    color: #ffffff;
     selection-background-color: #0284c7;
     selection-color: #ffffff;
-    border: 1px solid #334155;
-    border-radius: 6px;
+    border: 1px solid #3b82f6;
+    border-radius: 8px;
     outline: 0px;
-    padding: 4px;
+    padding: 6px;
 }
 
 QComboBox QAbstractItemView::item {
-    background-color: #1e293b;
+    background-color: #0f172a;
     color: #f8fafc;
-    min-height: 26px;
-    padding: 6px 12px;
+    min-height: 32px;
+    padding: 6px 14px;
+    border-radius: 4px;
+    margin: 2px 0;
 }
 
 QComboBox QAbstractItemView::item:selected, QComboBox QAbstractItemView::item:hover {
     background-color: #0284c7 !important;
     color: #ffffff !important;
+    font-weight: bold;
 }
 
 /* Wizard Step Breadcrumb Navigation Bar */
