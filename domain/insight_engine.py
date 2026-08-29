@@ -141,12 +141,12 @@ class InsightFaceEngine:
             self.gpu_available = False
 
     def get_system_cpu_name(self) -> str:
-        """Detect the exact real CPU model name on Linux/Windows/macOS."""
+        """Detect the exact real CPU model name, physical cores, and logical threads on Linux/Windows/macOS."""
         import subprocess
         import sys
 
-        cores = os.cpu_count() or 4
-        cores_str = f"{cores} Cores"
+        logical_threads = os.cpu_count() or 4
+        physical_cores = logical_threads
 
         def _clean_cpu(raw_name: str) -> str:
             clean = raw_name
@@ -156,6 +156,21 @@ class InsightFaceEngine:
 
         try:
             if sys.platform == "linux":
+                try:
+                    out = subprocess.check_output("lscpu", shell=True, text=True, stderr=subprocess.DEVNULL)
+                    cps, sockets = None, 1
+                    for line in out.splitlines():
+                        if "Core(s) per socket:" in line:
+                            cps = int(line.split(":")[-1].strip())
+                        elif "Socket(s):" in line:
+                            sockets = int(line.split(":")[-1].strip())
+                    if cps and sockets:
+                        physical_cores = cps * sockets
+                except Exception:
+                    pass
+
+                cores_label = f"{physical_cores} Cores / {logical_threads} Threads" if physical_cores != logical_threads else f"{logical_threads} Cores"
+
                 if Path("/proc/cpuinfo").exists():
                     text = Path("/proc/cpuinfo").read_text(encoding="utf-8", errors="ignore")
                     for line in text.splitlines():
@@ -163,38 +178,55 @@ class InsightFaceEngine:
                             parts = line.split(":", 1)
                             if len(parts) == 2:
                                 name = _clean_cpu(parts[1].strip())
-                                return f"{name} ({cores_str})"
+                                return f"{name} ({cores_label})"
                 out = subprocess.check_output("lscpu", shell=True, text=True, stderr=subprocess.DEVNULL)
                 for line in out.splitlines():
                     if "model name" in line.lower():
                         parts = line.split(":", 1)
                         if len(parts) == 2:
                             name = _clean_cpu(parts[1].strip())
-                            return f"{name} ({cores_str})"
+                            return f"{name} ({cores_label})"
 
             elif sys.platform == "win32":
                 try:
-                    out = subprocess.check_output(
-                        'powershell -Command "Get-CimInstance -ClassName Win32_Processor | Select-Object -ExpandProperty Name"',
+                    out_json = subprocess.check_output(
+                        'powershell -Command "Get-CimInstance -ClassName Win32_Processor | Select-Object -Property Name, NumberOfCores, NumberOfLogicalProcessors | ConvertTo-Json"',
                         shell=True, text=True, stderr=subprocess.DEVNULL
                     )
-                    lines = [line.strip() for line in out.splitlines() if line.strip()]
-                    if lines:
-                        name = _clean_cpu(lines[0])
-                        return f"{name} ({cores_str})"
+                    import json
+                    data = json.loads(out_json)
+                    if isinstance(data, list):
+                        data = data[0]
+                    name = _clean_cpu(data.get("Name", ""))
+                    p_cores = data.get("NumberOfCores")
+                    l_threads = data.get("NumberOfLogicalProcessors") or logical_threads
+                    if p_cores and l_threads:
+                        c_label = f"{p_cores} Cores / {l_threads} Threads" if p_cores != l_threads else f"{l_threads} Cores"
+                    else:
+                        c_label = f"{logical_threads} Cores"
+                    if name:
+                        return f"{name} ({c_label})"
                 except Exception:
                     pass
 
             elif sys.platform == "darwin":
+                try:
+                    p_c = subprocess.check_output("sysctl -n hw.physicalcpu", shell=True, text=True, stderr=subprocess.DEVNULL).strip()
+                    if p_c and p_c.isdigit():
+                        physical_cores = int(p_c)
+                except Exception:
+                    pass
+                cores_label = f"{physical_cores} Cores / {logical_threads} Threads" if physical_cores != logical_threads else f"{logical_threads} Cores"
                 out = subprocess.check_output("sysctl -n machdep.cpu.brand_string", shell=True, text=True, stderr=subprocess.DEVNULL)
                 if out.strip():
                     name = _clean_cpu(out.strip())
-                    return f"{name} ({cores_str})"
+                    return f"{name} ({cores_label})"
 
         except Exception:
             pass
 
-        return f"{cores_str}"
+        cores_label = f"{physical_cores} Cores / {logical_threads} Threads" if physical_cores != logical_threads else f"{logical_threads} Cores"
+        return f"Multi-Core CPU ({cores_label})"
 
     def _ensure_initialized(self):
         """Lazy load ONNX models into memory when required with cascading GPU fallback."""

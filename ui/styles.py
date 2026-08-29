@@ -193,10 +193,24 @@ QComboBox::drop-down {
 QComboBox QAbstractItemView {
     background-color: #1e293b;
     color: #f8fafc;
-    selection-background-color: #38bdf8;
+    selection-background-color: #0284c7;
     selection-color: #ffffff;
     border: 1px solid #334155;
     border-radius: 6px;
+    outline: 0px;
+    padding: 4px;
+}
+
+QComboBox QAbstractItemView::item {
+    background-color: #1e293b;
+    color: #f8fafc;
+    min-height: 26px;
+    padding: 6px 12px;
+}
+
+QComboBox QAbstractItemView::item:selected, QComboBox QAbstractItemView::item:hover {
+    background-color: #0284c7 !important;
+    color: #ffffff !important;
 }
 
 /* Wizard Step Breadcrumb Navigation Bar */
