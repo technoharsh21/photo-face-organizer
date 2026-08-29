@@ -63,20 +63,38 @@ class SettingsPage(QWidget):
         c_layout.setSpacing(16)
 
         # 1. Performance Mode
-        c_layout.addWidget(QLabel("<b>Performance Mode:</b>"))
+        perf_label = QLabel("<b>⚡ Performance Mode</b>")
+        perf_label.setStyleSheet("color: #f1f5f9; font-size: 13px; margin-bottom: 2px;")
+        c_layout.addWidget(perf_label)
+
+        perf_hint = QLabel("Select how aggressively the engine uses your hardware resources")
+        perf_hint.setStyleSheet("color: #64748b; font-size: 11px; margin-top: -4px; margin-bottom: 4px;")
+        c_layout.addWidget(perf_hint)
+
         self.combo_perf = QComboBox()
-        self.combo_perf.setFixedHeight(38)
+        self.combo_perf.setFixedHeight(44)
         self.combo_perf.setMaximumWidth(480)
         self.combo_perf.setCursor(Qt.PointingHandCursor)
+        self.combo_perf.setToolTip("Click to choose a performance mode")
         self.combo_perf.addItems(["Eco", "Balanced", "Maximum Performance"])
         c_layout.addWidget(self.combo_perf)
 
+        c_layout.addSpacing(8)
+
         # 2. AI Hardware Device Preference
-        c_layout.addWidget(QLabel("<b>AI Hardware Acceleration Preference:</b>"))
+        hw_label = QLabel("<b>🖥️ AI Hardware Acceleration Preference</b>")
+        hw_label.setStyleSheet("color: #f1f5f9; font-size: 13px; margin-bottom: 2px;")
+        c_layout.addWidget(hw_label)
+
+        hw_hint = QLabel("Select which processor should run the AI face recognition model")
+        hw_hint.setStyleSheet("color: #64748b; font-size: 11px; margin-top: -4px; margin-bottom: 4px;")
+        c_layout.addWidget(hw_hint)
+
         self.combo_device = QComboBox()
-        self.combo_device.setFixedHeight(38)
+        self.combo_device.setFixedHeight(44)
         self.combo_device.setMaximumWidth(480)
         self.combo_device.setCursor(Qt.PointingHandCursor)
+        self.combo_device.setToolTip("Click to choose the AI hardware device")
         self.combo_device.addItems([
             "Auto (GPU Priority - Recommended)",
             "DirectX 12 GPU (DirectML)",

@@ -42,7 +42,7 @@ from ui.pages.results_page import ResultsPage
 from ui.pages.settings_page import SettingsPage
 from ui.pages.solo_scan_page import SoloScanPage
 from ui.pages.unknown_faces_page import UnknownFacesPage
-from ui.styles import STYLESHEET
+from ui.styles import get_stylesheet
 
 
 class MainWindow(QMainWindow):
@@ -86,7 +86,7 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("Photo Face Organizer")
         self.resize(1100, 720)
         self.setMinimumSize(850, 560)
-        self.setStyleSheet(STYLESHEET)
+        self.setStyleSheet(get_stylesheet())
 
         self._setup_ui()
         self._check_interrupted_scans()

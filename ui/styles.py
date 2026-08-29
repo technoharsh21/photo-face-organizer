@@ -5,7 +5,22 @@ Provides a clean, modern, high-contrast dark slate desktop theme for Photo Face 
 Follows 8px spacing system, strong typography hierarchy, and polished component variants.
 """
 
-STYLESHEET = """
+import os as _os
+
+_ASSETS_DIR = _os.path.join(_os.path.dirname(__file__), "assets")
+_ARROW_SVG = _os.path.join(_ASSETS_DIR, "arrow_down.svg").replace("\\", "/")
+
+
+def get_stylesheet() -> str:
+    """Return the full application stylesheet with correct asset paths resolved."""
+    return _STYLESHEET_TEMPLATE.replace("__ARROW_SVG__", _ARROW_SVG)
+
+
+# Keep STYLESHEET as a module-level alias so existing imports keep working.
+# Populated at the bottom of this module after the template is defined.
+STYLESHEET = ""  # will be set at bottom of file
+
+_STYLESHEET_TEMPLATE = """
 /* =========================================================================
    1. Global Window & Base Controls
    ========================================================================= */
@@ -194,7 +209,7 @@ QPushButton[class="DangerButton"]:hover, QPushButton.DangerButton:hover {
    5. Form Inputs & High-Contrast Controls
    ========================================================================= */
 QLineEdit, QSpinBox, QDoubleSpinBox {
-    background-color: #111827;
+    background-color: #1e293b;
     border: 2px solid #38bdf8;
     border-radius: 8px;
     padding: 8px 12px;
@@ -205,43 +220,43 @@ QLineEdit, QSpinBox, QDoubleSpinBox {
 }
 
 QLineEdit:hover, QSpinBox:hover, QDoubleSpinBox:hover {
-    border: 2px solid #60a5fa;
-    background-color: #1e293b;
+    border: 2px solid #67e8f9;
+    background-color: #27384f;
 }
 
 QLineEdit:focus, QSpinBox:focus, QDoubleSpinBox:focus {
-    border: 2px solid #93c5fd;
-    background-color: #1e293b;
+    border: 2px solid #a5f3fc;
+    background-color: #27384f;
     color: #ffffff;
 }
 
-/* High-Contrast Dropdowns (QComboBox) */
+/* Ultra-Visible High-Contrast Dropdowns (QComboBox) */
 QComboBox {
-    background-color: #111827;
+    background-color: #1e293b;
     border: 2px solid #38bdf8;
     border-radius: 8px;
-    padding: 8px 38px 8px 14px;
+    padding: 8px 40px 8px 16px;
     color: #ffffff;
     font-size: 13px;
     font-weight: bold;
-    min-height: 24px;
+    min-height: 26px;
 }
 
 QComboBox:hover {
-    border: 2px solid #60a5fa;
-    background-color: #1e293b;
+    border: 2px solid #67e8f9;
+    background-color: #27384f;
 }
 
 QComboBox:focus {
-    border: 2px solid #93c5fd;
-    background-color: #1e293b;
+    border: 2px solid #a5f3fc;
+    background-color: #27384f;
     color: #ffffff;
 }
 
 QComboBox::drop-down {
     subcontrol-origin: padding;
     subcontrol-position: top right;
-    width: 34px;
+    width: 36px;
     border-left: 2px solid #38bdf8;
     border-top-right-radius: 6px;
     border-bottom-right-radius: 6px;
@@ -253,13 +268,13 @@ QComboBox::drop-down:hover {
 }
 
 QComboBox::down-arrow {
-    image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'><polyline points='6 9 12 15 18 9'></polyline></svg>");
-    width: 13px;
-    height: 13px;
+    image: url("__ARROW_SVG__");
+    width: 14px;
+    height: 14px;
 }
 
 QComboBox QAbstractItemView {
-    background-color: #0f172a;
+    background-color: #1e293b;
     color: #ffffff;
     selection-background-color: #0284c7;
     selection-color: #ffffff;
@@ -270,11 +285,11 @@ QComboBox QAbstractItemView {
 }
 
 QComboBox QAbstractItemView::item {
-    background-color: #0f172a;
+    background-color: #1e293b;
     color: #ffffff;
-    min-height: 32px;
+    min-height: 34px;
     padding: 6px 14px;
-    border-radius: 4px;
+    border-radius: 6px;
     margin: 2px 0;
 }
 
@@ -465,3 +480,6 @@ QToolTip {
     font-size: 12px;
 }
 """
+
+# Populate the backwards-compatible alias at import time.
+STYLESHEET = get_stylesheet()
