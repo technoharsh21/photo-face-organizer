@@ -194,83 +194,83 @@ QPushButton[class="DangerButton"]:hover, QPushButton.DangerButton:hover {
    5. Form Inputs & High-Contrast Controls
    ========================================================================= */
 QLineEdit, QSpinBox, QDoubleSpinBox {
-    background-color: #1e293b !important;
-    border: 1.5px solid #475569 !important;
+    background-color: #111827;
+    border: 2px solid #38bdf8;
     border-radius: 8px;
     padding: 8px 12px;
-    color: #ffffff !important;
+    color: #ffffff;
     font-size: 13px;
-    font-weight: 600;
+    font-weight: bold;
     selection-background-color: #0284c7;
 }
 
 QLineEdit:hover, QSpinBox:hover, QDoubleSpinBox:hover {
-    border: 1.5px solid #38bdf8 !important;
-    background-color: #24344d !important;
+    border: 2px solid #60a5fa;
+    background-color: #1e293b;
 }
 
 QLineEdit:focus, QSpinBox:focus, QDoubleSpinBox:focus {
-    border: 2px solid #38bdf8 !important;
-    background-color: #24344d !important;
-    color: #ffffff !important;
+    border: 2px solid #93c5fd;
+    background-color: #1e293b;
+    color: #ffffff;
 }
 
 /* High-Contrast Dropdowns (QComboBox) */
 QComboBox {
-    background-color: #1e293b;
-    border: 1px solid #475569;
+    background-color: #111827;
+    border: 2px solid #38bdf8;
     border-radius: 8px;
-    padding: 8px 36px 8px 14px;
+    padding: 8px 38px 8px 14px;
     color: #ffffff;
     font-size: 13px;
-    font-weight: 600;
+    font-weight: bold;
     min-height: 24px;
 }
 
 QComboBox:hover {
-    border: 1px solid #38bdf8;
-    background-color: #24344d;
+    border: 2px solid #60a5fa;
+    background-color: #1e293b;
 }
 
 QComboBox:focus {
-    border: 2px solid #38bdf8;
-    background-color: #24344d;
+    border: 2px solid #93c5fd;
+    background-color: #1e293b;
     color: #ffffff;
 }
 
 QComboBox::drop-down {
     subcontrol-origin: padding;
     subcontrol-position: top right;
-    width: 32px;
-    border-left: 1px solid #475569;
-    border-top-right-radius: 7px;
-    border-bottom-right-radius: 7px;
-    background-color: #334155;
-}
-
-QComboBox::drop-down:hover {
+    width: 34px;
+    border-left: 2px solid #38bdf8;
+    border-top-right-radius: 6px;
+    border-bottom-right-radius: 6px;
     background-color: #0284c7;
 }
 
+QComboBox::drop-down:hover {
+    background-color: #0369a1;
+}
+
 QComboBox::down-arrow {
-    image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'><polyline points='6 9 12 15 18 9'></polyline></svg>");
-    width: 12px;
-    height: 12px;
+    image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'><polyline points='6 9 12 15 18 9'></polyline></svg>");
+    width: 13px;
+    height: 13px;
 }
 
 QComboBox QAbstractItemView {
-    background-color: #131b2e;
+    background-color: #0f172a;
     color: #ffffff;
     selection-background-color: #0284c7;
     selection-color: #ffffff;
-    border: 1.5px solid #38bdf8;
+    border: 2px solid #38bdf8;
     border-radius: 8px;
     outline: 0px;
     padding: 6px;
 }
 
 QComboBox QAbstractItemView::item {
-    background-color: #131b2e;
+    background-color: #0f172a;
     color: #ffffff;
     min-height: 32px;
     padding: 6px 14px;
@@ -279,8 +279,8 @@ QComboBox QAbstractItemView::item {
 }
 
 QComboBox QAbstractItemView::item:selected, QComboBox QAbstractItemView::item:hover {
-    background-color: #0284c7 !important;
-    color: #ffffff !important;
+    background-color: #0284c7;
+    color: #ffffff;
     font-weight: bold;
 }
 
