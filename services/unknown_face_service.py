@@ -254,8 +254,8 @@ class UnknownFaceService:
 
     def convert_group_to_profile(self, group_id: str, profile_name: str) -> dict[str, Any] | None:
         """
-        Creates a new Profile with profile_name, adds unknown face crops/embeddings as reference photos,
-        and removes the converted unknown faces from storage.
+        Creates a new Profile with profile_name (or merges into existing if name matches),
+        adds unknown face crops/embeddings as reference photos, and removes the converted unknown faces from storage.
         """
         all_faces = self.list_unknown_faces()
         group_faces = [f for f in all_faces if f.get("group_id") == group_id]
@@ -263,8 +263,12 @@ class UnknownFaceService:
         if not group_faces:
             return None
 
-        # 1. Create new profile
-        profile = self.profile_service.create_profile(profile_name)
+        # 1. Check if profile already exists, otherwise create new
+        existing = next((p for p in self.profile_service.list_profiles() if p["name"].lower() == profile_name.strip().lower()), None)
+        if existing:
+            profile = existing
+        else:
+            profile = self.profile_service.create_profile(profile_name.strip())
 
         # 2. Add each unknown face as a reference photo directly using its pre-computed embedding
         for gf in group_faces:

@@ -24,7 +24,9 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install "setuptools<70" wheel pyinstaller
-          pip install PySide6 insightface onnxruntime-directml opencv-python-headless Pillow scipy watchfiles pytest
+          pip install PySide6 insightface opencv-python-headless Pillow scipy watchfiles pytest
+          pip uninstall onnxruntime -y
+          pip install onnxruntime-directml --force-reinstall
 
       - name: Build Executable with PyInstaller
         shell: powershell
