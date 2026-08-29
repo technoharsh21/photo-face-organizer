@@ -181,14 +181,15 @@ class DuplicatePage(QWidget):
 
         # Actions Toolbar
         actions_l = QHBoxLayout()
+        actions_l.setSpacing(8)
 
-        actions_l.addWidget(QLabel("Auto-Select Rule:"))
+        actions_l.addWidget(QLabel("Rule:"))
         self.combo_rule = QComboBox()
         self.combo_rule.setCursor(Qt.PointingHandCursor)
         self.combo_rule.addItems(["Keep Oldest (Original)", "Keep Newest Copy", "Keep Shortest File Path"])
         actions_l.addWidget(self.combo_rule)
 
-        btn_auto_select = QPushButton("⚡ Apply Rule")
+        btn_auto_select = QPushButton("⚡ Auto Select")
         btn_auto_select.setProperty("class", "SecondaryButton")
         btn_auto_select.setCursor(Qt.PointingHandCursor)
         btn_auto_select.clicked.connect(self._apply_auto_select_rule)
@@ -196,16 +197,18 @@ class DuplicatePage(QWidget):
 
         actions_l.addStretch()
 
-        self.btn_quarantine = QPushButton("📁 Quarantine Selected")
+        self.btn_quarantine = QPushButton("📁 Quarantine")
         self.btn_quarantine.setProperty("class", "SecondaryButton")
         self.btn_quarantine.setCursor(Qt.PointingHandCursor)
+        self.btn_quarantine.setToolTip("Move selected duplicate files to a safe Quarantine folder.")
         self.btn_quarantine.clicked.connect(self._quarantine_selected)
         actions_l.addWidget(self.btn_quarantine)
 
-        self.btn_delete = QPushButton("🗑 Send Selected to Trash")
+        self.btn_delete = QPushButton("🗑 Delete Selected")
         self.btn_delete.setProperty("class", "DangerButton")
         self.btn_delete.setCursor(Qt.PointingHandCursor)
         self.btn_delete.setStyleSheet("background-color: #ef4444; color: #ffffff; font-weight: bold;")
+        self.btn_delete.setToolTip("Safely delete selected duplicate photos to recycle bin.")
         self.btn_delete.clicked.connect(self._delete_selected)
         actions_l.addWidget(self.btn_delete)
 

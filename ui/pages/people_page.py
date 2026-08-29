@@ -113,50 +113,66 @@ class PeoplePage(QWidget):
         detail_layout.setContentsMargins(16, 16, 16, 16)
         detail_layout.setSpacing(16)
 
-        # Unified Profile Header Toolbar (Single Row with Profile Name & All Actions)
-        p_header_layout = QHBoxLayout()
-        p_header_layout.setSpacing(8)
+        # Unified Profile Header Toolbar (2 Clean Responsive Rows)
+        p_header_layout = QVBoxLayout()
+        p_header_layout.setSpacing(10)
+
+        # Row 1: Profile Name & Primary Actions
+        row1 = QHBoxLayout()
+        row1.setSpacing(10)
 
         self.lbl_profile_name = QLabel("Select a Person")
         self.lbl_profile_name.setStyleSheet("font-size: 20px; font-weight: 800; color: #ffffff;")
-        p_header_layout.addWidget(self.lbl_profile_name)
+        row1.addWidget(self.lbl_profile_name)
 
-        p_header_layout.addStretch()
+        row1.addStretch()
 
-        self.btn_add_ref = QPushButton("📷 Add Reference Photo")
+        self.btn_add_ref = QPushButton("📷 Add Reference")
         self.btn_add_ref.setProperty("class", "PrimaryButton")
         self.btn_add_ref.setCursor(Qt.PointingHandCursor)
         self.btn_add_ref.clicked.connect(self._add_reference_photo)
-        p_header_layout.addWidget(self.btn_add_ref)
+        row1.addWidget(self.btn_add_ref)
 
-        self.btn_batch_train = QPushButton("📁 Batch Train Profile from Folder")
+        self.btn_batch_train = QPushButton("📁 Batch Train from Folder")
         self.btn_batch_train.setProperty("class", "SecondaryButton")
         self.btn_batch_train.setCursor(Qt.PointingHandCursor)
         self.btn_batch_train.clicked.connect(self._batch_train_profile)
-        p_header_layout.addWidget(self.btn_batch_train)
+        row1.addWidget(self.btn_batch_train)
+
+        p_header_layout.addLayout(row1)
+
+        # Row 2: Secondary Tools & Management
+        row2 = QHBoxLayout()
+        row2.setSpacing(8)
 
         self.btn_clean_outliers = QPushButton("🧹 Clean Outliers")
         self.btn_clean_outliers.setProperty("class", "SecondaryButton")
         self.btn_clean_outliers.setCursor(Qt.PointingHandCursor)
         self.btn_clean_outliers.setToolTip("Scan reference photos and automatically remove any that belong to a different person.")
         self.btn_clean_outliers.clicked.connect(self._clean_outliers)
-        p_header_layout.addWidget(self.btn_clean_outliers)
+        row2.addWidget(self.btn_clean_outliers)
 
         self.btn_group_type = QPushButton("👥 Group Settings")
         self.btn_group_type.setProperty("class", "SecondaryButton")
+        self.btn_group_type.setCursor(Qt.PointingHandCursor)
         self.btn_group_type.clicked.connect(self._edit_group_settings)
-        p_header_layout.addWidget(self.btn_group_type)
+        row2.addWidget(self.btn_group_type)
 
         self.btn_rename = QPushButton("✏️ Rename")
         self.btn_rename.setProperty("class", "SecondaryButton")
+        self.btn_rename.setCursor(Qt.PointingHandCursor)
         self.btn_rename.clicked.connect(self._rename_profile)
-        p_header_layout.addWidget(self.btn_rename)
+        row2.addWidget(self.btn_rename)
 
-        self.btn_delete = QPushButton("🗑️ Delete")
+        row2.addStretch()
+
+        self.btn_delete = QPushButton("🗑️ Delete Profile")
         self.btn_delete.setProperty("class", "DangerButton")
+        self.btn_delete.setCursor(Qt.PointingHandCursor)
         self.btn_delete.clicked.connect(self._delete_profile)
-        p_header_layout.addWidget(self.btn_delete)
+        row2.addWidget(self.btn_delete)
 
+        p_header_layout.addLayout(row2)
         detail_layout.addLayout(p_header_layout)
 
         # Reference Photos Section Title

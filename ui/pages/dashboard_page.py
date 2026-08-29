@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (
     QListWidget,
     QListWidgetItem,
     QPushButton,
+    QScrollArea,
     QVBoxLayout,
     QWidget,
 )
@@ -43,7 +44,15 @@ class DashboardPage(QWidget):
         self._setup_ui()
 
     def _setup_ui(self):
-        layout = QVBoxLayout(self)
+        page_layout = QVBoxLayout(self)
+        page_layout.setContentsMargins(0, 0, 0, 0)
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setStyleSheet("background: transparent; border: none;")
+
+        content = QWidget()
+        layout = QVBoxLayout(content)
         layout.setContentsMargins(20, 20, 20, 20)
         layout.setSpacing(16)
 
@@ -135,6 +144,10 @@ class DashboardPage(QWidget):
         self.empty_label.setAlignment(Qt.AlignCenter)
         self.empty_label.setStyleSheet("color: #a0a0b0; font-size: 14px; margin: 30px;")
         layout.addWidget(self.empty_label)
+
+        layout.addStretch()
+        scroll.setWidget(content)
+        page_layout.addWidget(scroll)
 
     def _create_stat_card(self, label_text: str, value_text: str, color: str) -> dict:
         frame = QFrame()

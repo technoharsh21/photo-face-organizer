@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QMessageBox,
     QPushButton,
+    QScrollArea,
     QSpinBox,
     QVBoxLayout,
     QWidget,
@@ -41,7 +42,15 @@ class SettingsPage(QWidget):
         self._setup_ui()
 
     def _setup_ui(self):
-        layout = QVBoxLayout(self)
+        page_layout = QVBoxLayout(self)
+        page_layout.setContentsMargins(0, 0, 0, 0)
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setStyleSheet("background: transparent; border: none;")
+
+        content_widget = QWidget()
+        layout = QVBoxLayout(content_widget)
         layout.setContentsMargins(20, 20, 20, 20)
         layout.setSpacing(14)
 
@@ -166,6 +175,8 @@ class SettingsPage(QWidget):
         layout.addLayout(btn_layout)
 
         layout.addStretch()
+        scroll.setWidget(content_widget)
+        page_layout.addWidget(scroll)
         self.refresh()
 
     def refresh(self):

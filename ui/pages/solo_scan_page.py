@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -23,6 +24,7 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QPushButton,
     QRadioButton,
+    QScrollArea,
     QSpinBox,
     QStackedWidget,
     QVBoxLayout,
@@ -57,6 +59,13 @@ class SoloScanPage(QWidget):
 
         self._setup_ui()
 
+    def _wrap_scroll(self, widget: QWidget) -> QScrollArea:
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setStyleSheet("background: transparent; border: none;")
+        scroll.setWidget(widget)
+        return scroll
+
     def _setup_ui(self):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(20, 20, 20, 20)
@@ -84,15 +93,15 @@ class SoloScanPage(QWidget):
         self.stacked_widget = QStackedWidget()
 
         # Step 1: Sources
-        self.stacked_widget.addWidget(self._create_step1_sources())
+        self.stacked_widget.addWidget(self._wrap_scroll(self._create_step1_sources()))
         # Step 2: Profiles
-        self.stacked_widget.addWidget(self._create_step2_profiles())
+        self.stacked_widget.addWidget(self._wrap_scroll(self._create_step2_profiles()))
         # Step 3: Output Directory & Operation Mode
-        self.stacked_widget.addWidget(self._create_step3_output())
+        self.stacked_widget.addWidget(self._wrap_scroll(self._create_step3_output()))
         # Step 4: Performance Preferences
-        self.stacked_widget.addWidget(self._create_step4_performance())
+        self.stacked_widget.addWidget(self._wrap_scroll(self._create_step4_performance()))
         # Step 5: Review & Start
-        self.stacked_widget.addWidget(self._create_step5_review())
+        self.stacked_widget.addWidget(self._wrap_scroll(self._create_step5_review()))
 
         layout.addWidget(self.stacked_widget, 1)
 

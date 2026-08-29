@@ -72,29 +72,33 @@ class ResultsPage(QWidget):
 
         # Audit & Actions Row
         audit_row = QHBoxLayout()
-        audit_row.setSpacing(12)
+        audit_row.setSpacing(8)
 
-        self.lbl_audit_status = QLabel("<b>File Reconciliation Audit:</b> Accounted: 0 / 0 (100%) • 🟢 Zero Photos Lost")
+        self.lbl_audit_status = QLabel("<b>Audit:</b> Accounted: 0 / 0 (100%) • 🟢 Zero Photos Lost")
         self.lbl_audit_status.setStyleSheet("color: #10b981; font-size: 12px;")
         audit_row.addWidget(self.lbl_audit_status)
 
-        self.btn_skipped_details = QPushButton("ℹ️ View Skipped / Error Details")
+        audit_row.addStretch()
+
+        self.btn_skipped_details = QPushButton("ℹ️ Skipped Details")
         self.btn_skipped_details.setProperty("class", "SecondaryButton")
         self.btn_skipped_details.setCursor(Qt.PointingHandCursor)
+        self.btn_skipped_details.setToolTip("View details for any skipped or unreadable files.")
         self.btn_skipped_details.clicked.connect(self._open_skipped_details_dialog)
         audit_row.addWidget(self.btn_skipped_details)
+
+        self.btn_correct_match = QPushButton("🛠️ Correct Match")
+        self.btn_correct_match.setProperty("class", "SecondaryButton")
+        self.btn_correct_match.setCursor(Qt.PointingHandCursor)
+        self.btn_correct_match.setToolTip("Reassign a photo to a different person.")
+        self.btn_correct_match.clicked.connect(self._correct_wrong_match)
+        audit_row.addWidget(self.btn_correct_match)
 
         self.btn_open_folder = QPushButton("📂 Open Output Folder")
         self.btn_open_folder.setProperty("class", "PrimaryButton")
         self.btn_open_folder.setCursor(Qt.PointingHandCursor)
         self.btn_open_folder.clicked.connect(self._open_output_folder)
         audit_row.addWidget(self.btn_open_folder)
-
-        self.btn_correct_match = QPushButton("🛠️ Correct Wrong Match")
-        self.btn_correct_match.setProperty("class", "SecondaryButton")
-        self.btn_correct_match.setCursor(Qt.PointingHandCursor)
-        self.btn_correct_match.clicked.connect(self._correct_wrong_match)
-        audit_row.addWidget(self.btn_correct_match)
 
         sc_vlayout.addLayout(audit_row)
         layout.addWidget(self.summary_card)

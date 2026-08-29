@@ -91,37 +91,43 @@ class UnknownFacesPage(QWidget):
         self.group_title_lbl.setStyleSheet("font-size: 18px; font-weight: bold; color: #ffffff;")
         right_l.addWidget(self.group_title_lbl)
 
-        # Actions
+        # Actions Toolbar (Responsive Flow / 2 Rows if needed)
         actions_l = QHBoxLayout()
+        actions_l.setSpacing(8)
 
-        self.btn_convert = QPushButton("⭐ Convert Group to New Profile")
+        self.btn_convert = QPushButton("⭐ Convert to Profile")
         self.btn_convert.setProperty("class", "PrimaryButton")
         self.btn_convert.setFixedHeight(32)
-        self.btn_convert.setStyleSheet("background-color: #10b981; color: #ffffff; font-weight: bold; padding: 0 16px;")
+        self.btn_convert.setCursor(Qt.PointingHandCursor)
+        self.btn_convert.setStyleSheet("background-color: #10b981; color: #ffffff; font-weight: bold; padding: 0 12px;")
         self.btn_convert.clicked.connect(self._convert_group_to_profile)
         actions_l.addWidget(self.btn_convert)
 
-        self.btn_add_to_existing = QPushButton("➕ Add to Existing Profile")
+        self.btn_add_to_existing = QPushButton("➕ Add to Profile")
         self.btn_add_to_existing.setFixedHeight(32)
-        self.btn_add_to_existing.setStyleSheet("background-color: #0284c7; color: #ffffff; font-weight: bold; border-radius: 8px; padding: 0 14px; border: 1px solid #0369a1;")
+        self.btn_add_to_existing.setCursor(Qt.PointingHandCursor)
+        self.btn_add_to_existing.setStyleSheet("background-color: #0284c7; color: #ffffff; font-weight: bold; border-radius: 8px; padding: 0 12px; border: 1px solid #0369a1;")
         self.btn_add_to_existing.clicked.connect(self._add_group_to_existing_profile)
         actions_l.addWidget(self.btn_add_to_existing)
 
-        self.btn_rename_grp = QPushButton("✏️ Rename Group")
+        self.btn_rename_grp = QPushButton("✏️ Rename")
         self.btn_rename_grp.setProperty("class", "SecondaryButton")
         self.btn_rename_grp.setFixedHeight(32)
-        self.btn_rename_grp.setStyleSheet("padding: 0 14px; font-weight: bold;")
+        self.btn_rename_grp.setCursor(Qt.PointingHandCursor)
+        self.btn_rename_grp.setStyleSheet("padding: 0 10px; font-weight: bold;")
         self.btn_rename_grp.clicked.connect(self._rename_group)
         actions_l.addWidget(self.btn_rename_grp)
+
+        actions_l.addStretch()
 
         self.btn_delete_grp = QPushButton("🗑 Delete Group")
         self.btn_delete_grp.setProperty("class", "DangerButton")
         self.btn_delete_grp.setFixedHeight(32)
-        self.btn_delete_grp.setStyleSheet("padding: 0 14px; font-weight: bold; background-color: #ef4444; color: #ffffff; border-radius: 8px;")
+        self.btn_delete_grp.setCursor(Qt.PointingHandCursor)
+        self.btn_delete_grp.setStyleSheet("padding: 0 10px; font-weight: bold; background-color: #ef4444; color: #ffffff; border-radius: 8px;")
         self.btn_delete_grp.clicked.connect(self._delete_group)
         actions_l.addWidget(self.btn_delete_grp)
 
-        actions_l.addStretch()
         right_l.addLayout(actions_l)
 
         # Faces scroll area

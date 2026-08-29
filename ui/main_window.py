@@ -85,6 +85,7 @@ class MainWindow(QMainWindow):
 
         self.setWindowTitle("Photo Face Organizer")
         self.resize(1100, 720)
+        self.setMinimumSize(850, 560)
         self.setStyleSheet(STYLESHEET)
 
         self._setup_ui()
