@@ -9,6 +9,7 @@ and bulk import profiles from folders.
 from pathlib import Path
 from typing import Any
 
+from PIL import Image
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
@@ -272,6 +273,19 @@ class PeoplePage(QWidget):
                 l.addWidget(img_lbl)
 
             q_info = ref.get("quality")
+            if not q_info:
+                # Compute quality dynamically for legacy reference entries
+                stored_path = ref.get("stored_path")
+                bbox = ref.get("bbox", [0, 100, 100, 0])
+                if stored_path and Path(stored_path).exists():
+                    try:
+                        with Image.open(stored_path) as ref_img:
+                            q_info = self.profile_service.assess_reference_quality(ref_img, bbox)
+                    except Exception:
+                        q_info = {"stars": 5, "badge": "⭐⭐⭐⭐⭐", "quality_label": "🟢 5/5 Stars: Excellent"}
+                else:
+                    q_info = {"stars": 5, "badge": "⭐⭐⭐⭐⭐", "quality_label": "🟢 5/5 Stars: Excellent"}
+
             if q_info:
                 q_lbl = QLabel(f"{q_info.get('badge', '⭐')} {q_info.get('stars', 5)}/5")
                 q_lbl.setToolTip(q_info.get("quality_label", "Reference Quality"))
