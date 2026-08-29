@@ -48,7 +48,7 @@ class InsightFaceEngine:
         self._configure_providers()
 
     def get_system_gpu_name(self) -> str:
-        """Dynamically fetch the exact real GPU model name in real-time from OS kernel queries."""
+        """Dynamically fetch the exact real GPU model name in real-time from OS kernel queries for any user machine."""
         try:
             import subprocess
             import sys
@@ -61,9 +61,7 @@ class InsightFaceEngine:
                     )
                     lines = [line.strip() for line in out.splitlines() if line.strip()]
                     if lines:
-                        for line in lines:
-                            if any(v in line.lower() for v in ["nvidia", "geforce", "rtx", "gtx", "radeon", "amd"]):
-                                return line
+                        # Return the first valid display adapter found on the user's system dynamically
                         return lines[0]
                 except Exception:
                     pass
@@ -72,9 +70,6 @@ class InsightFaceEngine:
                     out = subprocess.check_output("wmic path win32_VideoController get name", shell=True, text=True, stderr=subprocess.DEVNULL)
                     lines = [line.strip() for line in out.splitlines() if line.strip() and line.lower() != "name"]
                     if lines:
-                        for line in lines:
-                            if any(v in line.lower() for v in ["nvidia", "geforce", "rtx", "gtx", "radeon", "amd"]):
-                                return line
                         return lines[0]
                 except Exception:
                     pass
@@ -90,8 +85,7 @@ class InsightFaceEngine:
                             start = gpu_part.rfind("[") + 1
                             end = gpu_part.rfind("]")
                             if start < end:
-                                bracket_name = gpu_part[start:end]
-                                return bracket_name
+                                return gpu_part[start:end]
                         return gpu_part
                     return raw_line
 
@@ -103,7 +97,7 @@ class InsightFaceEngine:
         except Exception:
             pass
 
-        return "GPU Accelerator"
+        return ""
 
     def _configure_providers(self):
         """Quickly detect hardware providers without loading models into memory (Instant App Launch)."""
@@ -120,16 +114,16 @@ class InsightFaceEngine:
                 self.active_device = f"Multi-Core CPU ({cpu_name})"
             elif "CUDAExecutionProvider" in available_providers and self.device_preference in ("Auto", "CUDA"):
                 self.providers = ["CUDAExecutionProvider", "CPUExecutionProvider"]
-                self.active_device = f"NVIDIA CUDA GPU ({gpu_name})"
+                self.active_device = f"CUDA Acceleration ({gpu_name})" if gpu_name else "CUDA GPU Acceleration"
             elif "DmlExecutionProvider" in available_providers and self.device_preference in ("Auto", "DirectML", "GPU"):
                 self.providers = ["DmlExecutionProvider", "CPUExecutionProvider"]
-                self.active_device = f"DirectX 12 GPU ({gpu_name})"
+                self.active_device = f"DirectX 12 GPU ({gpu_name})" if gpu_name else "DirectX 12 DirectML GPU"
             elif "OpenVINOExecutionProvider" in available_providers and self.device_preference != "CPU":
                 self.providers = ["OpenVINOExecutionProvider", "CPUExecutionProvider"]
-                self.active_device = f"Intel OpenVINO GPU ({gpu_name})"
+                self.active_device = f"Intel OpenVINO ({gpu_name})" if gpu_name else "Intel OpenVINO GPU"
             elif "CoreMLExecutionProvider" in available_providers and self.device_preference != "CPU":
                 self.providers = ["CoreMLExecutionProvider", "CPUExecutionProvider"]
-                self.active_device = "Apple CoreML GPU"
+                self.active_device = f"Apple Neural Engine / CoreML ({gpu_name})" if gpu_name else "Apple CoreML Engine"
             else:
                 cpu_name = self.get_system_cpu_name()
                 self.providers = ["CPUExecutionProvider"]
