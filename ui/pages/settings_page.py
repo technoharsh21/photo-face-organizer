@@ -66,6 +66,7 @@ class SettingsPage(QWidget):
         c_layout.addWidget(QLabel("<b>Performance Mode:</b>"))
         self.combo_perf = QComboBox()
         self.combo_perf.setFixedHeight(38)
+        self.combo_perf.setMaximumWidth(480)
         self.combo_perf.setCursor(Qt.PointingHandCursor)
         self.combo_perf.addItems(["Eco", "Balanced", "Maximum Performance"])
         c_layout.addWidget(self.combo_perf)
@@ -74,6 +75,7 @@ class SettingsPage(QWidget):
         c_layout.addWidget(QLabel("<b>AI Hardware Acceleration Preference:</b>"))
         self.combo_device = QComboBox()
         self.combo_device.setFixedHeight(38)
+        self.combo_device.setMaximumWidth(480)
         self.combo_device.setCursor(Qt.PointingHandCursor)
         self.combo_device.addItems([
             "Auto (GPU Priority - Recommended)",
@@ -87,6 +89,7 @@ class SettingsPage(QWidget):
         c_layout.addWidget(QLabel("<b>Default Matching Threshold (0 - 100, Default: 50):</b>"))
         self.spin_threshold = QSpinBox()
         self.spin_threshold.setFixedHeight(38)
+        self.spin_threshold.setMaximumWidth(200)
         self.spin_threshold.setRange(1, 100)
         c_layout.addWidget(self.spin_threshold)
 

@@ -217,32 +217,32 @@ QLineEdit:focus, QSpinBox:focus, QDoubleSpinBox:focus {
 
 /* High-Contrast Dropdowns (QComboBox) */
 QComboBox {
-    background-color: #1e293b !important;
-    border: 1.5px solid #475569 !important;
+    background-color: #1e293b;
+    border: 1px solid #475569;
     border-radius: 8px;
     padding: 8px 36px 8px 14px;
-    color: #ffffff !important;
+    color: #ffffff;
     font-size: 13px;
     font-weight: 600;
     min-height: 24px;
 }
 
 QComboBox:hover {
-    border: 1.5px solid #38bdf8 !important;
-    background-color: #24344d !important;
+    border: 1px solid #38bdf8;
+    background-color: #24344d;
 }
 
 QComboBox:focus {
-    border: 2px solid #38bdf8 !important;
-    background-color: #24344d !important;
-    color: #ffffff !important;
+    border: 2px solid #38bdf8;
+    background-color: #24344d;
+    color: #ffffff;
 }
 
 QComboBox::drop-down {
     subcontrol-origin: padding;
     subcontrol-position: top right;
     width: 32px;
-    border-left: 1.5px solid #475569;
+    border-left: 1px solid #475569;
     border-top-right-radius: 7px;
     border-bottom-right-radius: 7px;
     background-color: #334155;
@@ -253,12 +253,9 @@ QComboBox::drop-down:hover {
 }
 
 QComboBox::down-arrow {
-    image: none;
-    border-left: 5px solid transparent;
-    border-right: 5px solid transparent;
-    border-top: 6px solid #ffffff;
-    width: 0px;
-    height: 0px;
+    image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'><polyline points='6 9 12 15 18 9'></polyline></svg>");
+    width: 12px;
+    height: 12px;
 }
 
 QComboBox QAbstractItemView {
