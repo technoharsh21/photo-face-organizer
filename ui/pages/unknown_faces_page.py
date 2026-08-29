@@ -51,7 +51,10 @@ class UnknownFacesPage(QWidget):
         sub_title.setStyleSheet("color: #94a3b8; font-size: 13px;")
         tb_layout.addWidget(sub_title)
 
-        tb_layout.addStretch()
+        btn_clear_all = QPushButton("🧹 Clear All")
+        btn_clear_all.setProperty("class", "DangerButton")
+        btn_clear_all.clicked.connect(self._clear_all_unknown_faces)
+        tb_layout.addWidget(btn_clear_all)
 
         btn_cluster = QPushButton("✨ Auto-Group Similar Faces (80% Precision)")
         btn_cluster.setProperty("class", "PrimaryButton")
@@ -298,14 +301,10 @@ class UnknownFacesPage(QWidget):
         if not self.current_group_id:
             return
 
-        grp = next((g for g in self.groups if g.get("group_id") == self.current_group_id), None)
-        grp_name = grp.get("group_name", "this group") if grp else "this group"
-        face_cnt = len(grp.get("faces", [])) if grp else 0
-
         confirm = QMessageBox.question(
             self,
-            "Delete Unknown Group",
-            f"Are you sure you want to delete '{grp_name}' ({face_cnt} faces)?\n\nThis action cannot be undone.",
+            "Delete Unknown Face Group",
+            "Are you sure you want to delete this entire group of unknown faces?",
             QMessageBox.Yes | QMessageBox.No,
             QMessageBox.No,
         )
@@ -313,3 +312,17 @@ class UnknownFacesPage(QWidget):
             self.unknown_face_service.delete_group(self.current_group_id)
             self.current_group_id = None
             self.refresh()
+
+    def _clear_all_unknown_faces(self):
+        confirm = QMessageBox.question(
+            self,
+            "Clear All Unknown Faces",
+            "Are you sure you want to delete all stored unknown face records?\n\nThis will clear the unknown faces list completely.",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
+        )
+        if confirm == QMessageBox.Yes:
+            cnt = self.unknown_face_service.delete_all_unknown_faces()
+            self.current_group_id = None
+            self.refresh()
+            QMessageBox.information(self, "Cleared", f"Cleared {cnt} unknown face records.")

@@ -128,9 +128,12 @@ class UnknownFaceService:
         return metadata
 
     def list_unknown_faces(self) -> list[dict[str, Any]]:
-        """Return list of all stored unknown face metadata."""
+        """
+        Return list of all stored unknown face metadata.
+        Auto-purges orphaned unknown faces whose source photo no longer exists on disk.
+        """
         unknowns = []
-        for u_dir in self.unknown_dir.iterdir():
+        for u_dir in list(self.unknown_dir.iterdir()):
             if u_dir.is_dir():
                 meta_path = u_dir / "metadata.json"
                 emb_path = u_dir / "embedding.npy"
@@ -138,11 +141,32 @@ class UnknownFaceService:
                     try:
                         with open(meta_path, "r", encoding="utf-8") as f:
                             meta = json.load(f)
+
+                        src_p = meta.get("source_photo_path")
+                        if src_p and Path(src_p).is_absolute() and not Path(src_p).exists():
+                            # Source photo was deleted or moved -> auto purge orphaned unknown face
+                            import shutil
+                            shutil.rmtree(u_dir, ignore_errors=True)
+                            continue
+
                         meta["embedding"] = np.load(str(emb_path))
                         unknowns.append(meta)
                     except Exception:
                         pass
         return unknowns
+
+    def delete_all_unknown_faces(self) -> int:
+        """Purge all stored unknown face directories."""
+        import shutil
+        cnt = 0
+        for u_dir in list(self.unknown_dir.iterdir()):
+            if u_dir.is_dir():
+                try:
+                    shutil.rmtree(u_dir, ignore_errors=True)
+                    cnt += 1
+                except Exception:
+                    pass
+        return cnt
 
     def group_unknown_faces(self, threshold: float = 80.0) -> list[dict[str, Any]]:
         """

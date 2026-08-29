@@ -396,11 +396,11 @@ class PeoplePage(QWidget):
 
         p_path = Path(file_path)
         # Check faces in reference
-        _, locations, _ = self.profile_service.detect_faces_in_reference(p_path)
+        _, locations, crops = self.profile_service.detect_faces_in_reference(p_path)
 
         selected_idx = 0
         if len(locations) > 1:
-            dlg = FaceSelectorDialog(self, p_path, locations)
+            dlg = FaceSelectorDialog(self, crops)
             if dlg.exec() == FaceSelectorDialog.Accepted:
                 selected_idx = dlg.selected_index
             else:
