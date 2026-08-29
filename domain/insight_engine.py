@@ -99,47 +99,6 @@ class InsightFaceEngine:
 
         return ""
 
-    def _configure_providers(self):
-        """Quickly detect hardware providers without loading models into memory (Instant App Launch)."""
-        try:
-            available_providers = onnxruntime.get_available_providers()
-            logger.info(f"Available ONNX Runtime execution providers: {available_providers}")
-            gpu_name = self.get_system_gpu_name()
-
-            if self.device_preference == "CPU":
-                cpu_name = self.get_system_cpu_name()
-                self.providers = ["CPUExecutionProvider"]
-                self.active_device = f"Multi-Core CPU ({cpu_name})"
-                self.gpu_available = False
-            elif "CUDAExecutionProvider" in available_providers and self.device_preference in ("Auto", "CUDA"):
-                self.providers = ["CUDAExecutionProvider", "CPUExecutionProvider"]
-                self.active_device = f"CUDA GPU ({gpu_name})" if gpu_name else "CUDA GPU"
-                self.gpu_available = True
-            elif "DmlExecutionProvider" in available_providers and self.device_preference in ("Auto", "DirectML", "GPU"):
-                self.providers = ["DmlExecutionProvider", "CPUExecutionProvider"]
-                self.active_device = f"DirectX 12 GPU ({gpu_name})" if gpu_name else "DirectX 12 DirectML GPU"
-                self.gpu_available = True
-            elif "OpenVINOExecutionProvider" in available_providers and self.device_preference != "CPU":
-                self.providers = ["OpenVINOExecutionProvider", "CPUExecutionProvider"]
-                self.active_device = f"Intel OpenVINO GPU ({gpu_name})" if gpu_name else "Intel OpenVINO GPU"
-                self.gpu_available = True
-            elif "CoreMLExecutionProvider" in available_providers and self.device_preference != "CPU":
-                self.providers = ["CoreMLExecutionProvider", "CPUExecutionProvider"]
-                self.active_device = f"Apple Neural Engine ({gpu_name})" if gpu_name else "Apple Neural Engine"
-                self.gpu_available = True
-            else:
-                cpu_name = self.get_system_cpu_name()
-                self.providers = ["CPUExecutionProvider"]
-                self.active_device = f"Multi-Core CPU ({cpu_name})"
-                self.gpu_available = False
-
-        except Exception as e:
-            logger.warning(f"Error configuring execution providers: {e}")
-            cpu_name = self.get_system_cpu_name()
-            self.providers = ["CPUExecutionProvider"]
-            self.active_device = f"Multi-Core CPU ({cpu_name})"
-            self.gpu_available = False
-
     def get_system_cpu_name(self) -> str:
         """Detect the exact real CPU model name, physical cores, and logical threads on Linux/Windows/macOS."""
         import subprocess
@@ -228,6 +187,56 @@ class InsightFaceEngine:
         cores_label = f"{physical_cores} Cores / {logical_threads} Threads" if physical_cores != logical_threads else f"{logical_threads} Cores"
         return f"Multi-Core CPU ({cores_label})"
 
+    def _configure_providers(self):
+        """Quickly detect hardware providers without loading models into memory (Instant App Launch)."""
+        try:
+            available_providers = onnxruntime.get_available_providers()
+            gpu_name = self.get_system_gpu_name()
+            cpu_name = self.get_system_cpu_name()
+
+            logger.info("=== AI HARDWARE CONFIGURATION ===")
+            logger.info(f"Platform: {sys.platform}")
+            logger.info(f"ONNX Runtime Version: {getattr(onnxruntime, '__version__', 'Unknown')}")
+            logger.info(f"Available ONNX Execution Providers: {available_providers}")
+            logger.info(f"Device Preference: {self.device_preference}")
+            logger.info(f"Detected System GPU: {gpu_name or 'None Detected'}")
+            logger.info(f"Detected System CPU: {cpu_name or 'Generic CPU'}")
+
+            if self.device_preference == "CPU":
+                self.providers = ["CPUExecutionProvider"]
+                self.active_device = f"Multi-Core CPU ({cpu_name})"
+                self.gpu_available = False
+            elif "CUDAExecutionProvider" in available_providers and self.device_preference in ("Auto", "CUDA"):
+                self.providers = ["CUDAExecutionProvider", "CPUExecutionProvider"]
+                self.active_device = f"CUDA GPU ({gpu_name})" if gpu_name else "CUDA GPU"
+                self.gpu_available = True
+            elif "DmlExecutionProvider" in available_providers and self.device_preference in ("Auto", "DirectML", "GPU"):
+                self.providers = ["DmlExecutionProvider", "CPUExecutionProvider"]
+                self.active_device = f"DirectX 12 GPU ({gpu_name})" if gpu_name else "DirectX 12 DirectML GPU"
+                self.gpu_available = True
+            elif "OpenVINOExecutionProvider" in available_providers and self.device_preference != "CPU":
+                self.providers = ["OpenVINOExecutionProvider", "CPUExecutionProvider"]
+                self.active_device = f"Intel OpenVINO GPU ({gpu_name})" if gpu_name else "Intel OpenVINO GPU"
+                self.gpu_available = True
+            elif "CoreMLExecutionProvider" in available_providers and self.device_preference != "CPU":
+                self.providers = ["CoreMLExecutionProvider", "CPUExecutionProvider"]
+                self.active_device = f"Apple Neural Engine ({gpu_name})" if gpu_name else "Apple Neural Engine"
+                self.gpu_available = True
+            else:
+                self.providers = ["CPUExecutionProvider"]
+                self.active_device = f"Multi-Core CPU ({cpu_name})"
+                self.gpu_available = False
+
+            logger.info(f"Active Device Configured: {self.active_device} (Providers: {self.providers})")
+            logger.info("=================================")
+
+        except Exception as e:
+            logger.warning(f"Error configuring execution providers: {e}", exc_info=True)
+            cpu_name = self.get_system_cpu_name()
+            self.providers = ["CPUExecutionProvider"]
+            self.active_device = f"Multi-Core CPU ({cpu_name})"
+            self.gpu_available = False
+
     def _ensure_initialized(self):
         """Lazy load ONNX models into memory when required with cascading GPU fallback."""
         if self._is_initialized and self.app is not None:
@@ -244,6 +253,8 @@ class InsightFaceEngine:
             except Exception:
                 pass
 
+            logger.info(f"Initializing InsightFace models with providers: {self.providers}...")
+
             # 1. Attempt primary configured provider list
             try:
                 self.app = FaceAnalysis(name="buffalo_sc", providers=self.providers)
@@ -252,7 +263,7 @@ class InsightFaceEngine:
                 logger.info(f"InsightFace engine initialized successfully on {self.active_device}.")
                 return
             except Exception as primary_err:
-                logger.warning(f"Primary GPU provider ({self.providers}) failed: {primary_err}")
+                logger.warning(f"Primary GPU provider ({self.providers}) failed: {primary_err}", exc_info=True)
 
             # 2. Cascading Fallback 1: Try DirectX 12 DirectML (NVIDIA / AMD / Intel GPU)
             available = onnxruntime.get_available_providers()
@@ -265,24 +276,26 @@ class InsightFaceEngine:
                     self.providers = dml_providers
                     gpu_name = self.get_system_gpu_name()
                     self.active_device = f"DirectX 12 GPU ({gpu_name})"
+                    self.gpu_available = True
                     self._is_initialized = True
                     logger.info(f"InsightFace successfully initialized on DirectX 12 DirectML GPU ({gpu_name})!")
                     return
                 except Exception as dml_err:
-                    logger.warning(f"DirectX 12 DirectML GPU fallback failed: {dml_err}")
+                    logger.warning(f"DirectX 12 DirectML GPU fallback failed: {dml_err}", exc_info=True)
 
             # 3. Cascading Fallback 2: Multi-Core CPU
             logger.info("Falling back to Multi-Core CPU execution...")
             cpu_name = self.get_system_cpu_name()
             self.providers = ["CPUExecutionProvider"]
             self.active_device = f"Multi-Core CPU ({cpu_name})"
+            self.gpu_available = False
             self.app = FaceAnalysis(name="buffalo_sc", providers=self.providers)
             self.app.prepare(ctx_id=0, det_size=(640, 640))
             self._is_initialized = True
             logger.info(f"InsightFace engine initialized on Multi-Core CPU ({cpu_name}).")
 
         except Exception as cpu_err:
-            logger.error(f"Failed to initialize InsightFace engine: {cpu_err}")
+            logger.error(f"Failed to initialize InsightFace engine: {cpu_err}", exc_info=True)
 
     def _detect_system_gpu(self) -> bool:
         """Detect system GPU hardware presence (NVIDIA, AMD, Intel)."""

@@ -5,6 +5,7 @@ Requirements #31 & #32:
 Manages performance modes (Eco/Balanced/Maximum Performance) and matching thresholds (default 50).
 """
 
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -104,6 +105,16 @@ class SettingsPage(QWidget):
         self.lbl_model_info.setStyleSheet("font-size: 11px; color: #a0a0b0;")
         hw_layout.addWidget(self.lbl_model_info)
 
+        hw_btn_row = QHBoxLayout()
+        self.btn_view_logs = QPushButton("📋 View Hardware & Diagnostic Logs")
+        self.btn_view_logs.setProperty("class", "SecondaryButton")
+        self.btn_view_logs.setCursor(Qt.PointingHandCursor)
+        self.btn_view_logs.setFixedWidth(280)
+        self.btn_view_logs.clicked.connect(self._view_diagnostic_logs)
+        hw_btn_row.addWidget(self.btn_view_logs)
+        hw_btn_row.addStretch()
+        hw_layout.addLayout(hw_btn_row)
+
         layout.addWidget(hw_card)
 
         # Storage Info & Cache Management Card
@@ -117,11 +128,22 @@ class SettingsPage(QWidget):
         self.lbl_storage.setStyleSheet("color: #a0a0b0; font-family: monospace;")
         sc_layout.addWidget(self.lbl_storage)
 
+        st_btn_row = QHBoxLayout()
+        btn_open_folder = QPushButton("📂 Open App Data Folder")
+        btn_open_folder.setProperty("class", "SecondaryButton")
+        btn_open_folder.setCursor(Qt.PointingHandCursor)
+        btn_open_folder.setFixedWidth(200)
+        btn_open_folder.clicked.connect(self._open_app_data_folder)
+        st_btn_row.addWidget(btn_open_folder)
+
         btn_clear_cache = QPushButton("🧹 Clear Face Processing Cache")
         btn_clear_cache.setProperty("class", "DangerButton")
+        btn_clear_cache.setCursor(Qt.PointingHandCursor)
         btn_clear_cache.setFixedWidth(240)
         btn_clear_cache.clicked.connect(self._clear_cache)
-        sc_layout.addWidget(btn_clear_cache)
+        st_btn_row.addWidget(btn_clear_cache)
+        st_btn_row.addStretch()
+        sc_layout.addLayout(st_btn_row)
 
         layout.addWidget(storage_card)
 
@@ -130,11 +152,13 @@ class SettingsPage(QWidget):
 
         btn_save = QPushButton("💾 Save Settings")
         btn_save.setProperty("class", "PrimaryButton")
+        btn_save.setCursor(Qt.PointingHandCursor)
         btn_save.clicked.connect(self._save)
         btn_layout.addWidget(btn_save)
 
         btn_reset = QPushButton("Reset Defaults")
         btn_reset.setProperty("class", "SecondaryButton")
+        btn_reset.setCursor(Qt.PointingHandCursor)
         btn_reset.clicked.connect(self._reset)
         btn_layout.addWidget(btn_reset)
 
@@ -149,6 +173,15 @@ class SettingsPage(QWidget):
         self.combo_perf.setCurrentText(self.settings_service.get("performance_mode", "Maximum Performance"))
         self.spin_threshold.setValue(int(self.settings_service.get("matching_threshold", 50)))
         self.chk_enable_cache.setChecked(self.settings_service.get("enable_face_cache", True))
+
+        dev_pref = self.settings_service.get("device_preference", "Auto")
+        pref_map = {
+            "Auto": "Auto (GPU Priority - Recommended)",
+            "DirectML": "DirectX 12 GPU (DirectML)",
+            "CUDA": "NVIDIA CUDA GPU",
+            "CPU": "Multi-Core CPU"
+        }
+        self.combo_device.setCurrentText(pref_map.get(dev_pref, "Auto (GPU Priority - Recommended)"))
 
         if hasattr(self.face_engine, "get_device_info"):
             info = self.face_engine.get_device_info()
@@ -165,19 +198,57 @@ class SettingsPage(QWidget):
             self.lbl_model_info.setText(f"AI Vision Model: {info.get('model_used', 'InsightFace SCRFD + ArcFace 512-d')}")
 
     def _save(self):
+        sel_text = self.combo_device.currentText()
+        pref = "Auto"
+        if "DirectX" in sel_text or "DirectML" in sel_text:
+            pref = "DirectML"
+        elif "CUDA" in sel_text:
+            pref = "CUDA"
+        elif "CPU" in sel_text:
+            pref = "CPU"
+
         self.settings_service.update({
             "performance_mode": self.combo_perf.currentText(),
+            "device_preference": pref,
             "matching_threshold": self.spin_threshold.value(),
             "enable_face_cache": self.chk_enable_cache.isChecked(),
         })
+
+        if hasattr(self.face_engine, "set_device_preference"):
+            self.face_engine.set_device_preference(pref)
+
+        self.refresh()
         QMessageBox.information(self, "Settings Saved", "Settings saved successfully.")
 
     def _reset(self):
         self.combo_perf.setCurrentText("Maximum Performance")
+        self.combo_device.setCurrentText("Auto (GPU Priority - Recommended)")
         self.spin_threshold.setValue(50)
         self.chk_enable_cache.setChecked(True)
         self.settings_service.reset_to_defaults()
+        if hasattr(self.face_engine, "set_device_preference"):
+            self.face_engine.set_device_preference("Auto")
+        self.refresh()
         QMessageBox.information(self, "Settings Reset", "Settings reset to defaults.")
+
+    def _view_diagnostic_logs(self):
+        from ui.components.log_viewer_dialog import LogViewerDialog
+        log_file = self.settings_service.config.app_data_dir / "photo_face_organizer.log"
+        dlg = LogViewerDialog(self, log_file)
+        dlg.exec()
+
+    def _open_app_data_folder(self):
+        import os, subprocess, sys
+        folder = str(self.settings_service.config.app_data_dir)
+        try:
+            if sys.platform == "win32":
+                os.startfile(folder)
+            elif sys.platform == "darwin":
+                subprocess.Popen(["open", folder])
+            else:
+                subprocess.Popen(["xdg-open", folder])
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Failed to open folder: {e}")
 
     def _clear_cache(self):
         if self.face_cache_service:
