@@ -70,6 +70,19 @@ class UnknownFaceService:
                         return True
         return False
 
+    def _is_duplicate_unknown_face(self, source_photo_path: str, bounding_box: list[int]) -> bool:
+        """Check if an unknown face entry already exists for this exact photo and bounding box."""
+        if not source_photo_path or not bounding_box or len(bounding_box) != 4:
+            return False
+
+        for u in self.list_unknown_faces():
+            if u.get("source_photo_path") == source_photo_path:
+                existing_bbox = u.get("bounding_box", [])
+                if existing_bbox and len(existing_bbox) == 4:
+                    if all(abs(e - b) <= 5 for e, b in zip(existing_bbox, bounding_box)):
+                        return True
+        return False
+
     def store_unknown_face(
         self,
         face_crop: Image.Image,
@@ -81,9 +94,13 @@ class UnknownFaceService:
     ) -> dict[str, Any] | None:
         """
         Save cropped image, encoding, and metadata for an unknown face.
-        Returns None if face belongs to an existing profile in the system.
+        Returns None if face belongs to an existing profile in the system or is a duplicate.
         """
         if check_existing_profiles and self.is_known_profile_face(face_encoding):
+            return None
+
+        if self._is_duplicate_unknown_face(source_photo_path, bounding_box):
+            logger.info(f"Skipping duplicate unknown face for {source_photo_path} at {bounding_box}")
             return None
 
         u_id = str(uuid.uuid4())
@@ -148,7 +165,7 @@ class UnknownFaceService:
             # Start new group
             group_id = face.get("group_id") or f"group_{uuid.uuid4().hex[:8]}"
             group_name = face.get("group_name") or f"Unknown Person ({len(groups) + 1})"
-            group_faces = [face]
+            raw_group_faces = [face]
             visited.add(f_id)
 
             for other in all_faces:
@@ -160,7 +177,7 @@ class UnknownFaceService:
 
                 # Purity Check: Candidate 'other' face must score >= 80% against ALL existing members in this group
                 matches_all_members = True
-                for member in group_faces:
+                for member in raw_group_faces:
                     m_emb = member["embedding"]
                     if m_emb.shape != o_emb.shape:
                         matches_all_members = False
@@ -172,11 +189,25 @@ class UnknownFaceService:
                         break
 
                 if matches_all_members:
-                    group_faces.append(other)
+                    raw_group_faces.append(other)
                     visited.add(o_id)
 
+            # Deduplicate group faces by (source_photo_path, bbox) and purge duplicates on disk
+            unique_group_faces = []
+            seen_sources = set()
+            for gf in raw_group_faces:
+                src_p = gf.get("source_photo_path")
+                bbox = tuple(gf.get("bounding_box", []))
+                key = (src_p, bbox)
+                if key not in seen_sources:
+                    seen_sources.add(key)
+                    unique_group_faces.append(gf)
+                else:
+                    # Auto-delete duplicate record on disk
+                    self.delete_unknown_face(gf.get("id"))
+
             # Update metadata on disk with group_id and group_name
-            for gf in group_faces:
+            for gf in unique_group_faces:
                 gf["group_id"] = group_id
                 gf["group_name"] = group_name
                 self._update_metadata(gf)
@@ -184,7 +215,7 @@ class UnknownFaceService:
             groups.append({
                 "group_id": group_id,
                 "group_name": group_name,
-                "faces": group_faces
+                "faces": unique_group_faces
             })
 
         return groups

@@ -145,20 +145,29 @@ class UnknownFacesPage(QWidget):
         self._run_clustering()
 
     def _run_clustering(self):
+        target_group_id = self.current_group_id
         self.groups = self.unknown_face_service.group_unknown_faces(threshold=50.0)
         self.groups_list.clear()
 
-        for g in self.groups:
+        select_row = -1
+        for idx, g in enumerate(self.groups):
+            g_id = g.get("group_id")
             g_name = g.get("group_name", "Unknown Group")
             faces_cnt = len(g.get("faces", []))
             item = QListWidgetItem(f"{g_name} ({faces_cnt} faces)")
-            item.setData(Qt.UserRole, g.get("group_id"))
+            item.setData(Qt.UserRole, g_id)
             self.groups_list.addItem(item)
+            if target_group_id and g_id == target_group_id:
+                select_row = idx
 
         if self.groups_list.count() > 0:
-            self.groups_list.setCurrentRow(0)
+            if select_row >= 0:
+                self.groups_list.setCurrentRow(select_row)
+            else:
+                self.groups_list.setCurrentRow(0)
 
         if not self.groups:
+            self.current_group_id = None
             self.group_title_lbl.setText("No unknown faces stored.")
             self._clear_faces_grid()
 
