@@ -91,7 +91,7 @@ class InsightFaceEngine:
                             end = gpu_part.rfind("]")
                             if start < end:
                                 bracket_name = gpu_part[start:end]
-                                return f"AMD/NVIDIA {bracket_name}"
+                                return bracket_name
                         return gpu_part
                     return raw_line
 
@@ -224,21 +224,23 @@ class InsightFaceEngine:
                     self.app = FaceAnalysis(name="buffalo_sc", providers=dml_providers)
                     self.app.prepare(ctx_id=0, det_size=(640, 640))
                     self.providers = dml_providers
-                    self.active_device = "DirectX 12 GPU (NVIDIA GTX 1650 / AMD)"
+                    gpu_name = self.get_system_gpu_name()
+                    self.active_device = f"DirectX 12 GPU ({gpu_name})"
                     self._is_initialized = True
-                    logger.info("InsightFace successfully initialized on DirectX 12 DirectML GPU!")
+                    logger.info(f"InsightFace successfully initialized on DirectX 12 DirectML GPU ({gpu_name})!")
                     return
                 except Exception as dml_err:
                     logger.warning(f"DirectX 12 DirectML GPU fallback failed: {dml_err}")
 
             # 3. Cascading Fallback 2: Multi-Core CPU
             logger.info("Falling back to Multi-Core CPU execution...")
+            cpu_name = self.get_system_cpu_name()
             self.providers = ["CPUExecutionProvider"]
-            self.active_device = "Multi-Core CPU"
+            self.active_device = f"Multi-Core CPU ({cpu_name})"
             self.app = FaceAnalysis(name="buffalo_sc", providers=self.providers)
             self.app.prepare(ctx_id=0, det_size=(640, 640))
             self._is_initialized = True
-            logger.info("InsightFace engine initialized on Multi-Core CPU.")
+            logger.info(f"InsightFace engine initialized on Multi-Core CPU ({cpu_name}).")
 
         except Exception as cpu_err:
             logger.error(f"Failed to initialize InsightFace engine: {cpu_err}")

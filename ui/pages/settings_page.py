@@ -61,7 +61,7 @@ class SettingsPage(QWidget):
         self.combo_device = QComboBox()
         self.combo_device.addItems([
             "Auto (GPU Priority - Recommended)",
-            "DirectX 12 GPU (NVIDIA GTX 1650 / AMD)",
+            "DirectX 12 GPU (DirectML)",
             "NVIDIA CUDA GPU",
             "Multi-Core CPU"
         ])
