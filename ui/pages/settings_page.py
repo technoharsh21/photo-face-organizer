@@ -56,7 +56,18 @@ class SettingsPage(QWidget):
         self.combo_perf.addItems(["Eco", "Balanced", "Maximum Performance"])
         c_layout.addWidget(self.combo_perf)
 
-        # 2. Matching Threshold
+        # 2. AI Hardware Device Preference
+        c_layout.addWidget(QLabel("AI Hardware Acceleration Preference:"))
+        self.combo_device = QComboBox()
+        self.combo_device.addItems([
+            "Auto (GPU Priority - Recommended)",
+            "DirectX 12 GPU (NVIDIA GTX 1650 / AMD)",
+            "NVIDIA CUDA GPU",
+            "Multi-Core CPU"
+        ])
+        c_layout.addWidget(self.combo_device)
+
+        # 3. Matching Threshold
         c_layout.addWidget(QLabel("Default Matching Threshold (0 - 100, Default: 50):"))
         self.spin_threshold = QSpinBox()
         self.spin_threshold.setRange(1, 100)

@@ -53,33 +53,34 @@ class InsightFaceEngine:
             available_providers = onnxruntime.get_available_providers()
             logger.info(f"Available ONNX Runtime execution providers: {available_providers}")
 
-            if "CUDAExecutionProvider" in available_providers and self.device_preference != "CPU":
-                self.providers = [("CUDAExecutionProvider", {"device_id": 0}), "CPUExecutionProvider"]
+            self.gpu_available = self._detect_system_gpu() or ("CUDAExecutionProvider" in available_providers or "DmlExecutionProvider" in available_providers)
+
+            if self.device_preference == "CPU":
+                self.providers = ["CPUExecutionProvider"]
+                self.active_device = "Multi-Core CPU"
+            elif "CUDAExecutionProvider" in available_providers and self.device_preference in ("Auto", "CUDA"):
+                self.providers = ["CUDAExecutionProvider", "CPUExecutionProvider"]
                 self.active_device = "NVIDIA CUDA GPU (GeForce GTX)"
-                self.gpu_available = True
-            elif "DmlExecutionProvider" in available_providers and self.device_preference != "CPU":
-                self.providers = [("DmlExecutionProvider", {"device_id": 0}), "CPUExecutionProvider"]
-                self.active_device = "DirectX 12 GPU (NVIDIA GTX)"
-                self.gpu_available = True
+            elif "DmlExecutionProvider" in available_providers and self.device_preference in ("Auto", "DirectML", "GPU"):
+                self.providers = ["DmlExecutionProvider", "CPUExecutionProvider"]
+                self.active_device = "DirectX 12 GPU (NVIDIA GTX 1650 / AMD)"
             elif "OpenVINOExecutionProvider" in available_providers and self.device_preference != "CPU":
                 self.providers = ["OpenVINOExecutionProvider", "CPUExecutionProvider"]
                 self.active_device = "Intel Iris / OpenVINO GPU"
-                self.gpu_available = True
             elif "CoreMLExecutionProvider" in available_providers and self.device_preference != "CPU":
                 self.providers = ["CoreMLExecutionProvider", "CPUExecutionProvider"]
                 self.active_device = "Apple CoreML GPU"
-                self.gpu_available = True
             else:
                 self.providers = ["CPUExecutionProvider"]
                 self.active_device = "Multi-Core CPU"
-                self.gpu_available = self._detect_system_gpu()
 
-        except Exception:
+        except Exception as e:
+            logger.warning(f"Error configuring execution providers: {e}")
             self.providers = ["CPUExecutionProvider"]
             self.active_device = "Multi-Core CPU"
 
     def _ensure_initialized(self):
-        """Lazy load ONNX models into memory when required (thread-safe)."""
+        """Lazy load ONNX models into memory when required with cascading GPU fallback."""
         if self._is_initialized and self.app is not None:
             return
 
@@ -94,22 +95,43 @@ class InsightFaceEngine:
             except Exception:
                 pass
 
-            self.app = FaceAnalysis(name="buffalo_sc", providers=self.providers)
-            self.app.prepare(ctx_id=0, det_size=(640, 640))
-            self._is_initialized = True
-            logger.info(f"InsightFace engine initialized successfully on {self.active_device}.")
-
-        except Exception as e:
-            logger.warning(f"Error initializing GPU provider, falling back to CPU execution: {e}")
+            # 1. Attempt primary configured provider list
             try:
-                self.providers = ["CPUExecutionProvider"]
-                self.active_device = "Multi-Core CPU"
-                self.gpu_available = self._detect_system_gpu()
                 self.app = FaceAnalysis(name="buffalo_sc", providers=self.providers)
                 self.app.prepare(ctx_id=0, det_size=(640, 640))
                 self._is_initialized = True
-            except Exception as cpu_err:
-                logger.error(f"Failed to initialize InsightFace CPU fallback: {cpu_err}")
+                logger.info(f"InsightFace engine initialized successfully on {self.active_device}.")
+                return
+            except Exception as primary_err:
+                logger.warning(f"Primary GPU provider ({self.providers}) failed: {primary_err}")
+
+            # 2. Cascading Fallback 1: Try DirectX 12 DirectML (NVIDIA / AMD / Intel GPU)
+            available = onnxruntime.get_available_providers()
+            if "DmlExecutionProvider" in available and "DmlExecutionProvider" not in self.providers:
+                try:
+                    logger.info("Attempting cascading fallback to DirectX 12 DirectML GPU...")
+                    dml_providers = ["DmlExecutionProvider", "CPUExecutionProvider"]
+                    self.app = FaceAnalysis(name="buffalo_sc", providers=dml_providers)
+                    self.app.prepare(ctx_id=0, det_size=(640, 640))
+                    self.providers = dml_providers
+                    self.active_device = "DirectX 12 GPU (NVIDIA GTX 1650 / AMD)"
+                    self._is_initialized = True
+                    logger.info("InsightFace successfully initialized on DirectX 12 DirectML GPU!")
+                    return
+                except Exception as dml_err:
+                    logger.warning(f"DirectX 12 DirectML GPU fallback failed: {dml_err}")
+
+            # 3. Cascading Fallback 2: Multi-Core CPU
+            logger.info("Falling back to Multi-Core CPU execution...")
+            self.providers = ["CPUExecutionProvider"]
+            self.active_device = "Multi-Core CPU"
+            self.app = FaceAnalysis(name="buffalo_sc", providers=self.providers)
+            self.app.prepare(ctx_id=0, det_size=(640, 640))
+            self._is_initialized = True
+            logger.info("InsightFace engine initialized on Multi-Core CPU.")
+
+        except Exception as cpu_err:
+            logger.error(f"Failed to initialize InsightFace engine: {cpu_err}")
 
     def _detect_system_gpu(self) -> bool:
         """Detect system GPU hardware presence (NVIDIA, AMD, Intel)."""
