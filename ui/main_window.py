@@ -22,6 +22,7 @@ from PySide6.QtWidgets import (
 
 from config import Config
 from domain.face_engine import FaceEngine
+from services.duplicate_service import DuplicateService
 from services.face_cache_service import FaceCacheService
 from services.history_service import HistoryService
 from services.output_service import OutputService
@@ -32,6 +33,7 @@ from services.solo_scan_service import SoloScanService
 from services.unknown_face_service import UnknownFaceService
 from ui.components.crash_recovery_dialog import CrashRecoveryDialog
 from ui.pages.dashboard_page import DashboardPage
+from ui.pages.duplicate_page import DuplicatePage
 from ui.pages.history_page import HistoryPage
 from ui.pages.new_scan_page import NewScanPage
 from ui.pages.people_page import PeoplePage
@@ -78,6 +80,7 @@ class MainWindow(QMainWindow):
         self.unknown_face_service = unknown_face_service
         self.history_service = history_service
         self.settings_service = settings_service
+        self.duplicate_service = DuplicateService(config)
         self.is_scanning_active = False
 
         self.setWindowTitle("Photo Face Organizer")
@@ -108,6 +111,7 @@ class MainWindow(QMainWindow):
         self.page_unknown_faces = UnknownFacesPage(self.unknown_face_service)
         self.page_history = HistoryPage(self.history_service, self.scan_service, self._on_view_history_results, self._on_resume_history_scan)
         self.page_settings = SettingsPage(self.settings_service, self.face_engine, self.face_cache_service)
+        self.page_duplicates = DuplicatePage(self.duplicate_service)
 
         self.page_map = {
             "Dashboard": (0, self.page_dashboard),
@@ -119,6 +123,7 @@ class MainWindow(QMainWindow):
             "Unknown Faces": (6, self.page_unknown_faces),
             "History": (7, self.page_history),
             "Settings": (8, self.page_settings),
+            "Duplicates": (9, self.page_duplicates),
         }
 
         for idx, page_widget in [
@@ -131,6 +136,7 @@ class MainWindow(QMainWindow):
             (6, self.page_unknown_faces),
             (7, self.page_history),
             (8, self.page_settings),
+            (9, self.page_duplicates),
         ]:
             self.content_stack.addWidget(page_widget)
 
@@ -164,6 +170,7 @@ class MainWindow(QMainWindow):
             ("LIBRARY & RESULTS", [
                 ("Results", "📊  Results & Folders"),
                 ("Unknown Faces", "❓  Unknown Faces"),
+                ("Duplicates", "🔍  Duplicate Finder"),
                 ("History", "📜  Scan History"),
             ]),
             ("SYSTEM", [
