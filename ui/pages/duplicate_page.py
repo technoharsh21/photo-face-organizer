@@ -12,7 +12,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QThread, Signal
 from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -35,6 +35,28 @@ from PySide6.QtWidgets import (
 from services.duplicate_service import DuplicateService, format_bytes
 
 
+class DuplicateScanWorker(QThread):
+    """Background worker thread for scanning duplicate images without UI freeze."""
+
+    finished_signal = Signal(list)
+
+    def __init__(self, duplicate_service: DuplicateService, sources: list[str], recursive: bool):
+        super().__init__()
+        self.duplicate_service = duplicate_service
+        self.sources = sources
+        self.recursive = recursive
+
+    def run(self):
+        try:
+            sets = self.duplicate_service.scan_directories_for_duplicates(
+                sources=self.sources,
+                recursive=self.recursive,
+            )
+            self.finished_signal.emit(sets)
+        except Exception:
+            self.finished_signal.emit([])
+
+
 class DuplicatePage(QWidget):
     """UI Page for inspecting and cleaning duplicate image files."""
 
@@ -44,6 +66,7 @@ class DuplicatePage(QWidget):
         self.sources: list[str] = []
         self.duplicate_sets: list[dict[str, Any]] = []
         self.current_set_id: str | None = None
+        self.worker: DuplicateScanWorker | None = None
 
         self._setup_ui()
 
@@ -73,18 +96,22 @@ class DuplicatePage(QWidget):
         top_btns = QHBoxLayout()
         btn_add_folder = QPushButton("📁 Add Folder to Scan")
         btn_add_folder.setProperty("class", "SecondaryButton")
+        btn_add_folder.setCursor(Qt.PointingHandCursor)
         btn_add_folder.clicked.connect(self._add_folder)
 
         btn_clear = QPushButton("Clear Folders")
         btn_clear.setProperty("class", "DangerButton")
+        btn_clear.setCursor(Qt.PointingHandCursor)
         btn_clear.clicked.connect(self._clear_folders)
 
         self.chk_recursive = QCheckBox("Scan subdirectories recursively")
         self.chk_recursive.setChecked(True)
+        self.chk_recursive.setCursor(Qt.PointingHandCursor)
         self.chk_recursive.setStyleSheet("color: #ffffff;")
 
         self.btn_scan = QPushButton("⚡ Scan for Duplicates")
         self.btn_scan.setProperty("class", "PrimaryButton")
+        self.btn_scan.setCursor(Qt.PointingHandCursor)
         self.btn_scan.clicked.connect(self._run_duplicate_scan)
 
         top_btns.addWidget(btn_add_folder)
@@ -97,6 +124,12 @@ class DuplicatePage(QWidget):
         self.sources_lbl = QLabel("<b>Scan Targets:</b> Default Output Folder (~/Pictures/Organized_Photos)")
         self.sources_lbl.setStyleSheet("color: #60a5fa; font-size: 12px;")
         ctrl_l.addWidget(self.sources_lbl)
+
+        # Loading Status Indicator Banner
+        self.lbl_loading_status = QLabel("")
+        self.lbl_loading_status.setStyleSheet("color: #fbbf24; font-weight: bold; font-size: 13px;")
+        self.lbl_loading_status.hide()
+        ctrl_l.addWidget(self.lbl_loading_status)
 
         layout.addWidget(ctrl_card)
 
@@ -151,11 +184,13 @@ class DuplicatePage(QWidget):
 
         actions_l.addWidget(QLabel("Auto-Select Rule:"))
         self.combo_rule = QComboBox()
+        self.combo_rule.setCursor(Qt.PointingHandCursor)
         self.combo_rule.addItems(["Keep Oldest (Original)", "Keep Newest Copy", "Keep Shortest File Path"])
         actions_l.addWidget(self.combo_rule)
 
         btn_auto_select = QPushButton("⚡ Apply Rule")
         btn_auto_select.setProperty("class", "SecondaryButton")
+        btn_auto_select.setCursor(Qt.PointingHandCursor)
         btn_auto_select.clicked.connect(self._apply_auto_select_rule)
         actions_l.addWidget(btn_auto_select)
 
@@ -163,11 +198,13 @@ class DuplicatePage(QWidget):
 
         self.btn_quarantine = QPushButton("📁 Quarantine Selected")
         self.btn_quarantine.setProperty("class", "SecondaryButton")
+        self.btn_quarantine.setCursor(Qt.PointingHandCursor)
         self.btn_quarantine.clicked.connect(self._quarantine_selected)
         actions_l.addWidget(self.btn_quarantine)
 
         self.btn_delete = QPushButton("🗑 Send Selected to Trash")
         self.btn_delete.setProperty("class", "DangerButton")
+        self.btn_delete.setCursor(Qt.PointingHandCursor)
         self.btn_delete.setStyleSheet("background-color: #ef4444; color: #ffffff; font-weight: bold;")
         self.btn_delete.clicked.connect(self._delete_selected)
         actions_l.addWidget(self.btn_delete)
@@ -213,11 +250,24 @@ class DuplicatePage(QWidget):
     def _run_duplicate_scan(self):
         scan_targets = self.sources or [str(Path.home() / "Pictures" / "Organized_Photos")]
 
-        self.duplicate_sets = self.duplicate_service.scan_directories_for_duplicates(
+        self.btn_scan.setEnabled(False)
+        self.btn_scan.setText("⏳ Scanning... Please wait")
+        self.lbl_loading_status.setText("⏳ Scanning folders for duplicate photos... Please wait.")
+        self.lbl_loading_status.show()
+
+        self.worker = DuplicateScanWorker(
+            duplicate_service=self.duplicate_service,
             sources=scan_targets,
             recursive=self.chk_recursive.isChecked(),
         )
+        self.worker.finished_signal.connect(self._on_scan_finished)
+        self.worker.start()
 
+    def _on_scan_finished(self, duplicate_sets: list[dict[str, Any]]):
+        self.btn_scan.setEnabled(True)
+        self.btn_scan.setText("⚡ Scan for Duplicates")
+        self.lbl_loading_status.hide()
+        self.duplicate_sets = duplicate_sets
         self.refresh()
 
     def refresh(self):
@@ -339,13 +389,23 @@ class DuplicatePage(QWidget):
 
             rad_keep = QRadioButton("🟢 Keep File")
             rad_keep.setChecked(is_keep)
+            rad_keep.setCursor(Qt.PointingHandCursor)
             rad_keep.setStyleSheet("color: #34d399; font-weight: bold;")
             rad_keep.toggled.connect(lambda checked, fi=f_info: self._toggle_keep(fi, checked))
             ctrl_l.addWidget(rad_keep)
 
             btn_open = QPushButton("📂 Open Location")
-            btn_open.setProperty("class", "SecondaryButton")
-            btn_open.setFixedHeight(26)
+            btn_open.setCursor(Qt.PointingHandCursor)
+            btn_open.setFixedHeight(30)
+            btn_open.setStyleSheet(
+                "background-color: #0f172a !important; "
+                "color: #38bdf8 !important; "
+                "border: 1px solid #0284c7; "
+                "border-radius: 6px; "
+                "padding: 4px 12px; "
+                "font-size: 11px; "
+                "font-weight: bold;"
+            )
             btn_open.clicked.connect(lambda _, path=p_str: self._open_file_location(path))
             ctrl_l.addWidget(btn_open)
 

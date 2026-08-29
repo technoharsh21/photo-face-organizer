@@ -121,6 +121,7 @@ QPushButton {
     padding: 9px 18px;
     font-weight: 600;
     font-size: 13px;
+    cursor: pointer;
 }
 
 QPushButton:hover {
@@ -232,6 +233,7 @@ QRadioButton, QCheckBox {
     color: #f8fafc;
     font-size: 13px;
     spacing: 10px;
+    cursor: pointer;
 }
 
 QRadioButton::indicator, QCheckBox::indicator {
