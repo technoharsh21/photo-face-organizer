@@ -54,11 +54,13 @@ class SoloScanWorker(QThread):
         operation_mode: str = "copy",
         start_index: int = 0,
         initial_stats: dict[str, Any] | None = None,
+        all_system_profiles: list[dict[str, Any]] | None = None,
     ):
         super().__init__()
         self.scan_id = scan_id
         self.files = files
         self.profiles = profiles
+        self.all_system_profiles = all_system_profiles or profiles
         self.output_dir = Path(output_dir)
         self.checkpoint_file = Path(checkpoint_file)
         self.face_engine = face_engine
@@ -197,21 +199,19 @@ class SoloScanWorker(QThread):
                 if self.face_cache_service:
                     self.face_cache_service.save_cached_faces(file_path, face_locations, face_encodings)
 
-            # STRICT SOLO FILTER: If face_locations != 1 (0 faces or 2+ faces), exclude photo!
-            if len(face_locations) != 1:
+            if not face_locations:
                 self.no_match_count += 1
-                self.source_to_output_map[str(file_path)] = [
-                    f"Excluded from Solo Folder ({len(face_locations)} faces detected)"
-                ]
+                self.source_to_output_map[str(file_path)] = ["No faces detected"]
                 return
 
             face_crops = self.face_engine.extract_faces(pil_img, face_locations)
 
-            # 3. Evaluate solo matches
+            # 3. Evaluate solo and exclusive group solo matches
             matched_person_names, face_results = self.matcher.evaluate_solo_photo_matches(
                 face_encodings=face_encodings,
                 face_locations=face_locations,
                 profiles=self.profiles,
+                all_system_profiles=self.all_system_profiles,
             )
 
             # 4. Route copies ONLY IF matched to a person profile

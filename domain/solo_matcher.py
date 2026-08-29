@@ -82,22 +82,36 @@ class SoloFaceMatcher:
         face_encodings: list[np.ndarray],
         face_locations: list[tuple[int, int, int, int]],
         profiles: list[dict[str, Any]],
+        all_system_profiles: list[dict[str, Any]] | None = None,
     ) -> tuple[set[str], list[ProfileMatchResult]]:
         """
-        Evaluates detected faces in a photo for solo matching.
+        Evaluates detected faces in a photo for solo and exclusive group matching.
 
-        RULE:
-        - If len(face_locations) == 1: Evaluate single face against individual profiles.
-        - If len(face_locations) != 1 (0 faces or 2+ faces): Exclude photo from solo profile folders.
+        RULES:
+        1. Individual Solo Profile:
+           - Matches ONLY when len(face_locations) == 1.
+           - Single face must match individual profile with score >= threshold (70%).
+        2. Group Solo Profile (e.g. Couple / Family Group):
+           - Matches ONLY when len(face_locations) == N (exact member count).
+           - Every compulsory member of the Group Profile must match a distinct face with score >= threshold (70%).
+           - Guarantees 0% strangers/outsiders in the photo.
 
         :return: (set_of_matched_profile_names, list_of_face_results)
         """
         face_results: list[ProfileMatchResult] = []
         matched_profile_names: set[str] = set()
 
-        # STRICT SOLO FILTER: Reject group photos (2+ faces)
-        if len(face_locations) != 1:
-            # Group photo or no faces -> Do not route to individual solo folders
+        # Separate selected profiles into individual and group profiles
+        individual_profiles = [p for p in profiles if not p.get("is_group_profile")]
+        group_profiles = [p for p in profiles if p.get("is_group_profile")]
+
+        # 1. Individual Solo Matching (Requires EXACTLY 1 face)
+        if len(face_locations) == 1:
+            res = self.match_face(face_encodings[0], individual_profiles, bounding_box=face_locations[0], face_index=0)
+            face_results.append(res)
+            if res.is_match and res.matched_profile_name:
+                matched_profile_names.add(res.matched_profile_name)
+        else:
             for idx, (loc, enc) in enumerate(zip(face_locations, face_encodings)):
                 face_results.append(
                     ProfileMatchResult(
@@ -110,12 +124,72 @@ class SoloFaceMatcher:
                         profile_scores={},
                     )
                 )
-            return set(), face_results
 
-        # Exactly 1 face in photo -> Match against individual profiles
-        res = self.match_face(face_encodings[0], profiles, bounding_box=face_locations[0], face_index=0)
-        face_results.append(res)
-        if res.is_match and res.matched_profile_name:
-            matched_profile_names.add(res.matched_profile_name)
+        # 2. Exclusive Group Solo Matching
+        num_faces = len(face_locations)
+        system_profiles_map = {
+            p["id"]: p for p in (all_system_profiles or profiles)
+        }
+
+        for g_profile in group_profiles:
+            comp_ids = g_profile.get("compulsory_profile_ids", [])
+            required_count = len(comp_ids)
+
+            # Rule 1: Exact face count match (photo face count MUST equal group member count)
+            if required_count > 1 and num_faces == required_count:
+                member_profiles = [system_profiles_map[cid] for cid in comp_ids if cid in system_profiles_map]
+                if len(member_profiles) == required_count:
+                    # Rule 2: Verify every compulsory member is present with score >= threshold
+                    all_matched = self._verify_group_member_presence(face_encodings, member_profiles)
+                    if all_matched:
+                        matched_profile_names.add(g_profile["name"])
 
         return matched_profile_names, face_results
+
+    def _verify_group_member_presence(
+        self,
+        face_encodings: list[np.ndarray],
+        member_profiles: list[dict[str, Any]],
+    ) -> bool:
+        """
+        Verifies that every compulsory member profile matches a distinct detected face in the photo.
+        Returns True if 100% of member profiles are present with score >= self.threshold.
+        """
+        if len(face_encodings) != len(member_profiles):
+            return False
+
+        n = len(member_profiles)
+        used_faces = set()
+
+        for m_prof in member_profiles:
+            embeddings = m_prof.get("embeddings", [])
+            if not embeddings:
+                return False
+
+            best_face_idx = None
+            best_score = 0.0
+
+            for f_idx, face_enc in enumerate(face_encodings):
+                if f_idx in used_faces:
+                    continue
+
+                p_best_score = 0.0
+                for ref_emb in embeddings:
+                    ref_arr = np.asarray(ref_emb, dtype=np.float64)
+                    if np.all(ref_arr == 0):
+                        continue
+                    score = self.face_engine.calculate_match_score(face_enc, ref_arr)
+                    if score > p_best_score:
+                        p_best_score = score
+
+                if p_best_score >= self.threshold and p_best_score > best_score:
+                    best_score = p_best_score
+                    best_face_idx = f_idx
+
+            if best_face_idx is not None:
+                used_faces.add(best_face_idx)
+            else:
+                # Compulsory member was not found in photo
+                return False
+
+        return len(used_faces) == n

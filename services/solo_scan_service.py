@@ -106,6 +106,8 @@ class SoloScanService:
 
         checkpoint_file = scan_dir / "checkpoint.json"
 
+        all_sys_profiles = self.profile_service.list_profiles()
+
         # Create Worker Thread
         worker = SoloScanWorker(
             scan_id=scan_id,
@@ -121,6 +123,7 @@ class SoloScanService:
             performance_mode=performance_mode,
             operation_mode=operation_mode,
             start_index=0,
+            all_system_profiles=all_sys_profiles,
         )
 
         self.current_worker = worker

@@ -91,3 +91,51 @@ def test_solo_scan_service_verification(tmp_path):
     assert err_count == 0
     assert not src_file.exists()
     assert tgt_file.exists()
+
+
+def test_exclusive_group_solo_matching(mock_face_engine):
+    matcher = SoloFaceMatcher(face_engine=mock_face_engine, threshold=50.0)
+
+    enc_harsh = np.ones(512, dtype=np.float64)
+    enc_arya = np.ones(512, dtype=np.float64) * 0.9
+    enc_stranger = np.zeros(512, dtype=np.float64)
+
+    all_sys_profiles = [
+        {"id": "p_harsh", "name": "Harsh", "is_group_profile": False, "embeddings": [enc_harsh.tolist()]},
+        {"id": "p_arya", "name": "Arya", "is_group_profile": False, "embeddings": [enc_arya.tolist()]},
+        {
+            "id": "g_couple",
+            "name": "Harsh & Arya",
+            "is_group_profile": True,
+            "compulsory_profile_ids": ["p_harsh", "p_arya"],
+        },
+    ]
+
+    group_profiles_to_scan = [all_sys_profiles[2]]
+
+    # Case 1: Photo has EXACTLY 2 faces (Harsh + Arya) -> Matched!
+    names1, _ = matcher.evaluate_solo_photo_matches(
+        face_encodings=[enc_harsh, enc_arya],
+        face_locations=[(0, 50, 50, 0), (60, 110, 110, 60)],
+        profiles=group_profiles_to_scan,
+        all_system_profiles=all_sys_profiles,
+    )
+    assert "Harsh & Arya" in names1
+
+    # Case 2: Photo has 3 faces (Harsh + Arya + Stranger) -> Rejected (Exact face count failed)
+    names2, _ = matcher.evaluate_solo_photo_matches(
+        face_encodings=[enc_harsh, enc_arya, enc_stranger],
+        face_locations=[(0, 50, 50, 0), (60, 110, 110, 60), (120, 170, 170, 120)],
+        profiles=group_profiles_to_scan,
+        all_system_profiles=all_sys_profiles,
+    )
+    assert "Harsh & Arya" not in names2
+
+    # Case 3: Photo has 2 faces (Harsh + Stranger) -> Rejected (Member Arya missing)
+    names3, _ = matcher.evaluate_solo_photo_matches(
+        face_encodings=[enc_harsh, enc_stranger],
+        face_locations=[(0, 50, 50, 0), (60, 110, 110, 60)],
+        profiles=group_profiles_to_scan,
+        all_system_profiles=all_sys_profiles,
+    )
+    assert "Harsh & Arya" not in names3

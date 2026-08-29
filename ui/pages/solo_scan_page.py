@@ -389,12 +389,14 @@ class SoloScanPage(QWidget):
         self.profiles_list_widget.clear()
         profiles = self.profile_service.list_profiles()
         for p in profiles:
-            if not p.get("is_group_profile"):
-                item = QListWidgetItem(p["name"])
-                item.setFlags(item.flags() | Qt.ItemIsUserCheckable)
-                item.setCheckState(Qt.Checked)
-                item.setData(Qt.UserRole, p["id"])
-                self.profiles_list_widget.addItem(item)
+            is_group = p.get("is_group_profile", False)
+            c_cnt = len(p.get("compulsory_profile_ids", []))
+            tag = f" 👥 [Group - {c_cnt} members]" if is_group else ""
+            item = QListWidgetItem(f"{p['name']}{tag}")
+            item.setFlags(item.flags() | Qt.ItemIsUserCheckable)
+            item.setCheckState(Qt.Checked)
+            item.setData(Qt.UserRole, p["id"])
+            self.profiles_list_widget.addItem(item)
         self.chk_select_all.setChecked(True)
 
     def _add_folder(self):
