@@ -112,28 +112,35 @@ class InsightFaceEngine:
                 cpu_name = self.get_system_cpu_name()
                 self.providers = ["CPUExecutionProvider"]
                 self.active_device = f"Multi-Core CPU ({cpu_name})"
+                self.gpu_available = False
             elif "CUDAExecutionProvider" in available_providers and self.device_preference in ("Auto", "CUDA"):
                 self.providers = ["CUDAExecutionProvider", "CPUExecutionProvider"]
                 self.active_device = f"CUDA Acceleration ({gpu_name})" if gpu_name else "CUDA GPU Acceleration"
+                self.gpu_available = True
             elif "DmlExecutionProvider" in available_providers and self.device_preference in ("Auto", "DirectML", "GPU"):
                 self.providers = ["DmlExecutionProvider", "CPUExecutionProvider"]
                 self.active_device = f"DirectX 12 GPU ({gpu_name})" if gpu_name else "DirectX 12 DirectML GPU"
+                self.gpu_available = True
             elif "OpenVINOExecutionProvider" in available_providers and self.device_preference != "CPU":
                 self.providers = ["OpenVINOExecutionProvider", "CPUExecutionProvider"]
                 self.active_device = f"Intel OpenVINO ({gpu_name})" if gpu_name else "Intel OpenVINO GPU"
+                self.gpu_available = True
             elif "CoreMLExecutionProvider" in available_providers and self.device_preference != "CPU":
                 self.providers = ["CoreMLExecutionProvider", "CPUExecutionProvider"]
                 self.active_device = f"Apple Neural Engine / CoreML ({gpu_name})" if gpu_name else "Apple CoreML Engine"
+                self.gpu_available = True
             else:
                 cpu_name = self.get_system_cpu_name()
                 self.providers = ["CPUExecutionProvider"]
                 self.active_device = f"Multi-Core CPU ({cpu_name})"
+                self.gpu_available = False
 
         except Exception as e:
             logger.warning(f"Error configuring execution providers: {e}")
             cpu_name = self.get_system_cpu_name()
             self.providers = ["CPUExecutionProvider"]
             self.active_device = f"Multi-Core CPU ({cpu_name})"
+            self.gpu_available = False
 
     def get_system_cpu_name(self) -> str:
         """Detect the exact real CPU model name on Linux/Windows/macOS."""

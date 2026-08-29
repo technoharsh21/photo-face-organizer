@@ -159,7 +159,7 @@ class SettingsPage(QWidget):
                 self.lbl_hw_status.setText(f"🟢 Active AI Hardware: {dev} (GPU Accelerated)")
                 self.lbl_hw_status.setStyleSheet("font-size: 13px; font-weight: bold; color: #10b981;")
             else:
-                self.lbl_hw_status.setText(f"🟢 Active AI Hardware: {dev} (Process-Isolated Multi-Core)")
+                self.lbl_hw_status.setText(f"🟢 Active AI Hardware: {dev}")
                 self.lbl_hw_status.setStyleSheet("font-size: 13px; font-weight: bold; color: #60a5fa;")
 
             self.lbl_model_info.setText(f"AI Vision Model: {info.get('model_used', 'InsightFace SCRFD + ArcFace 512-d')}")
