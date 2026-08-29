@@ -284,19 +284,57 @@ class ProfileService:
             save_img = pil_img.convert("RGB") if pil_img.mode != "RGB" else pil_img
             save_img.save(ref_dest_path)
 
+        quality_info = self.assess_reference_quality(pil_img, list(locations[idx]))
+
         # Record metadata & encoding
         ref_entry = {
             "id": ref_id,
             "filename": ref_filename,
             "bbox": list(locations[idx]),
             "stored_path": str(ref_dest_path),
-            "is_fallback": False
+            "is_fallback": False,
+            "quality": quality_info,
         }
         profile.setdefault("references", []).append(ref_entry)
         profile.setdefault("embeddings", []).append(encoding.tolist())
 
         self._save_profile(profile)
         return True, "Reference photo added successfully"
+
+    @staticmethod
+    def assess_reference_quality(pil_img: Image.Image, bbox: list[int]) -> dict[str, Any]:
+        """
+        Calculates quality rating for a reference face photo crop.
+        Returns rating 1 to 5 stars, status description, and star badge string.
+        """
+        top, right, bottom, left = bbox[0], bbox[1], bbox[2], bbox[3]
+        crop_w = max(1, right - left)
+        crop_h = max(1, bottom - top)
+        face_pixels = crop_w * crop_h
+
+        # Rating evaluation
+        if face_pixels >= 15000:
+            stars = 5
+            label = "🟢 5/5 Stars: Excellent (Sharp & Clear Frontal View)"
+        elif face_pixels >= 8000:
+            stars = 4
+            label = "🟢 4/5 Stars: Good Quality"
+        elif face_pixels >= 4000:
+            stars = 3
+            label = "🟡 3/5 Stars: Moderate (Profile Angle / Slightly Small)"
+        elif face_pixels >= 1500:
+            stars = 2
+            label = "🔴 2/5 Stars: Fair (Low Resolution)"
+        else:
+            stars = 1
+            label = "🔴 1/5 Stars: Low Quality (Tiny Crop)"
+
+        return {
+            "stars": stars,
+            "badge": "⭐" * stars,
+            "quality_label": label,
+            "resolution": f"{crop_w}x{crop_h}px",
+        }
 
     def add_reference_photo_direct(
         self,

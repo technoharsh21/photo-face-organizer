@@ -143,6 +143,65 @@ class InsightFaceEngine:
             "model_used": "InsightFace (SCRFD 360° + ArcFace 512-d)",
         }
 
+    def _preprocess_bgr_image(self, img_bgr: np.ndarray) -> np.ndarray:
+        """
+        Enhances image for face scanning:
+        1. Low-light CLAHE contrast boost for dark/night images (mean brightness < 65).
+        2. Adaptive det_size configuration based on megapixel resolution.
+        """
+        if img_bgr is None or img_bgr.size == 0:
+            return img_bgr
+
+        # Adaptive detection resolution based on image size (4K/8K images use 1024x1024 grid)
+        h, w = img_bgr.shape[:2]
+        target_det = (1024, 1024) if max(h, w) >= 2500 else (640, 640)
+        if hasattr(self, "_current_det_size") and self._current_det_size != target_det:
+            if self.app is not None:
+                try:
+                    self.app.prepare(ctx_id=0, det_size=target_det)
+                    self._current_det_size = target_det
+                except Exception:
+                    pass
+        elif not hasattr(self, "_current_det_size"):
+            self._current_det_size = (640, 640)
+
+        # Low-light CLAHE contrast enhancement for dark nighttime photos
+        try:
+            gray_mean = float(np.mean(img_bgr))
+            if gray_mean < 65.0:
+                import cv2
+                lab = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2LAB)
+                l, a, b = cv2.split(lab)
+                clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8))
+                cl = clahe.apply(l)
+                limg = cv2.merge((cl, a, b))
+                enhanced_bgr = cv2.cvtColor(limg, cv2.COLOR_LAB2BGR)
+                return enhanced_bgr
+        except Exception:
+            pass
+
+        return img_bgr
+
+    @staticmethod
+    def compute_profile_centroid(embeddings: list[Any]) -> np.ndarray | None:
+        """
+        Calculates the unit-normalized centroid (mean vector) across multiple profile reference embeddings.
+        Suppresses facial expression and lighting noise for faster & more accurate matching.
+        """
+        valid = []
+        for e in embeddings:
+            if e is not None:
+                arr = np.asarray(e, dtype=np.float64)
+                if arr.size == 512 and not np.allclose(arr, 0):
+                    valid.append(arr)
+
+        if not valid:
+            return None
+
+        mean_vec = np.mean(valid, axis=0)
+        norm = np.linalg.norm(mean_vec)
+        return mean_vec / norm if norm > 0 else mean_vec
+
     def detect_faces(self, image: Any, upsample_num_times: int = 1) -> list[tuple[int, int, int, int]]:
         """
         Detect faces using SCRFD 360° deep detector.
@@ -154,7 +213,7 @@ class InsightFaceEngine:
             logger.warning("detect_faces: InsightFace app is None, returning empty.")
             return []
 
-        img_bgr = self._to_numpy_bgr(image)
+        img_bgr = self._preprocess_bgr_image(self._to_numpy_bgr(image))
         try:
             faces = self.app.get(img_bgr)
             locations = []
@@ -177,7 +236,7 @@ class InsightFaceEngine:
         if self.app is None:
             return []
 
-        img_bgr = self._to_numpy_bgr(image)
+        img_bgr = self._preprocess_bgr_image(self._to_numpy_bgr(image))
         try:
             faces = self.app.get(img_bgr)
             embeddings = []

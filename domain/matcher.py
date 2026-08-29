@@ -85,6 +85,13 @@ class FaceMatcher:
                 score = self.face_engine.calculate_match_score(face_encoding, ref_arr)
                 best_p_score = max(best_p_score, score)
 
+            # Centroid Embedding Averaging: compare against normalized mean vector for multi-photo profiles
+            if len(embeddings) >= 2 and hasattr(self.face_engine, "compute_profile_centroid"):
+                centroid = self.face_engine.compute_profile_centroid(embeddings)
+                if centroid is not None:
+                    c_score = self.face_engine.calculate_match_score(face_encoding, centroid)
+                    best_p_score = max(best_p_score, c_score)
+
             profile_best_scores[p_id] = best_p_score
 
             if best_p_score > highest_score:
