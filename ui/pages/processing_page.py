@@ -9,6 +9,7 @@ and controls for Pause, Resume, and Cancel.
 from collections.abc import Callable
 from typing import Any
 
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
@@ -40,20 +41,25 @@ class ProcessingPage(QWidget):
         self._setup_ui()
 
     def _setup_ui(self):
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(20, 20, 20, 20)
-        layout.setSpacing(14)
+        page_layout = QVBoxLayout(self)
+        page_layout.setContentsMargins(20, 20, 20, 20)
+        page_layout.setAlignment(Qt.AlignHCenter | Qt.AlignTop)
 
-        sub_title = QLabel("InsightFace SCRFD 360° face detection & ArcFace neural embedding in progress...")
+        content_widget = QWidget()
+        content_widget.setMaximumWidth(880)
+        layout = QVBoxLayout(content_widget)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(16)
+
+        sub_title = QLabel("⚡ InsightFace SCRFD 360° face detection & ArcFace neural embedding in progress...")
         sub_title.setStyleSheet("color: #94a3b8; font-size: 13px;")
         layout.addWidget(sub_title)
 
         # Status & Progress Card
         card = QFrame()
         card.setProperty("class", "Card")
-        card.setStyleSheet("background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%); border: 1px solid #38bdf8; border-radius: 12px; padding: 20px;")
         card_layout = QVBoxLayout(card)
-        card_layout.setSpacing(12)
+        card_layout.setSpacing(14)
 
         self.lbl_status = QLabel("Status: Processing...")
         self.lbl_status.setStyleSheet("font-size: 16px; font-weight: bold; color: #38bdf8;")
@@ -97,22 +103,27 @@ class ProcessingPage(QWidget):
 
         # Control Buttons
         btn_layout = QHBoxLayout()
+        btn_layout.setSpacing(12)
         btn_layout.addStretch()
 
         self.btn_pause = QPushButton("⏸ Pause")
         self.btn_pause.setProperty("class", "SecondaryButton")
+        self.btn_pause.setCursor(Qt.PointingHandCursor)
+        self.btn_pause.setFixedHeight(38)
         self.btn_pause.clicked.connect(self._toggle_pause)
         btn_layout.addWidget(self.btn_pause)
 
         self.btn_cancel = QPushButton("🛑 Cancel Scan")
         self.btn_cancel.setProperty("class", "DangerButton")
+        self.btn_cancel.setCursor(Qt.PointingHandCursor)
+        self.btn_cancel.setFixedHeight(38)
         self.btn_cancel.clicked.connect(self._cancel_scan)
         btn_layout.addWidget(self.btn_cancel)
 
         btn_layout.addStretch()
         layout.addLayout(btn_layout)
 
-        layout.addStretch()
+        page_layout.addWidget(content_widget)
 
     def _create_counter(self, title: str, val: str, color: str) -> dict:
         frame = QFrame()

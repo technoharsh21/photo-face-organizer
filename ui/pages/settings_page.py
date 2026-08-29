@@ -47,12 +47,14 @@ class SettingsPage(QWidget):
 
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
+        scroll.setAlignment(Qt.AlignHCenter | Qt.AlignTop)
         scroll.setStyleSheet("background: transparent; border: none;")
 
         content_widget = QWidget()
+        content_widget.setMaximumWidth(840)
         layout = QVBoxLayout(content_widget)
         layout.setContentsMargins(20, 20, 20, 20)
-        layout.setSpacing(14)
+        layout.setSpacing(16)
 
         # Settings Card
         card = QFrame()

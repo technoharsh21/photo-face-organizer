@@ -78,6 +78,13 @@ class HistoryPage(QWidget):
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         self.table.horizontalHeader().setSectionResizeMode(6, QHeaderView.ResizeToContents)
         self.table.setColumnWidth(6, 260)
+        self.table.setAlternatingRowColors(True)
+        self.table.setShowGrid(False)
+        self.table.setStyleSheet(
+            "QTableWidget { background-color: #0f172a; border: 1px solid #1e293b; border-radius: 10px; }"
+            "QTableWidget::item { padding: 8px 12px; }"
+            "QTableWidget::item:alternate { background-color: #141c2e; }"
+        )
         layout.addWidget(self.table, 1)
 
     def refresh(self):
@@ -97,13 +104,15 @@ class HistoryPage(QWidget):
 
             self.table.setItem(i, 0, QTableWidgetItem(date_str))
 
-            status_item = QTableWidgetItem(status)
+            status_item = QTableWidgetItem()
             if status == "Completed":
-                status_item.setForeground(Qt.green)
+                status_item.setText("🟢 Completed")
             elif status in {"Paused", "Interrupted"}:
-                status_item.setForeground(Qt.yellow)
+                status_item.setText(f"🟡 {status}")
             elif status in {"Cancelled", "Failed"}:
-                status_item.setForeground(Qt.red)
+                status_item.setText(f"🔴 {status}")
+            else:
+                status_item.setText(f"⚡ {status}")
             self.table.setItem(i, 1, status_item)
 
             self.table.setItem(i, 2, QTableWidgetItem(total))
@@ -121,6 +130,7 @@ class HistoryPage(QWidget):
 
             btn_view = QPushButton("🎯 View Results")
             btn_view.setProperty("class", "SecondaryButton")
+            btn_view.setCursor(Qt.PointingHandCursor)
             btn_view.setFixedHeight(28)
             btn_view.setStyleSheet("padding: 0 10px; font-weight: bold;")
             btn_view.clicked.connect(lambda _, scan_data=s: self.on_view_results_cb(scan_data))
@@ -129,6 +139,7 @@ class HistoryPage(QWidget):
             if status in {"Paused", "Interrupted", "Running"}:
                 btn_resume = QPushButton("▶ Resume")
                 btn_resume.setProperty("class", "PrimaryButton")
+                btn_resume.setCursor(Qt.PointingHandCursor)
                 btn_resume.setFixedHeight(28)
                 btn_resume.setStyleSheet("padding: 0 10px; font-weight: bold;")
                 btn_resume.clicked.connect(lambda _, s_id=scan_id: self.on_resume_scan_cb(s_id))
@@ -136,6 +147,7 @@ class HistoryPage(QWidget):
 
             btn_del = QPushButton("🗑 Delete")
             btn_del.setProperty("class", "DangerButton")
+            btn_del.setCursor(Qt.PointingHandCursor)
             btn_del.setFixedHeight(28)
             btn_del.setStyleSheet("padding: 0 10px; font-weight: bold;")
             btn_del.clicked.connect(lambda _, s_id=scan_id: self._delete_record(s_id))

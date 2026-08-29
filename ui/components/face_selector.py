@@ -60,28 +60,32 @@ class FaceSelectorDialog(QDialog):
 
         for i, crop in enumerate(self.face_crops):
             card = QFrame()
-            card.setFrameShape(QFrame.StyledPanel)
-            card.setStyleSheet("background-color: #25252e; border-radius: 8px; padding: 8px;")
+            card.setProperty("class", "Card")
+            card.setCursor(Qt.PointingHandCursor)
             card_layout = QVBoxLayout(card)
+            card_layout.setContentsMargins(10, 10, 10, 10)
+            card_layout.setSpacing(8)
 
             # Convert PIL image to QPixmap
             crop_rgb = crop.convert("RGB")
             data = crop_rgb.tobytes("raw", "RGB")
             qimg = QImage(data, crop_rgb.width, crop_rgb.height, crop_rgb.width * 3, QImage.Format_RGB888)
-            pixmap = QPixmap.fromImage(qimg).scaled(120, 120, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+            pixmap = QPixmap.fromImage(qimg).scaled(130, 130, Qt.KeepAspectRatio, Qt.SmoothTransformation)
 
             img_label = QLabel()
             img_label.setPixmap(pixmap)
             img_label.setAlignment(Qt.AlignCenter)
+            img_label.setStyleSheet("border-radius: 8px; background-color: #1e293b;")
             card_layout.addWidget(img_label)
 
             radio = QRadioButton(f"Face #{i + 1}")
-            radio.setStyleSheet("color: #ffffff; font-weight: bold;")
+            radio.setStyleSheet("color: #ffffff; font-weight: bold; font-size: 13px;")
             if i == 0:
                 radio.setChecked(True)
             self.button_group.addButton(radio, i)
             card_layout.addWidget(radio, alignment=Qt.AlignCenter)
 
+            card.mousePressEvent = lambda _, r=radio: r.setChecked(True)
             grid_layout.addWidget(card)
 
         scroll.setWidget(scroll_content)
@@ -89,15 +93,21 @@ class FaceSelectorDialog(QDialog):
 
         # Buttons
         btn_layout = QHBoxLayout()
+        btn_layout.setSpacing(12)
         btn_layout.addStretch()
 
         cancel_btn = QPushButton("Cancel")
         cancel_btn.setProperty("class", "SecondaryButton")
+        cancel_btn.setCursor(Qt.PointingHandCursor)
+        cancel_btn.setFixedHeight(38)
         cancel_btn.clicked.connect(self.reject)
         btn_layout.addWidget(cancel_btn)
 
         confirm_btn = QPushButton("Use Selected Face")
         confirm_btn.setProperty("class", "PrimaryButton")
+        confirm_btn.setCursor(Qt.PointingHandCursor)
+        confirm_btn.setFixedHeight(38)
+        confirm_btn.setStyleSheet("background-color: #10b981; color: #ffffff; font-weight: bold; padding: 0 20px;")
         confirm_btn.clicked.connect(self._on_confirm)
         btn_layout.addWidget(confirm_btn)
 
