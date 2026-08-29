@@ -104,8 +104,6 @@ class InsightFaceEngine:
         try:
             available_providers = onnxruntime.get_available_providers()
             logger.info(f"Available ONNX Runtime execution providers: {available_providers}")
-
-            self.gpu_available = self._detect_system_gpu() or ("CUDAExecutionProvider" in available_providers or "DmlExecutionProvider" in available_providers)
             gpu_name = self.get_system_gpu_name()
 
             if self.device_preference == "CPU":
@@ -115,7 +113,7 @@ class InsightFaceEngine:
                 self.gpu_available = False
             elif "CUDAExecutionProvider" in available_providers and self.device_preference in ("Auto", "CUDA"):
                 self.providers = ["CUDAExecutionProvider", "CPUExecutionProvider"]
-                self.active_device = f"CUDA Acceleration ({gpu_name})" if gpu_name else "CUDA GPU Acceleration"
+                self.active_device = f"CUDA GPU ({gpu_name})" if gpu_name else "CUDA GPU"
                 self.gpu_available = True
             elif "DmlExecutionProvider" in available_providers and self.device_preference in ("Auto", "DirectML", "GPU"):
                 self.providers = ["DmlExecutionProvider", "CPUExecutionProvider"]
@@ -123,11 +121,11 @@ class InsightFaceEngine:
                 self.gpu_available = True
             elif "OpenVINOExecutionProvider" in available_providers and self.device_preference != "CPU":
                 self.providers = ["OpenVINOExecutionProvider", "CPUExecutionProvider"]
-                self.active_device = f"Intel OpenVINO ({gpu_name})" if gpu_name else "Intel OpenVINO GPU"
+                self.active_device = f"Intel OpenVINO GPU ({gpu_name})" if gpu_name else "Intel OpenVINO GPU"
                 self.gpu_available = True
             elif "CoreMLExecutionProvider" in available_providers and self.device_preference != "CPU":
                 self.providers = ["CoreMLExecutionProvider", "CPUExecutionProvider"]
-                self.active_device = f"Apple Neural Engine / CoreML ({gpu_name})" if gpu_name else "Apple CoreML Engine"
+                self.active_device = f"Apple Neural Engine ({gpu_name})" if gpu_name else "Apple Neural Engine"
                 self.gpu_available = True
             else:
                 cpu_name = self.get_system_cpu_name()
@@ -150,6 +148,12 @@ class InsightFaceEngine:
         cores = os.cpu_count() or 4
         cores_str = f"{cores} Cores"
 
+        def _clean_cpu(raw_name: str) -> str:
+            clean = raw_name
+            for noise in [" with Radeon Graphics", " with Radeon Vega Graphics", " with Intel Graphics", " with UHD Graphics", " with Iris Xe Graphics"]:
+                clean = clean.replace(noise, "").replace(noise.lower(), "")
+            return clean.strip()
+
         try:
             if sys.platform == "linux":
                 if Path("/proc/cpuinfo").exists():
@@ -158,14 +162,14 @@ class InsightFaceEngine:
                         if "model name" in line.lower():
                             parts = line.split(":", 1)
                             if len(parts) == 2:
-                                name = parts[1].strip()
+                                name = _clean_cpu(parts[1].strip())
                                 return f"{name} ({cores_str})"
                 out = subprocess.check_output("lscpu", shell=True, text=True, stderr=subprocess.DEVNULL)
                 for line in out.splitlines():
                     if "model name" in line.lower():
                         parts = line.split(":", 1)
                         if len(parts) == 2:
-                            name = parts[1].strip()
+                            name = _clean_cpu(parts[1].strip())
                             return f"{name} ({cores_str})"
 
             elif sys.platform == "win32":
@@ -174,8 +178,9 @@ class InsightFaceEngine:
                         'powershell -Command "Get-CimInstance -ClassName Win32_Processor | Select-Object -ExpandProperty Name"',
                         shell=True, text=True, stderr=subprocess.DEVNULL
                     )
-                    name = out.strip().splitlines()[0] if out.strip() else ""
-                    if name:
+                    lines = [line.strip() for line in out.splitlines() if line.strip()]
+                    if lines:
+                        name = _clean_cpu(lines[0])
                         return f"{name} ({cores_str})"
                 except Exception:
                     pass
@@ -183,7 +188,8 @@ class InsightFaceEngine:
             elif sys.platform == "darwin":
                 out = subprocess.check_output("sysctl -n machdep.cpu.brand_string", shell=True, text=True, stderr=subprocess.DEVNULL)
                 if out.strip():
-                    return f"{out.strip()} ({cores_str})"
+                    name = _clean_cpu(out.strip())
+                    return f"{name} ({cores_str})"
 
         except Exception:
             pass
