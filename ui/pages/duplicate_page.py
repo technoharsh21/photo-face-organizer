@@ -247,12 +247,41 @@ class DuplicatePage(QWidget):
             default_p = str(Path.home() / "Pictures" / "Organized_Photos")
             self.sources_lbl.setText(f"<b>Scan Targets:</b> Default Output Folder ({default_p})")
 
+    def _add_folder(self):
+        folder = QFileDialog.getExistingDirectory(self, "Select Folder to Scan for Duplicates")
+        if folder:
+            p_str = str(Path(folder).resolve())
+            if p_str not in self.sources:
+                self.sources.append(p_str)
+                self._update_sources_label()
+
+    def _clear_folders(self):
+        self.sources.clear()
+        self._update_sources_label()
+
+    def _update_sources_label(self):
+        if not self.sources:
+            self.sources_lbl.setText("<b>Scan Targets:</b> No folder selected. Click '📁 Add Folder to Scan' to choose a directory.")
+            self.sources_lbl.setStyleSheet("color: #f59e0b; font-size: 12px;")
+        else:
+            targets_str = " | ".join(self.sources)
+            self.sources_lbl.setText(f"<b>Target Folders ({len(self.sources)}):</b> {targets_str}")
+            self.sources_lbl.setStyleSheet("color: #60a5fa; font-size: 12px;")
+
     def _run_duplicate_scan(self):
-        scan_targets = self.sources or [str(Path.home() / "Pictures" / "Organized_Photos")]
+        if not self.sources:
+            folder = QFileDialog.getExistingDirectory(self, "Select Folder to Scan for Duplicates")
+            if folder:
+                self.sources.append(str(Path(folder).resolve()))
+                self._update_sources_label()
+            else:
+                return
+
+        scan_targets = list(self.sources)
 
         self.btn_scan.setEnabled(False)
         self.btn_scan.setText("⏳ Scanning... Please wait")
-        self.lbl_loading_status.setText("⏳ Scanning folders for duplicate photos... Please wait.")
+        self.lbl_loading_status.setText(f"⏳ Scanning {len(scan_targets)} folder(s) for duplicate photos... Please wait.")
         self.lbl_loading_status.show()
 
         self.worker = DuplicateScanWorker(

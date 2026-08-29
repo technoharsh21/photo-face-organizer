@@ -78,15 +78,21 @@ class ResultsPage(QWidget):
         self.lbl_audit_status.setStyleSheet("color: #10b981; font-size: 12px;")
         audit_row.addWidget(self.lbl_audit_status)
 
-        audit_row.addStretch()
+        self.btn_skipped_details = QPushButton("ℹ️ View Skipped / Error Details")
+        self.btn_skipped_details.setProperty("class", "SecondaryButton")
+        self.btn_skipped_details.setCursor(Qt.PointingHandCursor)
+        self.btn_skipped_details.clicked.connect(self._open_skipped_details_dialog)
+        audit_row.addWidget(self.btn_skipped_details)
 
         self.btn_open_folder = QPushButton("📂 Open Output Folder")
         self.btn_open_folder.setProperty("class", "PrimaryButton")
+        self.btn_open_folder.setCursor(Qt.PointingHandCursor)
         self.btn_open_folder.clicked.connect(self._open_output_folder)
         audit_row.addWidget(self.btn_open_folder)
 
         self.btn_correct_match = QPushButton("🛠️ Correct Wrong Match")
         self.btn_correct_match.setProperty("class", "SecondaryButton")
+        self.btn_correct_match.setCursor(Qt.PointingHandCursor)
         self.btn_correct_match.clicked.connect(self._correct_wrong_match)
         audit_row.addWidget(self.btn_correct_match)
 
@@ -186,6 +192,15 @@ class ResultsPage(QWidget):
         else:
             self.lbl_audit_status.setText(f"<b>File Reconciliation Audit:</b> Accounted: {acc} / {tot} ({pct}%) • ⚠️ {missed} Missed Photos")
             self.lbl_audit_status.setStyleSheet("color: #ef4444; font-size: 12px;")
+
+    def _open_skipped_details_dialog(self):
+        if not self.summary_data:
+            QMessageBox.information(self, "No Scan Data", "No scan summary data available.")
+            return
+
+        from ui.components.skipped_files_dialog import SkippedFilesDialog
+        dlg = SkippedFilesDialog(self, self.summary_data)
+        dlg.exec()
 
         self.tree.clear()
         self._clear_preview()

@@ -59,13 +59,22 @@ class DuplicateService:
         Step 3: For sizes with 2+ files, compute SHA-256 hash.
         Step 4: Group by hash and return list of duplicate sets.
         """
+        resolved_sources = [Path(s).resolve() for s in sources if s]
         photo_paths = discover_photos(sources, recursive=recursive)
         if not photo_paths:
             return []
 
+        # Filter photo paths to guarantee strict path isolation within target sources
+        valid_paths = [
+            p for p in photo_paths
+            if any(p.resolve().is_relative_to(src) for src in resolved_sources)
+        ]
+        if not valid_paths:
+            return []
+
         # Step 1: Group by file size
         size_groups: dict[int, list[Path]] = {}
-        for p in photo_paths:
+        for p in valid_paths:
             try:
                 st = p.stat()
                 if st.st_size > 0:
