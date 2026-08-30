@@ -104,7 +104,7 @@ class MainWindow(QMainWindow):
         self.content_stack.setObjectName("ContentFrame")
 
         self.page_dashboard = DashboardPage(self.profile_service, self.history_service, self.unknown_face_service, self.navigate_to)
-        self.page_people = PeoplePage(self.profile_service)
+        self.page_people = PeoplePage(self.profile_service, self.face_engine)
         self.page_new_scan = NewScanPage(self.profile_service, self.scan_service, self.settings_service, self._on_scan_started)
         self.page_solo_scan = SoloScanPage(self.profile_service, self.solo_scan_service, self.settings_service, self._on_scan_started)
         self.page_processing = ProcessingPage(self.scan_service, self._on_scan_finished)

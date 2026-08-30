@@ -33,16 +33,19 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from domain.face_engine import FaceEngine
 from services.profile_service import ProfileService
 from ui.components.face_selector import FaceSelectorDialog
+from ui.components.live_face_scanner_dialog import LiveFaceScannerDialog
 
 
 class PeoplePage(QWidget):
     """Page for creating and managing person profiles and reference photos."""
 
-    def __init__(self, profile_service: ProfileService):
+    def __init__(self, profile_service: ProfileService, face_engine: FaceEngine | None = None):
         super().__init__()
         self.profile_service = profile_service
+        self.face_engine = face_engine or getattr(profile_service, "face_engine", None)
         self.current_profile_id: str | None = None
 
         self._setup_ui()
@@ -56,11 +59,19 @@ class PeoplePage(QWidget):
         top_bar = QHBoxLayout()
         top_bar.setSpacing(12)
 
-        sub_title = QLabel("Add 1 or 2 reference photos per person for 99.86% AI matching precision.")
+        sub_title = QLabel("Add reference photos or scan faces with 360° camera for 99.86% AI matching precision.")
         sub_title.setStyleSheet("color: #94a3b8; font-size: 13px;")
         top_bar.addWidget(sub_title)
 
         top_bar.addStretch()
+
+        btn_live_scan = QPushButton("🎥 360° Face Scan")
+        btn_live_scan.setProperty("class", "SecondaryButton")
+        btn_live_scan.setCursor(Qt.PointingHandCursor)
+        btn_live_scan.setStyleSheet("background-color: #1e3a8a; border: 2px solid #38bdf8; color: #ffffff; font-weight: bold; padding: 6px 14px;")
+        btn_live_scan.setToolTip("Open live webcam to record 5-angle 360° face geometry for maximum matching accuracy.")
+        btn_live_scan.clicked.connect(lambda: self._open_live_face_scanner())
+        top_bar.addWidget(btn_live_scan)
 
         btn_add_person = QPushButton("➕ Create New Profile")
         btn_add_person.setProperty("class", "PrimaryButton")
@@ -73,6 +84,7 @@ class PeoplePage(QWidget):
         top_bar.addWidget(btn_bulk_import)
 
         layout.addLayout(top_bar)
+
 
         # 2. Main Splitter (Fills remaining vertical space cleanly with stretch factor 1)
         splitter = QSplitter(Qt.Horizontal)
@@ -127,6 +139,14 @@ class PeoplePage(QWidget):
 
         row1.addStretch()
 
+        self.btn_profile_live_scan = QPushButton("🎥 360° Scan")
+        self.btn_profile_live_scan.setProperty("class", "SecondaryButton")
+        self.btn_profile_live_scan.setCursor(Qt.PointingHandCursor)
+        self.btn_profile_live_scan.setStyleSheet("background-color: #1e3a8a; border: 1px solid #38bdf8; color: #38bdf8; font-weight: bold;")
+        self.btn_profile_live_scan.setToolTip("Open live webcam to record 5-angle 360° face reference photos for this person.")
+        self.btn_profile_live_scan.clicked.connect(lambda: self._open_live_face_scanner(profile_id=self.current_profile_id))
+        row1.addWidget(self.btn_profile_live_scan)
+
         self.btn_add_ref = QPushButton("📷 Add Reference")
         self.btn_add_ref.setProperty("class", "PrimaryButton")
         self.btn_add_ref.setCursor(Qt.PointingHandCursor)
@@ -140,6 +160,7 @@ class PeoplePage(QWidget):
         row1.addWidget(self.btn_batch_train)
 
         p_header_layout.addLayout(row1)
+
 
         # Row 2: Secondary Tools & Management
         row2 = QHBoxLayout()
@@ -445,6 +466,23 @@ class PeoplePage(QWidget):
         else:
             QMessageBox.warning(self, "Error", f"Failed to add reference photo: {msg}")
 
+    def _open_live_face_scanner(self, profile_id: str | None = None):
+        """Open interactive 360° live webcam face scanner dialog."""
+        engine = self.face_engine or getattr(self.profile_service, "face_engine", None)
+        if not engine:
+            QMessageBox.warning(self, "Engine Not Available", "Face recognition engine is not initialized.")
+            return
+
+        dlg = LiveFaceScannerDialog(
+            parent=self,
+            profile_service=self.profile_service,
+            face_engine=engine,
+            target_profile_id=profile_id,
+        )
+        if dlg.exec() == QDialog.Accepted:
+            selected_id = profile_id or dlg.created_profile_id
+            self.refresh(select_profile_id=selected_id)
+
     def _remove_reference(self, ref_id: str):
         if self.current_profile_id and ref_id:
             self.profile_service.remove_reference_photo(self.current_profile_id, ref_id)
@@ -712,6 +750,16 @@ class CreateProfileDialog(QDialog):
 
         btn_layout.addStretch()
 
+        if not self.initial_profile:
+            btn_scan_cam = QPushButton("🎥 Scan with Camera")
+            btn_scan_cam.setProperty("class", "SecondaryButton")
+            btn_scan_cam.setCursor(Qt.PointingHandCursor)
+            btn_scan_cam.setFixedHeight(38)
+            btn_scan_cam.setStyleSheet("background-color: #1e3a8a; border: 1px solid #38bdf8; color: #38bdf8; font-weight: bold; padding: 0 16px;")
+            btn_scan_cam.setToolTip("Open live camera to capture 5-angle 360° face photos for this person.")
+            btn_scan_cam.clicked.connect(self._on_scan_with_camera)
+            btn_layout.addWidget(btn_scan_cam)
+
         btn_text = "💾 Save Changes" if self.initial_profile else "👤 Create Profile"
         self.btn_ok = QPushButton(btn_text)
         self.btn_ok.setProperty("class", "PrimaryButton")
@@ -722,6 +770,7 @@ class CreateProfileDialog(QDialog):
         btn_layout.addWidget(self.btn_ok)
 
         root_layout.addLayout(btn_layout)
+
 
     def _filter_compulsory_people(self, query: str):
         q = query.strip().lower()
@@ -755,3 +804,11 @@ class CreateProfileDialog(QDialog):
                 return
 
         self.accept()
+
+    def _on_scan_with_camera(self):
+        parent = self.parent()
+        self.reject()
+        if parent and hasattr(parent, "_open_live_face_scanner"):
+            parent._open_live_face_scanner()
+
+
