@@ -1,22 +1,24 @@
 """
 Results Page Module.
 
-Requirements #27 & #28:
-Displays detailed scan summary, results breakdown by person, live photo preview panel,
-folder opening button, and wrong match correction interface.
+Displays detailed scan summary metrics, reconciliation audit, interactive person output folder tree,
+live high-resolution image preview, quick match correction, and direct folder explorer actions.
 """
 
 from pathlib import Path
 from typing import Any
 
-from PySide6.QtCore import Qt, QUrl
-from PySide6.QtGui import QDesktopServices, QPixmap
+from PySide6.QtCore import QRectF, QSize, Qt, QUrl
+from PySide6.QtGui import QColor, QDesktopServices, QFont, QPainter, QPainterPath, QPixmap
 from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QMessageBox,
     QPushButton,
+    QScrollArea,
+    QSizePolicy,
     QSplitter,
     QTreeWidget,
     QTreeWidgetItem,
@@ -28,6 +30,66 @@ from domain.image_loader import load_image
 from services.output_service import OutputService
 from services.profile_service import ProfileService
 from ui.components.wrong_match_dialog import WrongMatchDialog
+
+
+class ResultsImageCover(QWidget):
+    """Renders a photo preview filled edge-to-edge with antialiased rounded corners and zero black letterbox bars."""
+
+    def __init__(self, image_path: str | None = None, parent=None):
+        super().__init__(parent)
+        self.image_path = image_path
+        self.pixmap: QPixmap | None = None
+        self.setMinimumHeight(240)
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+
+        if image_path:
+            self.set_image_path(image_path)
+
+    def set_image_path(self, image_path: str | None):
+        self.image_path = image_path
+        self.pixmap = None
+        if image_path and Path(image_path).exists():
+            try:
+                pil_img, _ = load_image(Path(image_path))
+                if pil_img:
+                    rgb_img = pil_img.convert("RGB")
+                    data = rgb_img.tobytes("raw", "RGB")
+                    from PySide6.QtGui import QImage
+                    qimg = QImage(data, rgb_img.width, rgb_img.height, rgb_img.width * 3, QImage.Format_RGB888)
+                    self.pixmap = QPixmap.fromImage(qimg)
+            except Exception:
+                self.pixmap = None
+        self.update()
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+        painter.setRenderHint(QPainter.SmoothPixmapTransform)
+        w = self.width()
+        h = self.height()
+        radius = 10
+
+        if self.pixmap and not self.pixmap.isNull():
+            scaled = self.pixmap.scaled(w, h, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+            path = QPainterPath()
+            path.addRoundedRect(0, 0, w, h, radius, radius)
+            painter.setClipPath(path)
+
+            # Dark sleek background
+            painter.setBrush(QColor("#080c14"))
+            painter.setPen(Qt.NoPen)
+            painter.drawRect(0, 0, w, h)
+
+            x_off = max(0, (w - scaled.width()) // 2)
+            y_off = max(0, (h - scaled.height()) // 2)
+            painter.drawPixmap(x_off, y_off, scaled)
+        else:
+            painter.setBrush(QColor("#080c14"))
+            painter.setPen(Qt.NoPen)
+            painter.drawRoundedRect(0, 0, w, h, radius, radius)
+            painter.setPen(QColor("#64748b"))
+            painter.drawText(QRectF(0, 0, w, h), Qt.AlignCenter, "Select a photo from the tree to view preview")
+        painter.end()
 
 
 class ResultsPage(QWidget):
@@ -46,13 +108,64 @@ class ResultsPage(QWidget):
         layout.setContentsMargins(20, 20, 20, 20)
         layout.setSpacing(14)
 
-        # 1. Executive Scan Summary & Audit Card
-        self.summary_card = QFrame()
-        self.summary_card.setStyleSheet("background-color: #111827; border: 1px solid #1f2937; border-radius: 12px; padding: 16px;")
-        sc_vlayout = QVBoxLayout(self.summary_card)
-        sc_vlayout.setSpacing(12)
+        # 1. Header Title & Top Actions
+        header_l = QHBoxLayout()
+        header_l.setSpacing(12)
 
-        # Top row stats metrics
+        title_box = QVBoxLayout()
+        title_box.setSpacing(2)
+        title_lbl = QLabel("📊 Scan Results & Output Inspector")
+        title_lbl.setStyleSheet("font-size: 18px; font-weight: 800; color: #ffffff;")
+        sub_title = QLabel("Review processed photos, verify audit statistics, correct matches, and open person destination folders.")
+        sub_title.setStyleSheet("color: #94a3b8; font-size: 12px;")
+        title_box.addWidget(title_lbl)
+        title_box.addWidget(sub_title)
+        header_l.addLayout(title_box)
+
+        header_l.addStretch()
+
+        self.btn_skipped_details = QPushButton("ℹ️ Skipped Details")
+        self.btn_skipped_details.setProperty("class", "SecondaryButton")
+        self.btn_skipped_details.setCursor(Qt.PointingHandCursor)
+        self.btn_skipped_details.setFixedHeight(36)
+        self.btn_skipped_details.setStyleSheet(
+            "QPushButton { background-color: #1e293b; color: #38bdf8; font-weight: 600; border-radius: 6px; padding: 0 14px; font-size: 12px; border: 1px solid #3b82f6; }"
+            "QPushButton:hover { background-color: #1d4ed8; color: #ffffff; }"
+        )
+        self.btn_skipped_details.clicked.connect(self._open_skipped_details_dialog)
+        header_l.addWidget(self.btn_skipped_details)
+
+        self.btn_correct_match = QPushButton("🛠️ Correct Match")
+        self.btn_correct_match.setProperty("class", "SecondaryButton")
+        self.btn_correct_match.setCursor(Qt.PointingHandCursor)
+        self.btn_correct_match.setFixedHeight(36)
+        self.btn_correct_match.setStyleSheet(
+            "QPushButton { background-color: #1e293b; color: #38bdf8; font-weight: 600; border-radius: 6px; padding: 0 14px; font-size: 12px; border: 1px solid #3b82f6; }"
+            "QPushButton:hover { background-color: #1d4ed8; color: #ffffff; }"
+        )
+        self.btn_correct_match.clicked.connect(self._correct_wrong_match)
+        header_l.addWidget(self.btn_correct_match)
+
+        self.btn_open_folder = QPushButton("📂 Open Output Folder")
+        self.btn_open_folder.setProperty("class", "PrimaryButton")
+        self.btn_open_folder.setCursor(Qt.PointingHandCursor)
+        self.btn_open_folder.setFixedHeight(36)
+        self.btn_open_folder.setStyleSheet(
+            "QPushButton { background-color: #10b981; color: #ffffff; font-weight: 700; border-radius: 8px; padding: 0 18px; font-size: 13px; border: 1px solid #059669; }"
+            "QPushButton:hover { background-color: #059669; }"
+        )
+        self.btn_open_folder.clicked.connect(self._open_output_folder)
+        header_l.addWidget(self.btn_open_folder)
+
+        layout.addLayout(header_l)
+
+        # 2. Executive Scan Summary & Audit Card
+        self.summary_card = QFrame()
+        self.summary_card.setStyleSheet("background-color: #0c1322; border: 1px solid #1e293b; border-radius: 12px; padding: 14px;")
+        sc_vlayout = QVBoxLayout(self.summary_card)
+        sc_vlayout.setSpacing(10)
+
+        # 5 Sleek Stat Badges
         stats_box = QHBoxLayout()
         stats_box.setSpacing(12)
 
@@ -70,60 +183,48 @@ class ResultsPage(QWidget):
 
         sc_vlayout.addLayout(stats_box)
 
-        # Audit & Actions Row
-        audit_row = QHBoxLayout()
-        audit_row.setSpacing(8)
-
+        # Audit Row
         self.lbl_audit_status = QLabel("<b>Audit:</b> Accounted: 0 / 0 (100%) • 🟢 Zero Photos Lost")
         self.lbl_audit_status.setStyleSheet("color: #10b981; font-size: 12px;")
-        audit_row.addWidget(self.lbl_audit_status)
+        sc_vlayout.addWidget(self.lbl_audit_status)
 
-        audit_row.addStretch()
-
-        self.btn_skipped_details = QPushButton("ℹ️ Skipped Details")
-        self.btn_skipped_details.setProperty("class", "SecondaryButton")
-        self.btn_skipped_details.setCursor(Qt.PointingHandCursor)
-        self.btn_skipped_details.setToolTip("View details for any skipped or unreadable files.")
-        self.btn_skipped_details.clicked.connect(self._open_skipped_details_dialog)
-        audit_row.addWidget(self.btn_skipped_details)
-
-        self.btn_correct_match = QPushButton("🛠️ Correct Match")
-        self.btn_correct_match.setProperty("class", "SecondaryButton")
-        self.btn_correct_match.setCursor(Qt.PointingHandCursor)
-        self.btn_correct_match.setToolTip("Reassign a photo to a different person.")
-        self.btn_correct_match.clicked.connect(self._correct_wrong_match)
-        audit_row.addWidget(self.btn_correct_match)
-
-        self.btn_open_folder = QPushButton("📂 Open Output Folder")
-        self.btn_open_folder.setProperty("class", "PrimaryButton")
-        self.btn_open_folder.setCursor(Qt.PointingHandCursor)
-        self.btn_open_folder.clicked.connect(self._open_output_folder)
-        audit_row.addWidget(self.btn_open_folder)
-
-        sc_vlayout.addLayout(audit_row)
         layout.addWidget(self.summary_card)
 
-        # 2. Main Splitter (Left: Tree Breakdown, Right: Image Preview Card)
+        # 3. Main Splitter (Left: Tree Breakdown, Right: Image Preview Card)
         splitter = QSplitter(Qt.Horizontal)
 
         # Left Tree Container Card
         left_widget = QFrame()
         left_widget.setProperty("class", "Card")
+        left_widget.setMinimumWidth(320)
+        left_widget.setMaximumWidth(460)
         left_layout = QVBoxLayout(left_widget)
-        left_layout.setContentsMargins(12, 12, 12, 12)
+        left_layout.setContentsMargins(14, 14, 14, 14)
+        left_layout.setSpacing(10)
 
         left_hdr = QLabel("<b>Person Output Folders & Matched Photos</b>")
         left_hdr.setStyleSheet("font-size: 13px; color: #ffffff;")
         left_layout.addWidget(left_hdr)
 
+        # Search Filter
+        self.txt_filter_tree = QLineEdit()
+        self.txt_filter_tree.setPlaceholderText("🔍 Filter folders & photos...")
+        self.txt_filter_tree.setStyleSheet(
+            "QLineEdit { background-color: #0f172a; border: 2px solid #38bdf8; border-radius: 8px; padding: 6px 12px; font-size: 12px; color: #ffffff; font-weight: 600; }"
+            "QLineEdit:focus { border: 2px solid #67e8f9; background-color: #131d33; }"
+        )
+        self.txt_filter_tree.textChanged.connect(self._filter_tree)
+        left_layout.addWidget(self.txt_filter_tree)
+
         self.tree = QTreeWidget()
         self.tree.setHeaderLabels(["Person / Output Folder", "Count / Path"])
-        self.tree.setColumnWidth(0, 260)
+        self.tree.setColumnWidth(0, 240)
         self.tree.setStyleSheet(
-            "QTreeWidget { background-color: #0f172a; border: 1px solid #1e293b; border-radius: 8px; color: #f8fafc; font-size: 13px; }"
-            "QTreeWidget::item { padding: 6px; border-bottom: 1px solid #1e293b; }"
+            "QTreeWidget { background-color: #0b0f19; border: 1px solid #1e293b; border-radius: 10px; color: #f8fafc; font-size: 13px; outline: 0px; padding: 4px; }"
+            "QTreeWidget::item { padding: 6px; border-bottom: 1px solid #1e293b; border-radius: 6px; margin-bottom: 2px; }"
+            "QTreeWidget::item:hover { background-color: #131d33; }"
             "QTreeWidget::item:selected { background-color: #0284c7; color: #ffffff; font-weight: bold; }"
-            "QHeaderView::section { background-color: #1e293b; color: #38bdf8; font-weight: bold; padding: 6px; border: none; }"
+            "QHeaderView::section { background-color: #0f172a; color: #38bdf8; font-weight: bold; padding: 6px; border: none; }"
         )
         self.tree.itemSelectionChanged.connect(self._on_tree_selection_changed)
         left_layout.addWidget(self.tree, 1)
@@ -141,20 +242,25 @@ class ResultsPage(QWidget):
         prev_title.setStyleSheet("font-size: 14px; font-weight: bold; color: #ffffff;")
         preview_layout.addWidget(prev_title)
 
-        self.img_preview_lbl = QLabel("Select a photo from the left tree to view preview")
-        self.img_preview_lbl.setAlignment(Qt.AlignCenter)
-        self.img_preview_lbl.setStyleSheet(
-            "background-color: #0f172a; border: 1px dashed #334155; border-radius: 8px; color: #94a3b8; padding: 20px; font-size: 12px;"
-        )
-        preview_layout.addWidget(self.img_preview_lbl, 1)
+        # Image cover widget
+        self.img_cover = ResultsImageCover()
+        preview_layout.addWidget(self.img_cover, 1)
 
-        self.lbl_photo_info = QLabel("")
+        # Photo details info card
+        self.info_card = QFrame()
+        self.info_card.setStyleSheet("background-color: #0c1322; border: 1px solid #1e293b; border-radius: 8px; padding: 10px;")
+        ic_layout = QVBoxLayout(self.info_card)
+        ic_layout.setSpacing(4)
+
+        self.lbl_photo_info = QLabel("Select a photo from the left tree to inspect details")
         self.lbl_photo_info.setWordWrap(True)
         self.lbl_photo_info.setStyleSheet("color: #cbd5e1; font-size: 12px;")
-        preview_layout.addWidget(self.lbl_photo_info)
+        ic_layout.addWidget(self.lbl_photo_info)
+
+        preview_layout.addWidget(self.info_card)
 
         splitter.addWidget(self.preview_frame)
-        splitter.setSizes([380, 520])
+        splitter.setSizes([380, 560])
 
         layout.addWidget(splitter, 1)
 
@@ -207,7 +313,6 @@ class ResultsPage(QWidget):
 
         output_dir_str = summary.get("output_dir")
         if not output_dir_str or not Path(output_dir_str).exists():
-            # No output folder yet — show a helpful placeholder message
             placeholder = QTreeWidgetItem(["No output folder found", ""])
             placeholder.setDisabled(True)
             self.tree.addTopLevelItem(placeholder)
@@ -219,7 +324,6 @@ class ResultsPage(QWidget):
         known_person_names.add("No Match")
 
         found_any = False
-        # Scan output directory for person subfolders
         for person_dir in sorted(out_path.iterdir()):
             if person_dir.is_dir():
                 files = [f for f in person_dir.iterdir() if f.is_file()]
@@ -246,6 +350,20 @@ class ResultsPage(QWidget):
 
         self.tree.expandAll()
 
+    def _filter_tree(self, query: str):
+        q = query.strip().lower()
+        for i in range(self.tree.topLevelItemCount()):
+            parent = self.tree.topLevelItem(i)
+            parent_match = q in parent.text(0).lower()
+            visible_children = 0
+            for j in range(parent.childCount()):
+                child = parent.child(j)
+                child_match = q in child.text(0).lower() or q in child.text(1).lower()
+                child.setHidden(not (parent_match or child_match))
+                if not child.isHidden():
+                    visible_children += 1
+            parent.setHidden(not (parent_match or visible_children > 0))
+
     def _open_skipped_details_dialog(self):
         """Show dialog with details of skipped/unreadable files."""
         if not self.summary_data:
@@ -256,26 +374,21 @@ class ResultsPage(QWidget):
         dlg.exec()
 
     def _clear_preview(self):
-
-        self.img_preview_lbl.setPixmap(QPixmap())
-        self.img_preview_lbl.setText("Select a photo from the left tree to view preview")
-        self.lbl_photo_info.setText("")
+        self.img_cover.set_image_path(None)
+        self.lbl_photo_info.setText("Select a photo from the left tree to inspect details")
 
     def _on_tree_selection_changed(self):
         item = self.tree.currentItem()
         if not item or not item.parent():
-            # Selected a parent person folder
             if item:
                 folder_name = item.text(0)
                 photo_cnt = item.text(1)
-                self.img_preview_lbl.setPixmap(QPixmap())
-                self.img_preview_lbl.setText(f"Folder Selected: {folder_name}\n({photo_cnt})")
-                self.lbl_photo_info.setText(f"Folder Path: {item.data(0, Qt.UserRole)}")
+                self.img_cover.set_image_path(None)
+                self.lbl_photo_info.setText(f"<b>Folder Selected:</b> {folder_name} ({photo_cnt})<br><b>Path:</b> {item.data(0, Qt.UserRole)}")
             else:
                 self._clear_preview()
             return
 
-        # Selected a photo file item
         file_path_str = item.data(0, Qt.UserRole)
         if not file_path_str:
             self._clear_preview()
@@ -283,25 +396,11 @@ class ResultsPage(QWidget):
 
         file_path = Path(file_path_str)
         if not file_path.exists():
-            self.img_preview_lbl.setPixmap(QPixmap())
-            self.img_preview_lbl.setText(f"File not found:\n{file_path.name}")
-            self.lbl_photo_info.setText(str(file_path))
+            self.img_cover.set_image_path(None)
+            self.lbl_photo_info.setText(f"File not found: {file_path.name}")
             return
 
-        # Load image preview using load_image
-        pil_img, err = load_image(file_path)
-        if pil_img:
-            # Convert PIL Image to QPixmap
-            rgb_img = pil_img.convert("RGB")
-            data = rgb_img.tobytes("raw", "RGB")
-            from PySide6.QtGui import QImage
-            qimg = QImage(data, rgb_img.width, rgb_img.height, rgb_img.width * 3, QImage.Format_RGB888)
-            pix = QPixmap.fromImage(qimg).scaled(320, 260, Qt.KeepAspectRatio, Qt.SmoothTransformation)
-            self.img_preview_lbl.setPixmap(pix)
-            self.img_preview_lbl.setText("")
-        else:
-            self.img_preview_lbl.setPixmap(QPixmap())
-            self.img_preview_lbl.setText(f"Preview unavailable:\n{err or 'Unreadable format'}")
+        self.img_cover.set_image_path(str(file_path))
 
         person_folder = item.parent().text(0)
         file_size_kb = round(file_path.stat().st_size / 1024, 1)
@@ -327,10 +426,7 @@ class ResultsPage(QWidget):
             url = QUrl.fromLocalFile(str(target_path))
             opened = QDesktopServices.openUrl(url)
             if not opened:
-                import os
-                import subprocess
-                import sys
-
+                import os, subprocess, sys
                 if sys.platform == "linux":
                     subprocess.Popen(["xdg-open", str(target_path)])
                 elif sys.platform == "darwin":
@@ -385,7 +481,6 @@ class ResultsPage(QWidget):
                 dest_folder = out_dir / target_profile_name
                 folder_key = target_profile_name
 
-            # Copy file to new destination
             _success, _target_path, status = self.output_service.copy_photo_to_destination(
                 file_path, dest_folder, folder_key=folder_key
             )
@@ -397,7 +492,6 @@ class ResultsPage(QWidget):
                     f"Photo already exists in '{folder_key}' target folder.",
                 )
 
-            # Remove incorrect output copy (MANDATE: original source file is unchanged)
             try:
                 if file_path.exists():
                     file_path.unlink()

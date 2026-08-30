@@ -6,8 +6,11 @@ and central application workflow.
 Locks navigation tabs during active scanning to prevent tab switching during processing.
 """
 
+from pathlib import Path
 from typing import Any
 
+from PySide6.QtCore import Qt
+from PySide6.QtGui import QIcon, QPixmap
 from PySide6.QtWidgets import (
     QButtonGroup,
     QFrame,
@@ -88,6 +91,14 @@ class MainWindow(QMainWindow):
         self.setMinimumSize(850, 560)
         self.setStyleSheet(get_stylesheet())
 
+        # Set Window Icon
+        root_dir = Path(__file__).resolve().parent.parent
+        icon_path = root_dir / "icon.png"
+        if not icon_path.exists():
+            icon_path = root_dir / "icon.ico"
+        if icon_path.exists():
+            self.setWindowIcon(QIcon(str(icon_path)))
+
         self._setup_ui()
         self._check_interrupted_scans()
 
@@ -103,7 +114,14 @@ class MainWindow(QMainWindow):
         self.content_stack = QStackedWidget()
         self.content_stack.setObjectName("ContentFrame")
 
-        self.page_dashboard = DashboardPage(self.profile_service, self.history_service, self.unknown_face_service, self.navigate_to)
+        self.page_dashboard = DashboardPage(
+            profile_service=self.profile_service,
+            history_service=self.history_service,
+            unknown_face_service=self.unknown_face_service,
+            navigate_cb=self.navigate_to,
+            settings_service=self.settings_service,
+            face_engine=self.face_engine,
+        )
         self.page_people = PeoplePage(self.profile_service, self.face_engine)
         self.page_new_scan = NewScanPage(self.profile_service, self.scan_service, self.settings_service, self._on_scan_started)
         self.page_solo_scan = SoloScanPage(self.profile_service, self.solo_scan_service, self.settings_service, self._on_scan_started)
@@ -145,15 +163,38 @@ class MainWindow(QMainWindow):
         sidebar = QFrame()
         sidebar.setObjectName("Sidebar")
         sidebar_layout = QVBoxLayout(sidebar)
-        sidebar_layout.setContentsMargins(12, 16, 12, 16)
+        sidebar_layout.setContentsMargins(12, 14, 12, 14)
         sidebar_layout.setSpacing(4)
 
         header_container = QVBoxLayout()
-        app_title = QLabel("📸 Photo Face AI")
+        header_container.setSpacing(2)
+
+        header_top = QHBoxLayout()
+        header_top.setContentsMargins(4, 4, 4, 0)
+        header_top.setSpacing(10)
+
+        root_dir = Path(__file__).resolve().parent.parent
+        icon_path = root_dir / "icon.png"
+        if not icon_path.exists():
+            icon_path = root_dir / "icon.ico"
+
+        if icon_path.exists():
+            icon_lbl = QLabel()
+            pix = QPixmap(str(icon_path)).scaled(26, 26, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+            icon_lbl.setPixmap(pix)
+            icon_lbl.setFixedSize(26, 26)
+            header_top.addWidget(icon_lbl)
+
+        app_title = QLabel("Photo Face AI")
         app_title.setObjectName("AppTitle")
+        app_title.setStyleSheet("padding: 0px; font-size: 16px; font-weight: 800; color: #ffffff;")
+        header_top.addWidget(app_title)
+        header_top.addStretch()
+
         app_sub = QLabel("InsightFace SCRFD + ArcFace")
-        app_sub.setStyleSheet("color: #38bdf8; font-size: 10px; font-weight: bold; margin-top: -12px; margin-left: 16px; margin-bottom: 12px;")
-        header_container.addWidget(app_title)
+        app_sub.setStyleSheet("color: #38bdf8; font-size: 10px; font-weight: bold; margin-left: 36px; margin-bottom: 8px;")
+
+        header_container.addLayout(header_top)
         header_container.addWidget(app_sub)
         sidebar_layout.addLayout(header_container)
 
@@ -175,7 +216,7 @@ class MainWindow(QMainWindow):
                 ("History", "📜  Scan History"),
             ]),
             ("SYSTEM", [
-                ("Settings", "⚙️  Settings & GPU"),
+                ("Settings", "⚙️  Settings"),
             ])
         ]
 

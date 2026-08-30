@@ -711,34 +711,51 @@ class ProfileService:
         self._save_profile(profile)
         return True, "Reference photo added successfully"
 
+    def remove_reference_photos(self, profile_id: str, ref_ids: list[str]) -> int:
+        """Remove multiple reference photos and their associated encodings from profile in one batch."""
+        profile = self.get_profile(profile_id)
+        if not profile or not ref_ids:
+            return 0
+
+        ref_id_set = set(ref_ids)
+        keep_references = []
+        keep_embeddings = []
+        raw_embs = profile.get("embeddings", [])
+        removed_count = 0
+
+        for i, ref in enumerate(profile.get("references", [])):
+            if ref.get("id") in ref_id_set:
+                removed_count += 1
+                stored_path = ref.get("stored_path")
+                if stored_path and Path(stored_path).exists():
+                    try:
+                        Path(stored_path).unlink()
+                    except Exception:
+                        pass
+            else:
+                keep_references.append(ref)
+                if i < len(raw_embs):
+                    keep_embeddings.append(raw_embs[i])
+
+        profile["references"] = keep_references
+        profile["embeddings"] = keep_embeddings
+
+        # Re-compute centroid embedding from remaining references
+        import numpy as np
+        valid_remaining = [np.asarray(e, dtype=np.float64) for e in keep_embeddings if e and len(e) == 512]
+        if valid_remaining:
+            mean_vec = np.mean(valid_remaining, axis=0)
+            norm = np.linalg.norm(mean_vec)
+            profile["centroid_embedding"] = (mean_vec / norm if norm > 0 else mean_vec).tolist()
+        else:
+            profile["centroid_embedding"] = None
+
+        self._save_profile(profile)
+        return removed_count
+
     def remove_reference_photo(self, profile_id: str, ref_id: str) -> bool:
         """Remove reference photo and its associated encoding from profile."""
-        profile = self.get_profile(profile_id)
-        if not profile:
-            return False
-
-        ref_index = -1
-        for i, ref in enumerate(profile.get("references", [])):
-            if ref.get("id") == ref_id:
-                ref_index = i
-                break
-
-        if ref_index >= 0:
-            ref_entry = profile["references"].pop(ref_index)
-            if ref_index < len(profile.get("embeddings", [])):
-                profile["embeddings"].pop(ref_index)
-
-            # Delete file if exists
-            stored_path = ref_entry.get("stored_path")
-            if stored_path and Path(stored_path).exists():
-                try:
-                    Path(stored_path).unlink()
-                except Exception:
-                    pass
-
-            self._save_profile(profile)
-            return True
-        return False
+        return self.remove_reference_photos(profile_id, [ref_id]) > 0
 
     def bulk_import_profiles(self, folder_path: Path) -> list[dict[str, Any]]:
         """

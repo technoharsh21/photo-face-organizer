@@ -1,23 +1,24 @@
 """
 People (Profiles) Management Page Module.
 
-Allows users to create, rename, delete profiles, view reference photos,
-add single or multiple reference photos (with group face selection), remove reference photos,
-and bulk import profiles from folders.
+Allows users to create, rename, and delete profiles, view reference photos in a responsive
+2D auto-reflowing grid that fills 100% of the horizontal space with edge-to-edge photo covers,
+multi-select photos for batch deletion, add reference photos, batch train from folders, and clean outliers.
 """
 
 from pathlib import Path
 from typing import Any
 
 from PIL import Image
-from PySide6.QtCore import Qt, QThread, Signal
-from PySide6.QtGui import QPixmap
+from PySide6.QtCore import QRectF, QSize, Qt, QThread, Signal
+from PySide6.QtGui import QColor, QFont, QPainter, QPainterPath, QPixmap
 from PySide6.QtWidgets import (
     QButtonGroup,
     QCheckBox,
     QDialog,
     QFileDialog,
     QFrame,
+    QGridLayout,
     QHBoxLayout,
     QInputDialog,
     QLabel,
@@ -25,9 +26,11 @@ from PySide6.QtWidgets import (
     QListWidget,
     QListWidgetItem,
     QMessageBox,
+    QProgressDialog,
     QPushButton,
     QRadioButton,
     QScrollArea,
+    QSizePolicy,
     QSplitter,
     QVBoxLayout,
     QWidget,
@@ -39,68 +42,334 @@ from ui.components.face_selector import FaceSelectorDialog
 from ui.components.live_face_scanner_dialog import LiveFaceScannerDialog
 
 
+class ImageCoverWidget(QWidget):
+    """Renders an image filled edge-to-edge (object-fit: cover) with rounded corners and zero black letterbox borders."""
+
+    def __init__(
+        self,
+        image_path: str | None = None,
+        width: int | None = None,
+        height: int = 120,
+        radius: int = 8,
+        parent=None,
+    ):
+        super().__init__(parent)
+        self.image_path = image_path
+        self.radius = radius
+        self.initials: str | None = None
+        self.bg_color: str = "#2563eb"
+        self.pixmap: QPixmap | None = None
+
+        if width:
+            self.setFixedSize(width, height)
+        else:
+            self.setFixedHeight(height)
+            self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+
+        if image_path and Path(image_path).exists():
+            self.pixmap = QPixmap(str(image_path))
+
+    def set_image_path(self, path: str | None):
+        self.image_path = path
+        self.initials = None
+        if path and Path(path).exists():
+            self.pixmap = QPixmap(str(path))
+        else:
+            self.pixmap = None
+        self.update()
+
+    def set_initials(self, name: str, bg_color: str = "#2563eb"):
+        self.pixmap = None
+        self.image_path = None
+        self.initials = "".join([part[0].upper() for part in name.strip().split()[:2]]) or "P"
+        self.bg_color = bg_color
+        self.update()
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+        painter.setRenderHint(QPainter.SmoothPixmapTransform)
+        w = self.width()
+        h = self.height()
+
+        if self.pixmap and not self.pixmap.isNull():
+            # True center crop (object-fit: cover) to eliminate any letterbox black borders
+            scaled = self.pixmap.scaled(w, h, Qt.KeepAspectRatioByExpanding, Qt.SmoothTransformation)
+            path = QPainterPath()
+            path.addRoundedRect(0, 0, w, h, self.radius, self.radius)
+            painter.setClipPath(path)
+            x_off = max(0, (scaled.width() - w) // 2)
+            y_off = max(0, (scaled.height() - h) // 2)
+            painter.drawPixmap(-x_off, -y_off, scaled)
+        elif self.initials:
+            painter.setBrush(QColor(self.bg_color))
+            painter.setPen(Qt.NoPen)
+            painter.drawRoundedRect(0, 0, w, h, self.radius, self.radius)
+            painter.setPen(QColor("#ffffff"))
+            font = painter.font()
+            font.setPointSize(max(12, h // 3))
+            font.setBold(True)
+            painter.setFont(font)
+            painter.drawText(QRectF(0, 0, w, h), Qt.AlignCenter, self.initials)
+        else:
+            painter.setBrush(QColor("#080c14"))
+            painter.setPen(Qt.NoPen)
+            painter.drawRoundedRect(0, 0, w, h, self.radius, self.radius)
+            painter.setPen(QColor("#64748b"))
+            painter.drawText(QRectF(0, 0, w, h), Qt.AlignCenter, "📷 Photo")
+        painter.end()
+
+
+class ProfileListItemWidget(QWidget):
+    """Rich, spacious visual list item card for the profile navigator sidebar."""
+
+    def __init__(self, name: str, ref_count: int, avatar_path: str | None, is_group: bool = False, bg_color: str = "#2563eb"):
+        super().__init__()
+        self.profile_name = name
+        self.setCursor(Qt.PointingHandCursor)
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(10, 8, 10, 8)
+        layout.setSpacing(12)
+
+        # Edge-to-edge Avatar Thumbnail (44x44 rounded-square)
+        self.avatar_cover = ImageCoverWidget(avatar_path, width=44, height=44, radius=10)
+        self.avatar_cover.setCursor(Qt.PointingHandCursor)
+        if not (avatar_path and Path(avatar_path).exists()):
+            self.avatar_cover.set_initials(name, bg_color=bg_color)
+        layout.addWidget(self.avatar_cover)
+
+        # Info Box with prominent, clear typography
+        info_layout = QVBoxLayout()
+        info_layout.setSpacing(3)
+
+        name_lbl = QLabel(name)
+        name_lbl.setStyleSheet("font-size: 14px; font-weight: 700; color: #ffffff; background: transparent; border: none;")
+        name_lbl.setCursor(Qt.PointingHandCursor)
+
+        sub_text = f"📷 {ref_count} reference photo{'s' if ref_count != 1 else ''}"
+        if is_group:
+            sub_text = f"👥 Group • {sub_text}"
+
+        sub_lbl = QLabel(sub_text)
+        sub_lbl.setStyleSheet("font-size: 12px; color: #94a3b8; background: transparent; border: none;")
+        sub_lbl.setCursor(Qt.PointingHandCursor)
+
+        info_layout.addWidget(name_lbl)
+        info_layout.addWidget(sub_lbl)
+        layout.addLayout(info_layout, 1)
+
+
+class ReferencePhotoCard(QFrame):
+    """Interactive reference photo card with edge-to-edge photo, checkbox overlay, rating badge, and classic red remove button."""
+
+    def __init__(
+        self,
+        ref: dict[str, Any],
+        is_selected: bool,
+        on_toggle: Any,
+        on_delete: Any,
+    ):
+        super().__init__()
+        self.ref_id = ref.get("id")
+        self.is_selected = is_selected
+        self.on_toggle = on_toggle
+        self.on_delete = on_delete
+
+        self.setCursor(Qt.PointingHandCursor)
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.setMinimumWidth(130)
+        self.setMaximumWidth(260)
+        self.setFixedHeight(198)
+
+        self._update_card_style()
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(6, 6, 6, 6)
+        layout.setSpacing(5)
+
+        # Full-size Edge-to-Edge Image Cover (Zero black letterbox side bars)
+        stored_path = ref.get("stored_path")
+        self.img_cover = ImageCoverWidget(stored_path, height=120, radius=8)
+        self.img_cover.setCursor(Qt.PointingHandCursor)
+
+        # Overlay Checkbox pinned to top-left of image
+        self.chk = QCheckBox(self.img_cover)
+        self.chk.setFixedSize(18, 18)
+        self.chk.setChecked(is_selected)
+        self.chk.setCursor(Qt.PointingHandCursor)
+        self.chk.setToolTip("Select for multi-delete")
+        self.chk.move(6, 6)
+        self.chk.setStyleSheet(
+            "QCheckBox { background: transparent; border: none; padding: 0px; margin: 0px; }"
+            "QCheckBox::indicator { width: 16px; height: 16px; border-radius: 4px; border: 1px solid #38bdf8; background-color: rgba(15, 23, 42, 0.9); }"
+            "QCheckBox::indicator:checked { background-color: #ef4444; border: 1px solid #ef4444; }"
+        )
+        self.chk.toggled.connect(self._on_chk_toggled)
+
+        layout.addWidget(self.img_cover)
+
+        # Quality Rating (Gold stars)
+        q_info = ref.get("quality", {})
+        q_stars = q_info.get("stars", 5) if isinstance(q_info, dict) else 5
+        q_badge = "⭐" * q_stars
+
+        q_lbl = QLabel(f"{q_badge} {q_stars}/5")
+        q_lbl.setStyleSheet("font-size: 10px; color: #fbbf24; font-weight: bold; background: transparent; border: none;")
+        q_lbl.setAlignment(Qt.AlignCenter)
+        q_lbl.setCursor(Qt.PointingHandCursor)
+        layout.addWidget(q_lbl)
+
+        # Classic Solid Red Remove Button
+        btn_del = QPushButton("🗑 Remove")
+        btn_del.setProperty("class", "DangerButton")
+        btn_del.setCursor(Qt.PointingHandCursor)
+        btn_del.setFixedHeight(24)
+        btn_del.setStyleSheet(
+            "QPushButton { background-color: #dc2626; color: #ffffff; font-weight: 700; border-radius: 6px; font-size: 11px; padding: 0 6px; border: none; }"
+            "QPushButton:hover { background-color: #b91c1c; }"
+        )
+        btn_del.clicked.connect(lambda: self.on_delete(self.ref_id))
+        layout.addWidget(btn_del)
+
+    def _on_chk_toggled(self, checked: bool):
+        self.is_selected = checked
+        self._update_card_style()
+        self.on_toggle(self.ref_id, checked)
+
+    def _update_card_style(self):
+        if self.is_selected:
+            self.setStyleSheet(
+                "QFrame { background-color: #231114; border: 2px solid #ef4444; border-radius: 10px; }"
+            )
+        else:
+            self.setStyleSheet(
+                "QFrame { background-color: #0f172a; border: 1px solid #1e293b; border-radius: 10px; }"
+                "QFrame:hover { border: 1px solid #38bdf8; }"
+            )
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            self.chk.setChecked(not self.chk.isChecked())
+        super().mousePressEvent(event)
+
+
+class ResponsiveReferenceGrid(QWidget):
+    """Fluid 2D reference photo grid that dynamically reflows and stretches cards to fill 100% width."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.grid_layout = QGridLayout(self)
+        self.grid_layout.setContentsMargins(0, 0, 0, 0)
+        self.grid_layout.setSpacing(14)
+        self.grid_layout.setAlignment(Qt.AlignTop)
+        self.cards: list[QWidget] = []
+
+    def set_cards(self, cards: list[QWidget]):
+        self.clear()
+        self.cards = cards
+        self.relayout()
+
+    def clear(self):
+        while self.grid_layout.count():
+            item = self.grid_layout.takeAt(0)
+            w = item.widget()
+            if w:
+                w.deleteLater()
+        self.cards = []
+
+    def relayout(self):
+        if not self.cards:
+            return
+
+        # Target card column width is ~175px (larger, crisper card display)
+        container_w = max(240, self.width())
+        cols = max(2, container_w // 175)
+
+        # Reset all column stretches
+        for c in range(24):
+            self.grid_layout.setColumnStretch(c, 0)
+
+        while self.grid_layout.count():
+            self.grid_layout.takeAt(0)
+
+        # Set column stretch = 1 on all active columns so cards expand evenly to fill 100% of width
+        for c in range(cols):
+            self.grid_layout.setColumnStretch(c, 1)
+
+        for idx, card in enumerate(self.cards):
+            row = idx // cols
+            col = idx % cols
+            self.grid_layout.addWidget(card, row, col)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self.relayout()
+
+
 class PeoplePage(QWidget):
-    """Page for creating and managing person profiles and reference photos."""
+    """Modern, responsive People Profiles Studio & Biometric Registry."""
 
     def __init__(self, profile_service: ProfileService, face_engine: FaceEngine | None = None):
         super().__init__()
         self.profile_service = profile_service
         self.face_engine = face_engine or getattr(profile_service, "face_engine", None)
         self.current_profile_id: str | None = None
+        self.selected_ref_ids: set[str] = set()
+        self.worker: ProfileBatchTrainWorker | None = None
 
         self._setup_ui()
 
     def _setup_ui(self):
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(20, 20, 20, 20)
-        layout.setSpacing(14)
+        root_layout = QVBoxLayout(self)
+        root_layout.setContentsMargins(20, 20, 20, 20)
+        root_layout.setSpacing(14)
 
-        # 1. Compact Top Action Bar (No giant redundant headers or dead vertical space)
+        # 1. Clean Top Header
         top_bar = QHBoxLayout()
         top_bar.setSpacing(12)
 
-        sub_title = QLabel("Add reference photos or scan faces with 360° camera for 99.86% AI matching precision.")
-        sub_title.setStyleSheet("color: #94a3b8; font-size: 13px;")
-        top_bar.addWidget(sub_title)
+        title_box = QVBoxLayout()
+        title_box.setSpacing(2)
+        page_title = QLabel("👥 People Profiles & Biometric Registry")
+        page_title.setStyleSheet("font-size: 18px; font-weight: 800; color: #ffffff;")
+        sub_title = QLabel("Manage reference photos, multi-angle face embeddings, and recognition settings.")
+        sub_title.setStyleSheet("color: #94a3b8; font-size: 12px;")
+        title_box.addWidget(page_title)
+        title_box.addWidget(sub_title)
+        top_bar.addLayout(title_box)
 
         top_bar.addStretch()
 
-        btn_live_scan = QPushButton("🎥 360° Face Scan")
-        btn_live_scan.setProperty("class", "SecondaryButton")
-        btn_live_scan.setCursor(Qt.PointingHandCursor)
-        btn_live_scan.setStyleSheet("background-color: #1e3a8a; border: 2px solid #38bdf8; color: #ffffff; font-weight: bold; padding: 6px 14px;")
-        btn_live_scan.setToolTip("Open live webcam to record 5-angle 360° face geometry for maximum matching accuracy.")
-        btn_live_scan.clicked.connect(lambda: self._open_live_face_scanner())
-        top_bar.addWidget(btn_live_scan)
-
-        btn_add_person = QPushButton("➕ Create New Profile")
+        btn_add_person = QPushButton("➕ Create Profile")
         btn_add_person.setProperty("class", "PrimaryButton")
+        btn_add_person.setCursor(Qt.PointingHandCursor)
+        btn_add_person.setFixedHeight(36)
+        btn_add_person.setStyleSheet(
+            "QPushButton { background-color: #10b981; color: #ffffff; font-weight: 700; border-radius: 8px; padding: 0 16px; font-size: 13px; border: 1px solid #059669; }"
+            "QPushButton:hover { background-color: #059669; }"
+        )
         btn_add_person.clicked.connect(self._create_profile)
         top_bar.addWidget(btn_add_person)
 
-        btn_bulk_import = QPushButton("📁 Bulk Import Folders")
-        btn_bulk_import.setProperty("class", "SecondaryButton")
-        btn_bulk_import.clicked.connect(self._bulk_import)
-        top_bar.addWidget(btn_bulk_import)
+        root_layout.addLayout(top_bar)
 
-        layout.addLayout(top_bar)
-
-
-        # 2. Main Splitter (Fills remaining vertical space cleanly with stretch factor 1)
+        # 2. Main Horizontal Splitter (Spacious left sidebar)
         splitter = QSplitter(Qt.Horizontal)
 
-        # Left Column: Profile List Card
+        # Left Column: Profile Navigator (Larger width for person list)
         left_widget = QFrame()
         left_widget.setProperty("class", "Card")
+        left_widget.setMinimumWidth(260)
+        left_widget.setMaximumWidth(380)
         left_layout = QVBoxLayout(left_widget)
         left_layout.setContentsMargins(14, 14, 14, 14)
-        left_layout.setSpacing(10)
+        left_layout.setSpacing(12)
 
         left_hdr_box = QHBoxLayout()
-        left_hdr = QLabel("<b>People Profiles</b>")
+        left_hdr = QLabel("<b>Registered People</b>")
         left_hdr.setStyleSheet("font-size: 14px; color: #ffffff;")
         self.lbl_profile_count = QLabel("0 Profiles")
-        self.lbl_profile_count.setStyleSheet("color: #38bdf8; font-weight: bold; font-size: 11px;")
+        self.lbl_profile_count.setStyleSheet("color: #38bdf8; font-weight: bold; font-size: 12px;")
         left_hdr_box.addWidget(left_hdr)
         left_hdr_box.addStretch()
         left_hdr_box.addWidget(self.lbl_profile_count)
@@ -113,115 +382,244 @@ class PeoplePage(QWidget):
         left_layout.addWidget(self.txt_search)
 
         self.list_widget = QListWidget()
+        self.list_widget.setCursor(Qt.PointingHandCursor)
+        self.list_widget.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.list_widget.setStyleSheet(
+            "QListWidget { background-color: #0b0f19; border: 1px solid #1e293b; border-radius: 10px; padding: 4px; outline: 0px; }"
+            "QListWidget::item { border-bottom: 1px solid #1e293b; border-radius: 8px; margin-bottom: 4px; }"
+            "QListWidget::item:selected { background-color: #1e293b; border: 1px solid #38bdf8; }"
+            "QListWidget::item:hover { background-color: #131d33; }"
+        )
         self.list_widget.currentItemChanged.connect(self._on_profile_selected)
         left_layout.addWidget(self.list_widget, 1)
 
+        # Quick Add Button at bottom of list
+        btn_quick_add = QPushButton("➕ New Person")
+        btn_quick_add.setProperty("class", "SecondaryButton")
+        btn_quick_add.setCursor(Qt.PointingHandCursor)
+        btn_quick_add.setFixedHeight(34)
+        btn_quick_add.setStyleSheet(
+            "QPushButton { background-color: #1e293b; color: #38bdf8; font-weight: 600; border-radius: 6px; font-size: 12px; border: 1px solid #3b82f6; }"
+            "QPushButton:hover { background-color: #1d4ed8; color: #ffffff; }"
+        )
+        btn_quick_add.clicked.connect(self._create_profile)
+        left_layout.addWidget(btn_quick_add)
+
         splitter.addWidget(left_widget)
 
-        # Right Column: Selected Profile Detail Panel Card
+        # Right Column: Selected Profile Studio
         self.detail_card = QFrame()
         self.detail_card.setProperty("class", "Card")
         detail_layout = QVBoxLayout(self.detail_card)
         detail_layout.setContentsMargins(16, 16, 16, 16)
-        detail_layout.setSpacing(16)
+        detail_layout.setSpacing(14)
 
-        # Unified Profile Header Toolbar (2 Clean Responsive Rows)
-        p_header_layout = QVBoxLayout()
-        p_header_layout.setSpacing(10)
+        # Profile Hero Header Banner (Elegantly structured card with rounded-square styling)
+        self.hero_banner = QFrame()
+        self.hero_banner.setStyleSheet(
+            "background-color: #0c1322; border: 1px solid #1e293b; border-radius: 14px; padding: 14px 16px;"
+        )
+        hero_layout = QVBoxLayout(self.hero_banner)
+        hero_layout.setContentsMargins(14, 12, 14, 12)
+        hero_layout.setSpacing(12)
 
-        # Row 1: Profile Name & Primary Actions
-        row1 = QHBoxLayout()
-        row1.setSpacing(10)
+        # Row 1: Profile Identity (Edge-to-Edge Rounded-Square Avatar + Name + Status Pills) & Primary Action
+        identity_row = QHBoxLayout()
+        identity_row.setSpacing(16)
+        identity_row.setAlignment(Qt.AlignVCenter)
+
+        # Modern Edge-to-Edge Rounded-Square Avatar (92x92)
+        self.hero_avatar = ImageCoverWidget(None, width=92, height=92, radius=12)
+        self.hero_avatar.setStyleSheet("border: 2px solid #38bdf8; border-radius: 12px;")
+        identity_row.addWidget(self.hero_avatar)
+
+        # Name & Status Pills Column
+        name_pills_col = QVBoxLayout()
+        name_pills_col.setSpacing(6)
+        name_pills_col.setAlignment(Qt.AlignVCenter)
+
+        name_row = QHBoxLayout()
+        name_row.setSpacing(8)
+        name_row.setAlignment(Qt.AlignVCenter)
 
         self.lbl_profile_name = QLabel("Select a Person")
-        self.lbl_profile_name.setStyleSheet("font-size: 20px; font-weight: 800; color: #ffffff;")
-        row1.addWidget(self.lbl_profile_name)
+        self.lbl_profile_name.setStyleSheet("font-size: 20px; font-weight: 800; color: #ffffff; background: transparent; border: none;")
+        name_row.addWidget(self.lbl_profile_name)
 
-        row1.addStretch()
+        btn_rename_quick = QPushButton("✏️ Rename")
+        btn_rename_quick.setCursor(Qt.PointingHandCursor)
+        btn_rename_quick.setToolTip("Rename Profile")
+        btn_rename_quick.setStyleSheet(
+            "QPushButton { background-color: #1e293b; border: 1px solid #334155; border-radius: 6px; font-size: 11px; font-weight: 600; color: #94a3b8; padding: 3px 8px; }"
+            "QPushButton:hover { background-color: #334155; color: #ffffff; }"
+        )
+        btn_rename_quick.clicked.connect(self._rename_profile)
+        name_row.addWidget(btn_rename_quick)
+        name_row.addStretch()
+        name_pills_col.addLayout(name_row)
 
-        self.btn_profile_live_scan = QPushButton("🎥 360° Scan")
-        self.btn_profile_live_scan.setProperty("class", "SecondaryButton")
-        self.btn_profile_live_scan.setCursor(Qt.PointingHandCursor)
-        self.btn_profile_live_scan.setStyleSheet("background-color: #1e3a8a; border: 1px solid #38bdf8; color: #38bdf8; font-weight: bold;")
-        self.btn_profile_live_scan.setToolTip("Open live webcam to record 5-angle 360° face reference photos for this person.")
-        self.btn_profile_live_scan.clicked.connect(lambda: self._open_live_face_scanner(profile_id=self.current_profile_id))
-        row1.addWidget(self.btn_profile_live_scan)
+        # Status Pills Row (Compact, sleek badges)
+        self.pills_layout = QHBoxLayout()
+        self.pills_layout.setSpacing(6)
 
-        self.btn_add_ref = QPushButton("📷 Add Reference")
+        self.pill_embeddings = QLabel("🧠 0 Vectors")
+        self.pill_embeddings.setStyleSheet(
+            "background-color: #1e293b; color: #38bdf8; font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 4px; border: 1px solid #334155;"
+        )
+
+        self.pill_quality = QLabel("⭐ 5.0")
+        self.pill_quality.setStyleSheet(
+            "background-color: #1e293b; color: #34d399; font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 4px; border: 1px solid #334155;"
+        )
+
+        self.pill_type = QLabel("👤 Individual")
+        self.pill_type.setStyleSheet(
+            "background-color: #1e293b; color: #a78bfa; font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 4px; border: 1px solid #334155;"
+        )
+
+        self.pills_layout.addWidget(self.pill_embeddings)
+        self.pills_layout.addWidget(self.pill_quality)
+        self.pills_layout.addWidget(self.pill_type)
+        self.pills_layout.addStretch()
+        name_pills_col.addLayout(self.pills_layout)
+
+        identity_row.addLayout(name_pills_col, 1)
+
+        # Prominent Primary Add Reference Photo Button on Right (40px height)
+        self.btn_add_ref = QPushButton("➕ Add Reference Photo")
         self.btn_add_ref.setProperty("class", "PrimaryButton")
         self.btn_add_ref.setCursor(Qt.PointingHandCursor)
+        self.btn_add_ref.setFixedHeight(40)
+        self.btn_add_ref.setStyleSheet(
+            "QPushButton { background-color: #10b981; color: #ffffff; font-weight: 700; border-radius: 8px; padding: 0 20px; font-size: 13px; border: 1px solid #059669; min-height: 40px; }"
+            "QPushButton:hover { background-color: #059669; }"
+        )
         self.btn_add_ref.clicked.connect(self._add_reference_photo)
-        row1.addWidget(self.btn_add_ref)
+        identity_row.addWidget(self.btn_add_ref, 0, Qt.AlignVCenter)
 
-        self.btn_batch_train = QPushButton("📁 Batch Train from Folder")
+        hero_layout.addLayout(identity_row)
+
+        # Subtle Separator Line
+        sep = QFrame()
+        sep.setFrameShape(QFrame.HLine)
+        sep.setStyleSheet("background-color: #1e293b; max-height: 1px; border: none;")
+        hero_layout.addWidget(sep)
+
+        # Row 2: Secondary Tools Toolbar (Compact, uniform 30px height, perfect alignment)
+        tools_row = QHBoxLayout()
+        tools_row.setSpacing(8)
+        tools_row.setAlignment(Qt.AlignVCenter)
+
+        self.btn_batch_train = QPushButton("📁 Batch Train")
         self.btn_batch_train.setProperty("class", "SecondaryButton")
         self.btn_batch_train.setCursor(Qt.PointingHandCursor)
+        self.btn_batch_train.setFixedHeight(30)
+        self.btn_batch_train.setStyleSheet(
+            "QPushButton { background-color: #1e293b; color: #38bdf8; font-weight: 600; border-radius: 6px; padding: 0 10px; font-size: 11px; border: 1px solid #3b82f6; }"
+            "QPushButton:hover { background-color: #1d4ed8; color: #ffffff; }"
+        )
         self.btn_batch_train.clicked.connect(self._batch_train_profile)
-        row1.addWidget(self.btn_batch_train)
-
-        p_header_layout.addLayout(row1)
-
-
-        # Row 2: Secondary Tools & Management
-        row2 = QHBoxLayout()
-        row2.setSpacing(8)
+        tools_row.addWidget(self.btn_batch_train)
 
         self.btn_clean_outliers = QPushButton("🧹 Clean Outliers")
         self.btn_clean_outliers.setProperty("class", "SecondaryButton")
         self.btn_clean_outliers.setCursor(Qt.PointingHandCursor)
-        self.btn_clean_outliers.setToolTip("Scan reference photos and automatically remove any that belong to a different person.")
+        self.btn_clean_outliers.setFixedHeight(30)
+        self.btn_clean_outliers.setStyleSheet(
+            "QPushButton { background-color: #1e293b; color: #38bdf8; font-weight: 600; border-radius: 6px; padding: 0 10px; font-size: 11px; border: 1px solid #3b82f6; }"
+            "QPushButton:hover { background-color: #1d4ed8; color: #ffffff; }"
+        )
+        self.btn_clean_outliers.setToolTip("Scan and purge outlier photos or low-star faces.")
         self.btn_clean_outliers.clicked.connect(self._clean_outliers)
-        row2.addWidget(self.btn_clean_outliers)
+        tools_row.addWidget(self.btn_clean_outliers)
 
-        self.btn_group_type = QPushButton("👥 Group Settings")
+        self.btn_group_type = QPushButton("⚙️ Settings")
         self.btn_group_type.setProperty("class", "SecondaryButton")
         self.btn_group_type.setCursor(Qt.PointingHandCursor)
+        self.btn_group_type.setFixedHeight(30)
+        self.btn_group_type.setStyleSheet(
+            "QPushButton { background-color: #1e293b; color: #38bdf8; font-weight: 600; border-radius: 6px; padding: 0 10px; font-size: 11px; border: 1px solid #3b82f6; }"
+            "QPushButton:hover { background-color: #1d4ed8; color: #ffffff; }"
+        )
         self.btn_group_type.clicked.connect(self._edit_group_settings)
-        row2.addWidget(self.btn_group_type)
+        tools_row.addWidget(self.btn_group_type)
 
-        self.btn_rename = QPushButton("✏️ Rename")
-        self.btn_rename.setProperty("class", "SecondaryButton")
-        self.btn_rename.setCursor(Qt.PointingHandCursor)
-        self.btn_rename.clicked.connect(self._rename_profile)
-        row2.addWidget(self.btn_rename)
+        tools_row.addStretch()
 
-        row2.addStretch()
-
-        self.btn_delete = QPushButton("🗑️ Delete Profile")
+        self.btn_delete = QPushButton("🗑️ Delete")
         self.btn_delete.setProperty("class", "DangerButton")
         self.btn_delete.setCursor(Qt.PointingHandCursor)
+        self.btn_delete.setFixedHeight(30)
+        self.btn_delete.setStyleSheet(
+            "QPushButton { background-color: #991b1b; color: #ffffff; font-weight: 600; border-radius: 6px; padding: 0 12px; font-size: 11px; border: 1px solid #dc2626; }"
+            "QPushButton:hover { background-color: #dc2626; }"
+        )
         self.btn_delete.clicked.connect(self._delete_profile)
-        row2.addWidget(self.btn_delete)
+        tools_row.addWidget(self.btn_delete)
 
-        p_header_layout.addLayout(row2)
-        detail_layout.addLayout(p_header_layout)
+        hero_layout.addLayout(tools_row)
+        detail_layout.addWidget(self.hero_banner)
 
-        # Reference Photos Section Title
-        ref_title_box = QHBoxLayout()
-        ref_sec_title = QLabel("<b>Reference Photos (Used for AI Matching):</b>")
-        ref_sec_title.setStyleSheet("color: #cbd5e1; font-size: 13px;")
-        ref_title_box.addWidget(ref_sec_title)
-        ref_title_box.addStretch()
-        detail_layout.addLayout(ref_title_box)
+        # Biometric Recommendation Banner
+        self.recommendation_box = QFrame()
+        self.recommendation_box.setStyleSheet(
+            "background-color: #0f172a; border: 1px solid #1e293b; border-radius: 8px; padding: 8px 12px;"
+        )
+        rec_layout = QHBoxLayout(self.recommendation_box)
+        rec_layout.setContentsMargins(0, 0, 0, 0)
+        self.lbl_recommendation = QLabel("✅ Ready for AI Scanning")
+        self.lbl_recommendation.setStyleSheet("color: #38bdf8; font-size: 11px; font-weight: 600;")
+        rec_layout.addWidget(self.lbl_recommendation)
+        detail_layout.addWidget(self.recommendation_box)
 
-        # Reference Thumbnails Scroll Area
+        # Reference Photos Section Header with Multi-Select Controls
+        ref_hdr_box = QHBoxLayout()
+        ref_hdr_box.setSpacing(10)
+        ref_hdr_box.setAlignment(Qt.AlignVCenter)
+
+        self.lbl_ref_section = QLabel("<b>Enrolled Reference Photos</b>")
+        self.lbl_ref_section.setStyleSheet("color: #ffffff; font-size: 13px;")
+        ref_hdr_box.addWidget(self.lbl_ref_section)
+
+        ref_hdr_box.addStretch()
+
+        self.btn_select_all = QPushButton("Select All")
+        self.btn_select_all.setCursor(Qt.PointingHandCursor)
+        self.btn_select_all.setFixedHeight(26)
+        self.btn_select_all.setStyleSheet(
+            "QPushButton { background-color: #1e293b; color: #94a3b8; border: 1px solid #334155; border-radius: 4px; padding: 0 10px; font-size: 11px; font-weight: 600; }"
+            "QPushButton:hover { background-color: #334155; color: #ffffff; }"
+        )
+        self.btn_select_all.clicked.connect(self._toggle_select_all)
+        ref_hdr_box.addWidget(self.btn_select_all)
+
+        self.btn_batch_delete = QPushButton("🗑️ Delete (0)")
+        self.btn_batch_delete.setCursor(Qt.PointingHandCursor)
+        self.btn_batch_delete.setFixedHeight(26)
+        self.btn_batch_delete.setStyleSheet(
+            "QPushButton { background-color: #dc2626; color: #ffffff; border: none; border-radius: 4px; padding: 0 12px; font-size: 11px; font-weight: 700; }"
+            "QPushButton:hover { background-color: #b91c1c; }"
+            "QPushButton:disabled { background-color: #1e293b; color: #64748b; border: 1px solid #334155; }"
+        )
+        self.btn_batch_delete.setEnabled(False)
+        self.btn_batch_delete.clicked.connect(self._delete_selected_references)
+        ref_hdr_box.addWidget(self.btn_batch_delete)
+
+        detail_layout.addLayout(ref_hdr_box)
+
+        # Reference Photos Scroll Area (Responsive 2D Grid)
         self.ref_scroll = QScrollArea()
         self.ref_scroll.setWidgetResizable(True)
-        self.ref_scroll.setStyleSheet("background: transparent; border: none;")
+        self.ref_scroll.setStyleSheet("QScrollArea { background: transparent; border: none; }")
 
-        self.ref_container = QWidget()
-        self.ref_grid = QHBoxLayout(self.ref_container)
-        self.ref_grid.setContentsMargins(4, 4, 4, 4)
-        self.ref_grid.setSpacing(14)
-        self.ref_grid.setAlignment(Qt.AlignTop | Qt.AlignLeft)
-
-        self.ref_scroll.setWidget(self.ref_container)
+        self.grid_widget = ResponsiveReferenceGrid()
+        self.ref_scroll.setWidget(self.grid_widget)
         detail_layout.addWidget(self.ref_scroll, 1)
 
         splitter.addWidget(self.detail_card)
-        splitter.setSizes([280, 640])
+        splitter.setSizes([300, 750])
 
-        layout.addWidget(splitter, 1)
+        root_layout.addWidget(splitter, 1)
         self.refresh()
 
     def _filter_profiles(self, query: str):
@@ -229,11 +627,17 @@ class PeoplePage(QWidget):
         q = query.strip().lower()
         for i in range(self.list_widget.count()):
             item = self.list_widget.item(i)
-            item.setHidden(q not in item.text().lower())
+            w = self.list_widget.itemWidget(item)
+            if isinstance(w, ProfileListItemWidget):
+                item.setHidden(q not in w.profile_name.lower())
+            else:
+                item.setHidden(q not in item.text().lower())
 
     def refresh(self, select_profile_id: str | None = None):
         """Reload profile list from disk while preserving active selection."""
         target_id = select_profile_id or self.current_profile_id
+        self.selected_ref_ids.clear()
+        self._update_batch_delete_button()
 
         self.list_widget.blockSignals(True)
         self.list_widget.clear()
@@ -242,14 +646,28 @@ class PeoplePage(QWidget):
         self.lbl_profile_count.setText(f"{len(profiles)} Profile{'s' if len(profiles) != 1 else ''}")
         selected_item = None
 
-        for p in profiles:
-            ref_count = len(p.get("references", []))
-            group_tag = " [Group]" if p.get("is_group_profile") else ""
-            item_text = f"{p['name']}{group_tag} ({ref_count} refs)"
+        colors = ["#2563eb", "#059669", "#7c3aed", "#d97706", "#0891b2", "#dc2626"]
 
-            item = QListWidgetItem(item_text)
+        for idx, p in enumerate(profiles):
+            refs = p.get("references", [])
+            ref_count = len(refs)
+            is_group = bool(p.get("is_group_profile"))
+            first_ref_path = refs[0].get("stored_path") if refs else None
+
+            item = QListWidgetItem()
             item.setData(Qt.UserRole, p["id"])
+            item.setSizeHint(QSize(260, 62))
             self.list_widget.addItem(item)
+
+            bg = colors[idx % len(colors)]
+            item_widget = ProfileListItemWidget(
+                name=p.get("name", "Unknown"),
+                ref_count=ref_count,
+                avatar_path=first_ref_path,
+                is_group=is_group,
+                bg_color=bg,
+            )
+            self.list_widget.setItemWidget(item, item_widget)
 
             if target_id and p["id"] == target_id:
                 selected_item = item
@@ -265,8 +683,13 @@ class PeoplePage(QWidget):
             self._load_profile_details(first_item.data(Qt.UserRole))
         else:
             self.current_profile_id = None
-            self.lbl_profile_name.setText("No Profiles Found")
-            self._clear_ref_grid()
+            self.lbl_profile_name.setText("No Profiles Registered")
+            self.hero_avatar.set_initials("?", bg_color="#475569")
+            self.pill_embeddings.setText("🧠 0 Vectors")
+            self.pill_quality.setText("⭐ 0.0")
+            self.pill_type.setText("👤 None")
+            self.lbl_recommendation.setText("👋 Click '➕ Create Profile' above to enroll your first person.")
+            self.grid_widget.clear()
 
     def _on_profile_selected(self, current: QListWidgetItem, previous: QListWidgetItem):
         if current:
@@ -275,86 +698,241 @@ class PeoplePage(QWidget):
 
     def _load_profile_details(self, profile_id: str):
         self.current_profile_id = profile_id
+        self.selected_ref_ids.clear()
+        self._update_batch_delete_button()
+
         profile = self.profile_service.get_profile(profile_id)
         if not profile:
             return
 
-        group_tag = " [Group Profile]" if profile.get("is_group_profile") else ""
-        self.lbl_profile_name.setText(f"{profile['name']}{group_tag}")
+        p_name = profile.get("name", "Unknown")
+        refs = profile.get("references", [])
+        embs = profile.get("embeddings", [])
+        is_group = bool(profile.get("is_group_profile"))
+
+        # Update Hero Banner
+        group_tag = " [Group]" if is_group else ""
+        self.lbl_profile_name.setText(f"{p_name}{group_tag}")
+
+        # Update Edge-to-Edge Avatar (92x92 with zero black borders)
+        if refs:
+            first_ref = refs[0].get("stored_path")
+            if first_ref and Path(first_ref).exists():
+                self.hero_avatar.set_image_path(str(first_ref))
+            else:
+                self.hero_avatar.set_initials(p_name, bg_color="#2563eb")
+        else:
+            self.hero_avatar.set_initials(p_name, bg_color="#2563eb")
+
+        # Update Pills (Compact)
+        self.pill_embeddings.setText(f"🧠 {len(embs)} Vectors")
+        self.pill_type.setText("👥 Group" if is_group else "👤 Individual")
+
+        # Compute Quality Score
+        if refs:
+            stars = [r.get("quality_stars", 5) if "quality_stars" in r else r.get("quality", {}).get("stars", 5) for r in refs]
+            avg_stars = sum(stars) / len(stars) if stars else 5.0
+            self.pill_quality.setText(f"⭐ {avg_stars:.1f}")
+        else:
+            self.pill_quality.setText("⭐ No Refs")
+
+        # Recommendation Text
+        if len(refs) == 0:
+            self.lbl_recommendation.setText("⚠️ <b>No reference photos yet:</b> Add at least 1 clear face photo for AI recognition.")
+            self.lbl_recommendation.setStyleSheet("color: #fbbf24; font-size: 11px; font-weight: 600;")
+        elif len(refs) < 3:
+            self.lbl_recommendation.setText("💡 <b>Good:</b> Adding 2+ more multi-angle photos boosts matching accuracy to 99.86%.")
+            self.lbl_recommendation.setStyleSheet("color: #38bdf8; font-size: 11px; font-weight: 600;")
+        else:
+            self.lbl_recommendation.setText("✅ <b>Excellent Biometric Coverage:</b> Ready for high-precision recognition across varied lighting and angles.")
+            self.lbl_recommendation.setStyleSheet("color: #34d399; font-size: 11px; font-weight: 600;")
+
         self._display_references(profile)
 
-    def _clear_ref_grid(self):
-        while self.ref_grid.count():
-            item = self.ref_grid.takeAt(0)
-            w = item.widget()
-            if w:
-                w.deleteLater()
-
     def _display_references(self, profile: dict[str, Any]):
-        self._clear_ref_grid()
         references = profile.get("references", [])
+        self.lbl_ref_section.setText(f"<b>Enrolled Reference Photos ({len(references)})</b>")
 
-        if not references:
-            no_ref_card = QFrame()
-            no_ref_card.setStyleSheet("background-color: #0f172a; border: 1px dashed #334155; border-radius: 8px; padding: 20px;")
-            n_layout = QVBoxLayout(no_ref_card)
-            no_ref_lbl = QLabel("📷 <b>No reference photos added yet.</b><br/><span style='color: #94a3b8;'>Click <b>'📷 Add Reference Photo'</b> above to upload a clear face image for matching.</span>")
-            no_ref_lbl.setWordWrap(True)
-            no_ref_lbl.setStyleSheet("color: #f8fafc; font-size: 12px;")
-            n_layout.addWidget(no_ref_lbl)
-            self.ref_grid.addWidget(no_ref_card)
+        cards: list[QWidget] = []
+
+        # 1. Add Photo Action Tile (Fluid expanding width)
+        add_tile = QFrame()
+        add_tile.setProperty("class", "ActionTileCard")
+        add_tile.setCursor(Qt.PointingHandCursor)
+        add_tile.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        add_tile.setMinimumWidth(130)
+        add_tile.setMaximumWidth(260)
+        add_tile.setFixedHeight(198)
+        at_layout = QVBoxLayout(add_tile)
+        at_layout.setContentsMargins(8, 12, 8, 12)
+        at_layout.setSpacing(6)
+        at_layout.setAlignment(Qt.AlignCenter)
+
+        at_icon = QLabel("📷")
+        at_icon.setStyleSheet("font-size: 26px; background: transparent; border: none;")
+        at_icon.setAlignment(Qt.AlignCenter)
+        at_icon.setCursor(Qt.PointingHandCursor)
+
+        at_lbl = QLabel("Add Photo")
+        at_lbl.setStyleSheet("font-size: 13px; font-weight: 700; color: #38bdf8; background: transparent; border: none;")
+        at_lbl.setAlignment(Qt.AlignCenter)
+        at_lbl.setCursor(Qt.PointingHandCursor)
+
+        at_sub = QLabel("Upload Face")
+        at_sub.setStyleSheet("font-size: 11px; color: #64748b; background: transparent; border: none;")
+        at_sub.setAlignment(Qt.AlignCenter)
+        at_sub.setCursor(Qt.PointingHandCursor)
+
+        at_layout.addWidget(at_icon)
+        at_layout.addWidget(at_lbl)
+        at_layout.addWidget(at_sub)
+        add_tile.mousePressEvent = lambda _: self._add_reference_photo()
+        cards.append(add_tile)
+
+        # 2. Batch Train Action Tile (Fluid expanding width)
+        batch_tile = QFrame()
+        batch_tile.setProperty("class", "ActionTileCard")
+        batch_tile.setCursor(Qt.PointingHandCursor)
+        batch_tile.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        batch_tile.setMinimumWidth(130)
+        batch_tile.setMaximumWidth(260)
+        batch_tile.setFixedHeight(198)
+        bt_layout = QVBoxLayout(batch_tile)
+        bt_layout.setContentsMargins(8, 12, 8, 12)
+        bt_layout.setSpacing(6)
+        bt_layout.setAlignment(Qt.AlignCenter)
+
+        bt_icon = QLabel("📁")
+        bt_icon.setStyleSheet("font-size: 26px; background: transparent; border: none;")
+        bt_icon.setAlignment(Qt.AlignCenter)
+        bt_icon.setCursor(Qt.PointingHandCursor)
+
+        bt_lbl = QLabel("Batch Train")
+        bt_lbl.setStyleSheet("font-size: 13px; font-weight: 700; color: #a78bfa; background: transparent; border: none;")
+        bt_lbl.setAlignment(Qt.AlignCenter)
+        bt_lbl.setCursor(Qt.PointingHandCursor)
+
+        bt_sub = QLabel("Import Folder")
+        bt_sub.setStyleSheet("font-size: 11px; color: #64748b; background: transparent; border: none;")
+        bt_sub.setAlignment(Qt.AlignCenter)
+        bt_sub.setCursor(Qt.PointingHandCursor)
+
+        bt_layout.addWidget(bt_icon)
+        bt_layout.addWidget(bt_lbl)
+        bt_layout.addWidget(bt_sub)
+        batch_tile.mousePressEvent = lambda _: self._batch_train_profile()
+        cards.append(batch_tile)
+
+        # 3. Interactive Reference Photo Cards with Edge-to-Edge Photo Covers (Zero Black Bars)
+        for ref in references:
+            ref_id = ref.get("id")
+            card = ReferencePhotoCard(
+                ref=ref,
+                is_selected=(ref_id in self.selected_ref_ids),
+                on_toggle=self._on_ref_toggled,
+                on_delete=self._remove_reference,
+            )
+            cards.append(card)
+
+        self.grid_widget.set_cards(cards)
+
+    def _on_ref_toggled(self, ref_id: str, is_checked: bool):
+        if is_checked:
+            self.selected_ref_ids.add(ref_id)
+        else:
+            self.selected_ref_ids.discard(ref_id)
+        self._update_batch_delete_button()
+
+    def _update_batch_delete_button(self):
+        count = len(self.selected_ref_ids)
+        self.btn_batch_delete.setText(f"🗑️ Delete ({count})")
+        self.btn_batch_delete.setEnabled(count > 0)
+
+        # Update Select All text
+        if self.current_profile_id:
+            profile = self.profile_service.get_profile(self.current_profile_id)
+            total_refs = len(profile.get("references", [])) if profile else 0
+            if count > 0 and count == total_refs:
+                self.btn_select_all.setText("Deselect All")
+            else:
+                self.btn_select_all.setText("Select All")
+
+    def _toggle_select_all(self):
+        if not self.current_profile_id:
+            return
+        profile = self.profile_service.get_profile(self.current_profile_id)
+        if not profile:
             return
 
-        for ref in references:
-            card = QFrame()
-            card.setFrameShape(QFrame.StyledPanel)
-            card.setStyleSheet("background-color: #0f172a; border: 1px solid #1e293b; border-radius: 8px; padding: 6px;")
-            card.setFixedSize(140, 205)
-            l = QVBoxLayout(card)
-            l.setContentsMargins(6, 6, 6, 6)
-            l.setSpacing(4)
+        refs = profile.get("references", [])
+        total_ids = {r.get("id") for r in refs if r.get("id")}
 
-            stored_path = ref.get("stored_path")
-            if stored_path and Path(stored_path).exists():
-                pix = QPixmap(stored_path).scaled(105, 105, Qt.KeepAspectRatio, Qt.SmoothTransformation)
-                img_lbl = QLabel()
-                img_lbl.setPixmap(pix)
-                img_lbl.setAlignment(Qt.AlignCenter)
-                img_lbl.setStyleSheet("border-radius: 6px; background-color: #1e293b;")
-                l.addWidget(img_lbl)
+        if len(self.selected_ref_ids) == len(total_ids):
+            self.selected_ref_ids.clear()
+        else:
+            self.selected_ref_ids = set(total_ids)
 
-            q_info = ref.get("quality")
-            if not q_info:
-                # Compute quality dynamically for legacy reference entries
-                stored_path = ref.get("stored_path")
-                bbox = ref.get("bbox", [0, 100, 100, 0])
-                if stored_path and Path(stored_path).exists():
-                    try:
-                        with Image.open(stored_path) as ref_img:
-                            q_info = self.profile_service.assess_reference_quality(ref_img, bbox)
-                    except Exception:
-                        q_info = {"stars": 5, "badge": "⭐⭐⭐⭐⭐", "quality_label": "🟢 5/5 Stars: Excellent"}
+        self._display_references(profile)
+        self._update_batch_delete_button()
+
+    def _delete_selected_references(self):
+        if not self.current_profile_id or not self.selected_ref_ids:
+            return
+
+        profile = self.profile_service.get_profile(self.current_profile_id)
+        p_name = profile.get("name", "this person") if profile else "this person"
+        count = len(self.selected_ref_ids)
+
+        res = QMessageBox.question(
+            self,
+            "Confirm Batch Deletion",
+            f"Are you sure you want to delete {count} selected reference photo{'s' if count != 1 else ''} from '{p_name}'?",
+            QMessageBox.Yes | QMessageBox.No,
+        )
+        if res == QMessageBox.Yes:
+            ref_ids_to_del = list(self.selected_ref_ids)
+            p_id = self.current_profile_id
+
+            prog_dlg = QProgressDialog(f"Removing {count} reference photo(s)...", None, 0, 0, self)
+            prog_dlg.setWindowTitle("Deleting Reference Photos")
+            prog_dlg.setWindowModality(Qt.WindowModal)
+            prog_dlg.setMinimumDuration(0)
+            prog_dlg.setValue(0)
+            prog_dlg.setCancelButton(None)
+            prog_dlg.setStyleSheet(
+                "QProgressDialog { background-color: #0f172a; color: #ffffff; }"
+                "QLabel { color: #ffffff; font-size: 12px; }"
+                "QProgressBar { border: 1px solid #334155; border-radius: 6px; text-align: center; color: #ffffff; background: #0b0f19; }"
+                "QProgressBar::chunk { background-color: #ef4444; border-radius: 5px; }"
+            )
+
+            worker = ProfileDeleteRefsWorker(self.profile_service, p_id, ref_ids_to_del)
+
+            def on_finished(removed: int, err_msg: str):
+                prog_dlg.close()
+                self.selected_ref_ids.clear()
+                self.refresh(select_profile_id=p_id)
+                if err_msg:
+                    QMessageBox.warning(self, "Deletion Error", f"Encountered an issue: {err_msg}")
                 else:
-                    q_info = {"stars": 5, "badge": "⭐⭐⭐⭐⭐", "quality_label": "🟢 5/5 Stars: Excellent"}
+                    QMessageBox.information(self, "Photos Deleted", f"Successfully removed {removed} reference photo(s).")
 
-            if q_info:
-                q_lbl = QLabel(f"{q_info.get('badge', '⭐')} {q_info.get('stars', 5)}/5")
-                q_lbl.setToolTip(q_info.get("quality_label", "Reference Quality"))
-                q_lbl.setStyleSheet("font-size: 11px; color: #fbbf24; font-weight: bold;")
-                q_lbl.setAlignment(Qt.AlignCenter)
-                l.addWidget(q_lbl)
+            worker.finished_signal.connect(on_finished)
+            worker.start()
+            self._del_refs_worker = worker
 
-            btn_del = QPushButton("🗑 Remove")
-            btn_del.setProperty("class", "DangerButton")
-            btn_del.setFixedHeight(22)
-            btn_del.setStyleSheet("font-size: 11px; padding: 0 6px;")
-            ref_id = ref.get("id")
-            btn_del.clicked.connect(lambda _, r_id=ref_id: self._remove_reference(r_id))
-            l.addWidget(btn_del, alignment=Qt.AlignCenter)
-
-            self.ref_grid.addWidget(card)
-
-        self.ref_grid.addStretch()
+    def _remove_reference(self, ref_id: str):
+        if self.current_profile_id and ref_id:
+            res = QMessageBox.question(
+                self,
+                "Confirm Remove",
+                "Are you sure you want to remove this reference photo?",
+                QMessageBox.Yes | QMessageBox.No,
+            )
+            if res == QMessageBox.Yes:
+                self.profile_service.remove_reference_photo(self.current_profile_id, ref_id)
+                self.selected_ref_ids.discard(ref_id)
+                self.refresh(select_profile_id=self.current_profile_id)
 
     def _create_profile(self):
         dlg = CreateProfileDialog(self, self.profile_service.list_profiles())
@@ -446,7 +1024,6 @@ class PeoplePage(QWidget):
             return
 
         p_path = Path(file_path)
-        # Check faces in reference
         _, locations, crops = self.profile_service.detect_faces_in_reference(p_path)
 
         selected_idx = 0
@@ -483,18 +1060,6 @@ class PeoplePage(QWidget):
             selected_id = profile_id or dlg.created_profile_id
             self.refresh(select_profile_id=selected_id)
 
-    def _remove_reference(self, ref_id: str):
-        if self.current_profile_id and ref_id:
-            self.profile_service.remove_reference_photo(self.current_profile_id, ref_id)
-            self.refresh(select_profile_id=self.current_profile_id)
-
-    def _bulk_import(self):
-        folder = QFileDialog.getExistingDirectory(self, "Select Root Directory for Bulk Import")
-        if folder:
-            imported = self.profile_service.bulk_import_profiles(Path(folder))
-            QMessageBox.information(self, "Bulk Import Complete", f"Imported {len(imported)} profiles.")
-            self.refresh()
-
     def _batch_train_profile(self):
         if not self.current_profile_id:
             return
@@ -507,7 +1072,7 @@ class PeoplePage(QWidget):
         p_name = profile.get("name", "Person") if profile else "Person"
 
         self.btn_batch_train.setEnabled(False)
-        self.btn_batch_train.setText("⏳ Training... Please wait")
+        self.btn_batch_train.setText("⏳ Training...")
 
         self.worker = ProfileBatchTrainWorker(
             profile_service=self.profile_service,
@@ -521,7 +1086,7 @@ class PeoplePage(QWidget):
 
     def _on_batch_train_finished(self, added: int, total: int, msg: str, profile_id: str, profile_name: str):
         self.btn_batch_train.setEnabled(True)
-        self.btn_batch_train.setText("📁 Batch Train Profile from Folder")
+        self.btn_batch_train.setText("📁 Batch Train")
 
         if added > 0:
             QMessageBox.information(
@@ -554,21 +1119,82 @@ class PeoplePage(QWidget):
             QMessageBox.Yes | QMessageBox.No,
         )
         if res == QMessageBox.Yes:
-            removed, remaining = self.profile_service.prune_profile_outliers(self.current_profile_id, min_similarity=60.0, min_stars=4)
-            if removed > 0:
-                QMessageBox.information(
-                    self,
-                    "Profile Cleaned",
-                    f"🧹 Successfully purged {removed} outlier / low-star photos from {p_name}.\n\n"
-                    f"⭐ {remaining} high-quality (4 & 5-star) reference photos remain for high-precision recognition.",
-                )
-            else:
-                QMessageBox.information(
-                    self,
-                    "Profile Clean",
-                    f"✅ All {remaining} reference photos are verified 4/5-star matches for {p_name}!",
-                )
-            self.refresh(select_profile_id=self.current_profile_id)
+            p_id = self.current_profile_id
+
+            prog_dlg = QProgressDialog(f"Analyzing facial vectors and cleaning outliers for '{p_name}'...", None, 0, 0, self)
+            prog_dlg.setWindowTitle("Cleaning Profile Outliers")
+            prog_dlg.setWindowModality(Qt.WindowModal)
+            prog_dlg.setMinimumDuration(0)
+            prog_dlg.setValue(0)
+            prog_dlg.setCancelButton(None)
+            prog_dlg.setStyleSheet(
+                "QProgressDialog { background-color: #0f172a; color: #ffffff; }"
+                "QLabel { color: #ffffff; font-size: 12px; }"
+                "QProgressBar { border: 1px solid #334155; border-radius: 6px; text-align: center; color: #ffffff; background: #0b0f19; }"
+                "QProgressBar::chunk { background-color: #10b981; border-radius: 5px; }"
+            )
+
+            worker = ProfileCleanOutliersWorker(self.profile_service, p_id, min_similarity=60.0, min_stars=4)
+
+            def on_finished(removed: int, remaining: int, err_msg: str):
+                prog_dlg.close()
+                self.refresh(select_profile_id=p_id)
+                if err_msg:
+                    QMessageBox.warning(self, "Cleaning Error", f"Encountered an issue: {err_msg}")
+                elif removed > 0:
+                    QMessageBox.information(
+                        self,
+                        "Profile Cleaned",
+                        f"🧹 Successfully purged {removed} outlier / low-star photos from {p_name}.\n\n"
+                        f"⭐ {remaining} high-quality (4 & 5-star) reference photos remain for high-precision recognition.",
+                    )
+                else:
+                    QMessageBox.information(
+                        self,
+                        "Profile Clean",
+                        f"✅ All {remaining} reference photos are verified 4/5-star matches for {p_name}!",
+                    )
+
+            worker.finished_signal.connect(on_finished)
+            worker.start()
+            self._clean_worker = worker
+
+
+class ProfileCleanOutliersWorker(QThread):
+    finished_signal = Signal(int, int, str)
+
+    def __init__(self, profile_service: ProfileService, profile_id: str, min_similarity: float = 60.0, min_stars: int = 4):
+        super().__init__()
+        self.profile_service = profile_service
+        self.profile_id = profile_id
+        self.min_similarity = min_similarity
+        self.min_stars = min_stars
+
+    def run(self):
+        try:
+            removed, remaining = self.profile_service.prune_profile_outliers(
+                self.profile_id, min_similarity=self.min_similarity, min_stars=self.min_stars
+            )
+            self.finished_signal.emit(removed, remaining, "")
+        except Exception as e:
+            self.finished_signal.emit(0, 0, str(e))
+
+
+class ProfileDeleteRefsWorker(QThread):
+    finished_signal = Signal(int, str)
+
+    def __init__(self, profile_service: ProfileService, profile_id: str, ref_ids: list[str]):
+        super().__init__()
+        self.profile_service = profile_service
+        self.profile_id = profile_id
+        self.ref_ids = ref_ids
+
+    def run(self):
+        try:
+            removed = self.profile_service.remove_reference_photos(self.profile_id, self.ref_ids)
+            self.finished_signal.emit(removed, "")
+        except Exception as e:
+            self.finished_signal.emit(0, str(e))
 
 
 class ProfileBatchTrainWorker(QThread):
@@ -615,7 +1241,6 @@ class CreateProfileDialog(QDialog):
         self._setup_ui()
 
     def _setup_ui(self):
-        # Dialog Root Layout
         root_layout = QVBoxLayout(self)
         root_layout.setContentsMargins(20, 20, 20, 20)
         root_layout.setSpacing(14)
@@ -635,7 +1260,7 @@ class CreateProfileDialog(QDialog):
         title_box.addWidget(lbl_sub)
         root_layout.addLayout(title_box)
 
-        # Middle Form Content Area (Scrollable if screen is constrained)
+        # Middle Form Content Area
         form_scroll = QScrollArea()
         form_scroll.setWidgetResizable(True)
         form_scroll.setStyleSheet("background: transparent; border: none;")
@@ -693,7 +1318,7 @@ class CreateProfileDialog(QDialog):
         tc_layout.addWidget(self.radio_group)
         form_layout.addWidget(type_card)
 
-        # 3. Compulsory Profiles Selection Box (Clean Bounded Scrollable List)
+        # 3. Compulsory Profiles Selection Box
         self.compulsory_frame = QFrame()
         self.compulsory_frame.setStyleSheet("background-color: #111827; border: 1px solid #1e293b; border-radius: 10px; padding: 12px;")
         cf_layout = QVBoxLayout(self.compulsory_frame)
@@ -711,6 +1336,7 @@ class CreateProfileDialog(QDialog):
 
         # Scrollable ListWidget for Checkboxes
         self.compulsory_list = QListWidget()
+        self.compulsory_list.setCursor(Qt.PointingHandCursor)
         self.compulsory_list.setStyleSheet(
             "QListWidget { background-color: #0b0f19; border: 1px solid #1e293b; border-radius: 8px; color: #f8fafc; padding: 4px; }"
             "QListWidget::item { padding: 8px 10px; border-bottom: 1px solid #1e293b; }"
@@ -732,7 +1358,6 @@ class CreateProfileDialog(QDialog):
         cf_layout.addWidget(self.compulsory_list)
         form_layout.addWidget(self.compulsory_frame)
 
-        # Toggle visibility of compulsory group frame based on type
         self.compulsory_frame.setVisible(self.is_group_profile)
         self.radio_group.toggled.connect(self.compulsory_frame.setVisible)
 
@@ -740,7 +1365,7 @@ class CreateProfileDialog(QDialog):
         form_scroll.setWidget(form_widget)
         root_layout.addWidget(form_scroll, 1)
 
-        # Fixed Permanent Footer Action Buttons (ALWAYS VISIBLE)
+        # Fixed Footer Action Buttons
         btn_layout = QHBoxLayout()
         btn_layout.setSpacing(12)
 
@@ -773,7 +1398,6 @@ class CreateProfileDialog(QDialog):
         btn_layout.addWidget(self.btn_ok)
 
         root_layout.addLayout(btn_layout)
-
 
     def _filter_compulsory_people(self, query: str):
         q = query.strip().lower()
@@ -813,5 +1437,3 @@ class CreateProfileDialog(QDialog):
         self.reject()
         if parent and hasattr(parent, "_open_live_face_scanner"):
             parent._open_live_face_scanner()
-
-

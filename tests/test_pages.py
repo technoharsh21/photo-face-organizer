@@ -73,3 +73,19 @@ def test_all_pages_load_and_navigate(qapp, tmp_path):
     for page_name in pages:
         window.navigate_to(page_name)
         assert window.content_stack.currentWidget() is not None
+
+    # Test Dashboard specific components
+    dashboard = window.page_dashboard
+    assert dashboard is not None
+    assert dashboard.card_profiles["val_lbl"].text() == "0"
+    assert dashboard.card_processed["val_lbl"].text() == "0"
+
+    # Create a profile and refresh dashboard
+    profile_svc.create_profile("Alice")
+    dashboard.refresh()
+    assert dashboard.card_profiles["val_lbl"].text() == "1"
+    assert dashboard.profiles_layout.count() > 0
+
+    # Test Window Icon is set
+    assert not window.windowIcon().isNull()
+

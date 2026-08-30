@@ -90,14 +90,164 @@ QFrame#ContentFrame {
 
 /* Elevated Cards & Containers */
 QFrame[class="Card"], QFrame.Card {
-    background-color: #111827 !important;
-    border: 1px solid #1f2937 !important;
+    background-color: #0f172a !important;
+    border: 1px solid #1e293b !important;
     border-radius: 12px;
     padding: 16px;
 }
 
 QFrame[class="Card"]:hover, QFrame.Card:hover {
     border-color: #3b82f6 !important;
+}
+
+QFrame[class="StatCardBlue"], QFrame.StatCardBlue {
+    background-color: #0f172a !important;
+    border: 1px solid #1e293b !important;
+    border-top: 3px solid #3b82f6 !important;
+    border-radius: 12px;
+    padding: 16px;
+}
+
+QFrame[class="StatCardGreen"], QFrame.StatCardGreen {
+    background-color: #0f172a !important;
+    border: 1px solid #1e293b !important;
+    border-top: 3px solid #10b981 !important;
+    border-radius: 12px;
+    padding: 16px;
+}
+
+QFrame[class="StatCardPurple"], QFrame.StatCardPurple {
+    background-color: #0f172a !important;
+    border: 1px solid #1e293b !important;
+    border-top: 3px solid #8b5cf6 !important;
+    border-radius: 12px;
+    padding: 16px;
+}
+
+QFrame[class="StatCardAmber"], QFrame.StatCardAmber {
+    background-color: #0f172a !important;
+    border: 1px solid #1e293b !important;
+    border-top: 3px solid #f59e0b !important;
+    border-radius: 12px;
+    padding: 16px;
+}
+
+QFrame[class="WorkflowCard"], QFrame.WorkflowCard {
+    background-color: #0f172a;
+    border: 1px solid #1e293b;
+    border-radius: 12px;
+    padding: 18px;
+}
+
+QFrame[class="WorkflowCard"]:hover, QFrame.WorkflowCard:hover {
+    border-color: #3b82f6;
+    background-color: #131f38;
+}
+
+QFrame[class="ProfileShowcaseCard"], QFrame.ProfileShowcaseCard {
+    background-color: #0f172a;
+    border: 1px solid #1e293b;
+    border-radius: 12px;
+    padding: 14px 16px;
+}
+
+QFrame[class="ProfileShowcaseCard"]:hover, QFrame.ProfileShowcaseCard:hover {
+    border-color: #38bdf8;
+    background-color: #131f38;
+}
+
+QFrame[class="AddProfileCard"], QFrame.AddProfileCard {
+    background-color: #090e1a;
+    border: 2px dashed #334155;
+    border-radius: 12px;
+    padding: 14px 16px;
+}
+
+QFrame[class="AddProfileCard"]:hover, QFrame.AddProfileCard:hover {
+    border-color: #38bdf8;
+    background-color: #131f38;
+}
+
+QFrame[class="DiagnosticsCard"], QFrame.DiagnosticsCard {
+    background-color: #0b1120;
+    border: 1px solid #1e293b;
+    border-radius: 12px;
+    padding: 14px 18px;
+}
+
+QFrame[class="ReferencePhotoCard"], QFrame.ReferencePhotoCard {
+    background-color: #0f172a;
+    border: 1px solid #1e293b;
+    border-radius: 10px;
+    padding: 8px;
+}
+
+QFrame[class="ReferencePhotoCard"]:hover, QFrame.ReferencePhotoCard:hover {
+    border-color: #38bdf8;
+    background-color: #131f38;
+}
+
+QFrame[class="ActionTileCard"], QFrame.ActionTileCard {
+    background-color: #090e1a;
+    border: 2px dashed #334155;
+    border-radius: 10px;
+    padding: 8px;
+}
+
+QFrame[class="ActionTileCard"]:hover, QFrame.ActionTileCard:hover {
+    border-color: #38bdf8;
+    background-color: #131f38;
+}
+
+/* Badges */
+QLabel[class="BadgeBlue"] {
+    background-color: #172554;
+    color: #60a5fa;
+    border: 1px solid #2563eb;
+    border-radius: 6px;
+    padding: 3px 8px;
+    font-size: 11px;
+    font-weight: 700;
+}
+
+QLabel[class="BadgeGreen"] {
+    background-color: #064e3b;
+    color: #34d399;
+    border: 1px solid #059669;
+    border-radius: 6px;
+    padding: 3px 8px;
+    font-size: 11px;
+    font-weight: 700;
+}
+
+QLabel[class="BadgePurple"] {
+    background-color: #3b0764;
+    color: #c084fc;
+    border: 1px solid #7c3aed;
+    border-radius: 6px;
+    padding: 3px 8px;
+    font-size: 11px;
+    font-weight: 700;
+}
+
+QLabel[class="BadgeAmber"] {
+    background-color: #451a03;
+    color: #fbbf24;
+    border: 1px solid #d97706;
+    border-radius: 6px;
+    padding: 3px 8px;
+    font-size: 11px;
+    font-weight: 700;
+}
+
+QLabel[class="BadgeCyan"] {
+    background-color: #083344;
+    color: #22d3ee;
+    border: 1px solid #0891b2;
+    border-radius: 6px;
+    padding: 3px 8px;
+    font-size: 11px;
+    font-weight: 700;
 }
 
 /* Typography */
@@ -209,94 +359,113 @@ QPushButton[class="DangerButton"]:hover, QPushButton.DangerButton:hover {
    5. Form Inputs & High-Contrast Controls
    ========================================================================= */
 QLineEdit, QSpinBox, QDoubleSpinBox {
-    background-color: #1e293b;
-    border: 2px solid #38bdf8;
-    border-radius: 8px;
-    padding: 8px 12px;
+    background-color: #0f172a;
+    border: 1px solid #334155;
+    border-radius: 6px;
+    padding: 6px 10px;
     color: #ffffff;
     font-size: 13px;
-    font-weight: bold;
+    font-weight: 600;
     selection-background-color: #0284c7;
 }
 
 QLineEdit:hover, QSpinBox:hover, QDoubleSpinBox:hover {
-    border: 2px solid #67e8f9;
-    background-color: #27384f;
+    border-color: #38bdf8;
+    background-color: #162238;
 }
 
 QLineEdit:focus, QSpinBox:focus, QDoubleSpinBox:focus {
-    border: 2px solid #a5f3fc;
-    background-color: #27384f;
+    border: 1px solid #38bdf8;
+    background-color: #162238;
     color: #ffffff;
 }
 
-/* Ultra-Visible High-Contrast Dropdowns (QComboBox) */
+/* Modern Clean Dropdowns (QComboBox) */
 QComboBox {
-    background-color: #1e293b;
-    border: 2px solid #38bdf8;
-    border-radius: 8px;
-    padding: 8px 40px 8px 16px;
+    background-color: #0f172a;
+    border: 1px solid #334155;
+    border-radius: 6px;
+    padding: 6px 28px 6px 12px;
     color: #ffffff;
     font-size: 13px;
-    font-weight: bold;
-    min-height: 26px;
+    font-weight: 600;
+    min-height: 22px;
 }
 
 QComboBox:hover {
-    border: 2px solid #67e8f9;
-    background-color: #27384f;
+    border-color: #38bdf8;
+    background-color: #162238;
 }
 
 QComboBox:focus {
-    border: 2px solid #a5f3fc;
-    background-color: #27384f;
+    border: 1px solid #38bdf8;
+    background-color: #162238;
     color: #ffffff;
 }
 
 QComboBox::drop-down {
     subcontrol-origin: padding;
     subcontrol-position: top right;
-    width: 36px;
-    border-left: 2px solid #38bdf8;
-    border-top-right-radius: 6px;
-    border-bottom-right-radius: 6px;
-    background-color: #0284c7;
-}
-
-QComboBox::drop-down:hover {
-    background-color: #0369a1;
+    width: 24px;
+    border: none;
+    background: transparent;
 }
 
 QComboBox::down-arrow {
     image: url("__ARROW_SVG__");
-    width: 14px;
-    height: 14px;
+    width: 12px;
+    height: 12px;
 }
 
 QComboBox QAbstractItemView {
-    background-color: #1e293b;
+    background-color: #0f172a;
     color: #ffffff;
     selection-background-color: #0284c7;
     selection-color: #ffffff;
-    border: 2px solid #38bdf8;
-    border-radius: 8px;
+    border: 1px solid #38bdf8;
+    border-radius: 6px;
     outline: 0px;
-    padding: 6px;
+    padding: 4px;
 }
 
 QComboBox QAbstractItemView::item {
-    background-color: #1e293b;
+    background-color: #0f172a;
     color: #ffffff;
-    min-height: 34px;
-    padding: 6px 14px;
-    border-radius: 6px;
-    margin: 2px 0;
+    min-height: 28px;
+    padding: 4px 10px;
+    border-radius: 4px;
+    margin: 1px 0;
 }
 
 QComboBox QAbstractItemView::item:selected, QComboBox QAbstractItemView::item:hover {
     background-color: #0284c7;
     color: #ffffff;
     font-weight: bold;
+}
+
+/* Modern Horizontal QSlider */
+QSlider::groove:horizontal {
+    height: 6px;
+    background: #1e293b;
+    border-radius: 3px;
+}
+
+QSlider::sub-page:horizontal {
+    background: #0284c7;
+    border-radius: 3px;
+}
+
+QSlider::handle:horizontal {
+    background: #38bdf8;
+    border: 2px solid #ffffff;
+    width: 16px;
+    height: 16px;
+    margin: -5px 0;
+    border-radius: 8px;
+}
+
+QSlider::handle:horizontal:hover {
+    background: #67e8f9;
 }
 
 /* =========================================================================

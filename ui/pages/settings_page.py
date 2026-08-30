@@ -1,8 +1,9 @@
 """
 Settings Page Module.
 
-Requirements #31 & #32:
-Manages performance modes (Eco/Balanced/Maximum Performance) and matching thresholds (default 50).
+Modern, clean, and organized settings studio managing AI vision engine configuration,
+hardware acceleration device preferences (GPU DirectML/CUDA vs CPU), default matching precision thresholds,
+face embedding disk caching, and diagnostic log inspection.
 """
 
 from PySide6.QtCore import Qt
@@ -10,11 +11,14 @@ from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
     QFrame,
+    QGridLayout,
     QHBoxLayout,
     QLabel,
     QMessageBox,
     QPushButton,
     QScrollArea,
+    QSizePolicy,
+    QSlider,
     QSpinBox,
     QVBoxLayout,
     QWidget,
@@ -25,8 +29,19 @@ from services.face_cache_service import FaceCacheService
 from services.settings_service import SettingsService
 
 
+class SettingsCard(QFrame):
+    """Clean card container with explicit scoped styling so nested labels and frames never inherit unwanted borders."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setStyleSheet(
+            "SettingsCard { background-color: #0c1322; border: 1px solid #1e293b; border-radius: 12px; }"
+            "QLabel { border: none; background: transparent; }"
+        )
+
+
 class SettingsPage(QWidget):
-    """Settings Page for system preferences and engine configuration."""
+    """Modern Settings Page for system preferences and AI engine configuration."""
 
     def __init__(
         self,
@@ -51,151 +66,246 @@ class SettingsPage(QWidget):
         scroll.setStyleSheet("background: transparent; border: none;")
 
         content_widget = QWidget()
-        content_widget.setMaximumWidth(840)
+        content_widget.setMaximumWidth(880)
         layout = QVBoxLayout(content_widget)
-        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setContentsMargins(24, 20, 24, 24)
         layout.setSpacing(16)
 
-        # Settings Card
-        card = QFrame()
-        card.setProperty("class", "Card")
-        c_layout = QVBoxLayout(card)
-        c_layout.setSpacing(16)
+        # 1. Header Title & Subtitle
+        header_l = QVBoxLayout()
+        header_l.setSpacing(4)
+        title_lbl = QLabel("⚙️ Settings")
+        title_lbl.setStyleSheet("font-size: 22px; font-weight: 800; color: #ffffff;")
+        sub_title = QLabel("Manage AI vision acceleration, matching thresholds, face cache, and local storage.")
+        sub_title.setStyleSheet("color: #94a3b8; font-size: 13px;")
+        header_l.addWidget(title_lbl)
+        header_l.addWidget(sub_title)
+        layout.addLayout(header_l)
 
-        # 1. Performance Mode
-        perf_label = QLabel("<b>⚡ Performance Mode</b>")
-        perf_label.setStyleSheet("color: #f1f5f9; font-size: 13px; margin-bottom: 2px;")
-        c_layout.addWidget(perf_label)
+        # 2. Hero Hardware Acceleration Status Banner
+        self.hero_hw_card = SettingsCard()
+        hero_layout = QHBoxLayout(self.hero_hw_card)
+        hero_layout.setContentsMargins(18, 16, 18, 16)
+        hero_layout.setSpacing(16)
 
-        perf_hint = QLabel("Select how aggressively the engine uses your hardware resources")
-        perf_hint.setStyleSheet("color: #64748b; font-size: 11px; margin-top: -4px; margin-bottom: 4px;")
-        c_layout.addWidget(perf_hint)
+        hero_left = QVBoxLayout()
+        hero_left.setSpacing(4)
 
+        hero_hdr = QLabel("AI Hardware Acceleration Status")
+        hero_hdr.setStyleSheet("font-size: 12px; color: #38bdf8; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px;")
+        hero_left.addWidget(hero_hdr)
+
+        self.lbl_hw_status = QLabel("🟢 Active AI Hardware: Detecting...")
+        self.lbl_hw_status.setStyleSheet("font-size: 15px; font-weight: 800; color: #10b981;")
+        hero_left.addWidget(self.lbl_hw_status)
+
+        self.lbl_model_info = QLabel("AI Vision Model: InsightFace SCRFD + ArcFace (512-d embeddings)")
+        self.lbl_model_info.setStyleSheet("font-size: 12px; color: #94a3b8;")
+        hero_left.addWidget(self.lbl_model_info)
+
+        hero_layout.addLayout(hero_left, 1)
+
+        self.btn_view_logs = QPushButton("📋 View Diagnostic Logs")
+        self.btn_view_logs.setProperty("class", "SecondaryButton")
+        self.btn_view_logs.setCursor(Qt.PointingHandCursor)
+        self.btn_view_logs.setFixedHeight(42)
+        self.btn_view_logs.setStyleSheet(
+            "QPushButton { background-color: #1e293b; color: #38bdf8; font-weight: 700; border-radius: 8px; padding: 0 20px; font-size: 13px; border: 1px solid #3b82f6; }"
+            "QPushButton:hover { background-color: #1d4ed8; color: #ffffff; }"
+        )
+        self.btn_view_logs.clicked.connect(self._view_diagnostic_logs)
+        hero_layout.addWidget(self.btn_view_logs)
+
+        layout.addWidget(self.hero_hw_card)
+
+        # 3. Card: AI Hardware & Performance Profile
+        card_perf = SettingsCard()
+        perf_layout = QVBoxLayout(card_perf)
+        perf_layout.setContentsMargins(18, 16, 18, 16)
+        perf_layout.setSpacing(14)
+
+        card_perf_title = QLabel("⚡ AI Engine & Performance Profile")
+        card_perf_title.setStyleSheet("color: #38bdf8; font-size: 14px; font-weight: 800;")
+        perf_layout.addWidget(card_perf_title)
+
+        # Grid for options
+        grid = QGridLayout()
+        grid.setHorizontalSpacing(20)
+        grid.setVerticalSpacing(14)
+
+        # Performance Profile
+        lbl_p = QLabel("<b>Performance Profile:</b>")
+        lbl_p.setStyleSheet("font-size: 13px; color: #ffffff;")
         self.combo_perf = QComboBox()
-        self.combo_perf.setFixedHeight(44)
-        self.combo_perf.setMaximumWidth(480)
+        self.combo_perf.setFixedHeight(34)
         self.combo_perf.setCursor(Qt.PointingHandCursor)
-        self.combo_perf.setToolTip("Click to choose a performance mode")
-        self.combo_perf.addItems(["Eco", "Balanced", "Maximum Performance"])
-        c_layout.addWidget(self.combo_perf)
+        self.combo_perf.addItems(["Maximum Performance", "Balanced", "Eco"])
 
-        c_layout.addSpacing(8)
+        grid.addWidget(lbl_p, 0, 0)
+        grid.addWidget(self.combo_perf, 0, 1)
 
-        # 2. AI Hardware Device Preference
-        hw_label = QLabel("<b>🖥️ AI Hardware Acceleration Preference</b>")
-        hw_label.setStyleSheet("color: #f1f5f9; font-size: 13px; margin-bottom: 2px;")
-        c_layout.addWidget(hw_label)
-
-        hw_hint = QLabel("Select which processor should run the AI face recognition model")
-        hw_hint.setStyleSheet("color: #64748b; font-size: 11px; margin-top: -4px; margin-bottom: 4px;")
-        c_layout.addWidget(hw_hint)
-
+        # Hardware Acceleration Device
+        lbl_d = QLabel("<b>AI Hardware Preference:</b>")
+        lbl_d.setStyleSheet("font-size: 13px; color: #ffffff;")
         self.combo_device = QComboBox()
-        self.combo_device.setFixedHeight(44)
-        self.combo_device.setMaximumWidth(480)
+        self.combo_device.setFixedHeight(34)
         self.combo_device.setCursor(Qt.PointingHandCursor)
-        self.combo_device.setToolTip("Click to choose the AI hardware device")
         self.combo_device.addItems([
             "Auto (GPU Priority - Recommended)",
             "DirectX 12 GPU (DirectML)",
             "NVIDIA CUDA GPU",
-            "Multi-Core CPU"
+            "Multi-Core CPU",
         ])
-        c_layout.addWidget(self.combo_device)
 
-        # 3. Matching Threshold
-        c_layout.addWidget(QLabel("<b>Default Matching Threshold (0 - 100, Default: 50):</b>"))
+        grid.addWidget(lbl_d, 1, 0)
+        grid.addWidget(self.combo_device, 1, 1)
+        grid.setColumnStretch(1, 1)
+
+        perf_layout.addLayout(grid)
+        layout.addWidget(card_perf)
+
+        # 4. Card: Default Matching Precision Threshold
+        card_thresh = SettingsCard()
+        t_layout = QVBoxLayout(card_thresh)
+        t_layout.setContentsMargins(18, 16, 18, 16)
+        t_layout.setSpacing(12)
+
+        card_t_title = QLabel("🎯 Default Matching Precision Threshold")
+        card_t_title.setStyleSheet("color: #34d399; font-size: 14px; font-weight: 800;")
+        t_layout.addWidget(card_t_title)
+
+        t_sub = QLabel("Default sensitivity threshold used across scans when matching faces against reference profiles.")
+        t_sub.setStyleSheet("font-size: 12px; color: #94a3b8;")
+        t_layout.addWidget(t_sub)
+
+        slider_row = QHBoxLayout()
+        slider_row.setSpacing(14)
+
+        self.slider_threshold = QSlider(Qt.Horizontal)
+        self.slider_threshold.setRange(1, 100)
+        self.slider_threshold.setValue(50)
+        self.slider_threshold.setCursor(Qt.PointingHandCursor)
+        slider_row.addWidget(self.slider_threshold, 1)
+
         self.spin_threshold = QSpinBox()
-        self.spin_threshold.setFixedHeight(38)
-        self.spin_threshold.setMaximumWidth(200)
         self.spin_threshold.setRange(1, 100)
-        c_layout.addWidget(self.spin_threshold)
+        self.spin_threshold.setValue(50)
+        self.spin_threshold.setFixedHeight(34)
+        self.spin_threshold.setSuffix("%")
+        self.spin_threshold.setFixedWidth(80)
+        slider_row.addWidget(self.spin_threshold)
 
-        # 3. Face Processing Disk Cache Toggle
-        self.chk_enable_cache = QCheckBox("⚡ Enable Face Processing Disk Cache (1,000x Faster Rescans)")
-        self.chk_enable_cache.setStyleSheet("color: #ffffff; font-weight: bold; font-size: 13px;")
-        c_layout.addWidget(self.chk_enable_cache)
+        t_layout.addLayout(slider_row)
 
-        cache_desc = QLabel(
-            "<i>Saves face locations and embeddings on disk so rescanning photos is instant (~0.0005s per photo). "
-            "Storage size is tiny (~1.2 MB per 1,000 photos).</i>"
-        )
-        cache_desc.setWordWrap(True)
-        cache_desc.setStyleSheet("color: #a0a0b0; font-size: 11px; margin-top: -8px;")
-        c_layout.addWidget(cache_desc)
+        self.slider_threshold.valueChanged.connect(self.spin_threshold.setValue)
+        self.spin_threshold.valueChanged.connect(self.slider_threshold.setValue)
+        self.spin_threshold.valueChanged.connect(self._update_threshold_guidance)
 
-        layout.addWidget(card)
+        self.lbl_threshold_desc = QLabel()
+        self.lbl_threshold_desc.setWordWrap(True)
+        t_layout.addWidget(self.lbl_threshold_desc)
 
-        # AI Hardware Acceleration Status Card
-        hw_card = QFrame()
-        hw_card.setProperty("class", "Card")
-        hw_card.setStyleSheet("background-color: #121824; border: 1px solid #1e3a8a; border-radius: 8px; padding: 14px;")
-        hw_layout = QVBoxLayout(hw_card)
-        hw_layout.setSpacing(6)
+        self._update_threshold_guidance(50)
+        layout.addWidget(card_thresh)
 
-        hw_layout.addWidget(QLabel("<b>AI Hardware Acceleration Status:</b>"))
-        self.lbl_hw_status = QLabel()
-        self.lbl_hw_status.setStyleSheet("font-size: 13px; font-weight: bold; color: #10b981;")
-        hw_layout.addWidget(self.lbl_hw_status)
+        # 5. Card: Face Processing Disk Cache
+        card_cache = SettingsCard()
+        c_layout = QVBoxLayout(card_cache)
+        c_layout.setContentsMargins(18, 16, 18, 16)
+        c_layout.setSpacing(12)
 
-        self.lbl_model_info = QLabel()
-        self.lbl_model_info.setStyleSheet("font-size: 11px; color: #a0a0b0;")
-        hw_layout.addWidget(self.lbl_model_info)
+        card_c_title = QLabel("🚀 Face Processing Disk Cache")
+        card_c_title.setStyleSheet("color: #fbbf24; font-size: 14px; font-weight: 800;")
+        c_layout.addWidget(card_c_title)
 
-        hw_btn_row = QHBoxLayout()
-        self.btn_view_logs = QPushButton("📋 View Hardware & Diagnostic Logs")
-        self.btn_view_logs.setProperty("class", "SecondaryButton")
-        self.btn_view_logs.setCursor(Qt.PointingHandCursor)
-        self.btn_view_logs.setFixedWidth(280)
-        self.btn_view_logs.clicked.connect(self._view_diagnostic_logs)
-        hw_btn_row.addWidget(self.btn_view_logs)
-        hw_btn_row.addStretch()
-        hw_layout.addLayout(hw_btn_row)
+        cache_row = QHBoxLayout()
+        cache_row.setSpacing(16)
 
-        layout.addWidget(hw_card)
+        cache_info = QVBoxLayout()
+        cache_info.setSpacing(4)
 
-        # Storage Info & Cache Management Card
-        storage_card = QFrame()
-        storage_card.setProperty("class", "Card")
-        sc_layout = QVBoxLayout(storage_card)
-        sc_layout.setSpacing(10)
+        self.chk_enable_cache = QCheckBox("Enable Face Processing Disk Cache (1,000x Faster Rescans)")
+        self.chk_enable_cache.setChecked(True)
+        self.chk_enable_cache.setCursor(Qt.PointingHandCursor)
+        self.chk_enable_cache.setStyleSheet("color: #ffffff; font-weight: 700; font-size: 13px;")
+        cache_info.addWidget(self.chk_enable_cache)
 
-        sc_layout.addWidget(QLabel("Local Storage Location:"))
-        self.lbl_storage = QLabel(str(self.settings_service.config.app_data_dir))
-        self.lbl_storage.setStyleSheet("color: #a0a0b0; font-family: monospace;")
-        sc_layout.addWidget(self.lbl_storage)
+        cache_desc = QLabel("Caches facial embeddings locally so rescanning the same library is instant (~0.0005s per photo).")
+        cache_desc.setStyleSheet("color: #94a3b8; font-size: 12px;")
+        cache_info.addWidget(cache_desc)
 
-        st_btn_row = QHBoxLayout()
-        btn_open_folder = QPushButton("📂 Open App Data Folder")
-        btn_open_folder.setProperty("class", "SecondaryButton")
-        btn_open_folder.setCursor(Qt.PointingHandCursor)
-        btn_open_folder.setFixedWidth(200)
-        btn_open_folder.clicked.connect(self._open_app_data_folder)
-        st_btn_row.addWidget(btn_open_folder)
+        cache_row.addLayout(cache_info, 1)
 
-        btn_clear_cache = QPushButton("🧹 Clear Face Processing Cache")
+        btn_clear_cache = QPushButton("🧹 Clear Cache")
         btn_clear_cache.setProperty("class", "DangerButton")
         btn_clear_cache.setCursor(Qt.PointingHandCursor)
-        btn_clear_cache.setFixedWidth(240)
+        btn_clear_cache.setFixedHeight(42)
+        btn_clear_cache.setStyleSheet(
+            "QPushButton { background-color: #dc2626; color: #ffffff; border: none; border-radius: 8px; padding: 0 20px; font-size: 13px; font-weight: 700; }"
+            "QPushButton:hover { background-color: #b91c1c; }"
+        )
         btn_clear_cache.clicked.connect(self._clear_cache)
-        st_btn_row.addWidget(btn_clear_cache)
-        st_btn_row.addStretch()
-        sc_layout.addLayout(st_btn_row)
+        cache_row.addWidget(btn_clear_cache)
 
-        layout.addWidget(storage_card)
+        c_layout.addLayout(cache_row)
+        layout.addWidget(card_cache)
 
-        # Action Buttons
+        # 6. Card: Local Storage Directory
+        card_storage = SettingsCard()
+        st_layout = QVBoxLayout(card_storage)
+        st_layout.setContentsMargins(18, 16, 18, 16)
+        st_layout.setSpacing(12)
+
+        card_st_title = QLabel("📁 Local Application Storage Directory")
+        card_st_title.setStyleSheet("color: #a78bfa; font-size: 14px; font-weight: 800;")
+        st_layout.addWidget(card_st_title)
+
+        st_row = QHBoxLayout()
+        st_row.setSpacing(12)
+
+        self.lbl_storage = QLabel(str(self.settings_service.config.app_data_dir))
+        self.lbl_storage.setStyleSheet(
+            "color: #38bdf8; font-family: monospace; font-size: 12px; background: #0f172a; padding: 8px 12px; border-radius: 6px; border: 1px solid #1e293b;"
+        )
+        st_row.addWidget(self.lbl_storage, 1)
+
+        btn_open_folder = QPushButton("📂 Open Folder")
+        btn_open_folder.setProperty("class", "SecondaryButton")
+        btn_open_folder.setCursor(Qt.PointingHandCursor)
+        btn_open_folder.setFixedHeight(42)
+        btn_open_folder.setStyleSheet(
+            "QPushButton { background-color: #1e293b; color: #38bdf8; font-weight: 700; border-radius: 8px; padding: 0 20px; font-size: 13px; border: 1px solid #3b82f6; }"
+            "QPushButton:hover { background-color: #1d4ed8; color: #ffffff; }"
+        )
+        btn_open_folder.clicked.connect(self._open_app_data_folder)
+        st_row.addWidget(btn_open_folder)
+
+        st_layout.addLayout(st_row)
+        layout.addWidget(card_storage)
+
+        # 7. Action Buttons Footer Bar
         btn_layout = QHBoxLayout()
+        btn_layout.setSpacing(16)
 
         btn_save = QPushButton("💾 Save Settings")
         btn_save.setProperty("class", "PrimaryButton")
         btn_save.setCursor(Qt.PointingHandCursor)
+        btn_save.setFixedHeight(46)
+        btn_save.setStyleSheet(
+            "QPushButton { background-color: #10b981; color: #ffffff; font-weight: 800; border-radius: 8px; padding: 0 32px; font-size: 14px; border: 1px solid #059669; }"
+            "QPushButton:hover { background-color: #059669; }"
+        )
         btn_save.clicked.connect(self._save)
         btn_layout.addWidget(btn_save)
 
-        btn_reset = QPushButton("Reset Defaults")
+        btn_reset = QPushButton("🔄 Reset Defaults")
         btn_reset.setProperty("class", "SecondaryButton")
         btn_reset.setCursor(Qt.PointingHandCursor)
+        btn_reset.setFixedHeight(46)
+        btn_reset.setStyleSheet(
+            "QPushButton { background-color: #1e293b; color: #94a3b8; border: 1px solid #334155; border-radius: 8px; padding: 0 26px; font-size: 13px; font-weight: 700; }"
+            "QPushButton:hover { background-color: #334155; color: #ffffff; }"
+        )
         btn_reset.clicked.connect(self._reset)
         btn_layout.addWidget(btn_reset)
 
@@ -207,10 +317,32 @@ class SettingsPage(QWidget):
         page_layout.addWidget(scroll)
         self.refresh()
 
+    def _update_threshold_guidance(self, value: int):
+        if value >= 85:
+            text = f"🔒 <b>{value}% (Ultra-Strict Precision):</b> Near-identical face matches only. Zero false positives."
+            style = "color: #34d399; font-size: 12px; background: #064e3b; padding: 10px; border-radius: 6px; border: 1px solid #10b981;"
+        elif value >= 70:
+            text = f"🎯 <b>{value}% (High Precision — Recommended for Solo Scans):</b> Highly accurate single-person matching."
+            style = "color: #10b981; font-size: 12px; background: #064e3b; padding: 10px; border-radius: 6px; border: 1px solid #10b981;"
+        elif value >= 50:
+            text = f"⚖️ <b>{value}% (Balanced Mode — Recommended Default):</b> Standard matching across hairstyles, smiles, and varied lighting."
+            style = "color: #60a5fa; font-size: 12px; background: #1e3a8a; padding: 10px; border-radius: 6px; border: 1px solid #3b82f6;"
+        elif value >= 35:
+            text = f"👓 <b>{value}% (Extended Range):</b> Matches side profiles and photos with sunglasses or hats."
+            style = "color: #fbbf24; font-size: 12px; background: #78350f; padding: 10px; border-radius: 6px; border: 1px solid #f59e0b;"
+        else:
+            text = f"🔍 <b>{value}% (Maximum Sensitivity):</b> Loose matching for low-resolution or dark nighttime photos."
+            style = "color: #f87171; font-size: 12px; background: #7f1d1d; padding: 10px; border-radius: 6px; border: 1px solid #ef4444;"
+
+        self.lbl_threshold_desc.setText(text)
+        self.lbl_threshold_desc.setStyleSheet(style)
+
     def refresh(self):
         """Refresh displayed settings values and AI hardware status."""
         self.combo_perf.setCurrentText(self.settings_service.get("performance_mode", "Maximum Performance"))
-        self.spin_threshold.setValue(int(self.settings_service.get("matching_threshold", 50)))
+        t_val = int(self.settings_service.get("matching_threshold", 50))
+        self.slider_threshold.setValue(t_val)
+        self.spin_threshold.setValue(t_val)
         self.chk_enable_cache.setChecked(self.settings_service.get("enable_face_cache", True))
 
         dev_pref = self.settings_service.get("device_preference", "Auto")
@@ -218,7 +350,7 @@ class SettingsPage(QWidget):
             "Auto": "Auto (GPU Priority - Recommended)",
             "DirectML": "DirectX 12 GPU (DirectML)",
             "CUDA": "NVIDIA CUDA GPU",
-            "CPU": "Multi-Core CPU"
+            "CPU": "Multi-Core CPU",
         }
         self.combo_device.setCurrentText(pref_map.get(dev_pref, "Auto (GPU Priority - Recommended)"))
 
@@ -229,10 +361,10 @@ class SettingsPage(QWidget):
 
             if gpu_active:
                 self.lbl_hw_status.setText(f"🟢 Active AI Hardware: {dev} (GPU Accelerated)")
-                self.lbl_hw_status.setStyleSheet("font-size: 13px; font-weight: bold; color: #10b981;")
+                self.lbl_hw_status.setStyleSheet("font-size: 15px; font-weight: 800; color: #10b981;")
             else:
                 self.lbl_hw_status.setText(f"🟢 Active AI Hardware: {dev}")
-                self.lbl_hw_status.setStyleSheet("font-size: 13px; font-weight: bold; color: #60a5fa;")
+                self.lbl_hw_status.setStyleSheet("font-size: 15px; font-weight: 800; color: #60a5fa;")
 
             self.lbl_model_info.setText(f"AI Vision Model: {info.get('model_used', 'InsightFace SCRFD + ArcFace 512-d')}")
 
@@ -262,6 +394,7 @@ class SettingsPage(QWidget):
     def _reset(self):
         self.combo_perf.setCurrentText("Maximum Performance")
         self.combo_device.setCurrentText("Auto (GPU Priority - Recommended)")
+        self.slider_threshold.setValue(50)
         self.spin_threshold.setValue(50)
         self.chk_enable_cache.setChecked(True)
         self.settings_service.reset_to_defaults()

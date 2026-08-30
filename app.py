@@ -39,6 +39,7 @@ def _clean_pycache():
 if not getattr(sys, "frozen", False):
     _clean_pycache()
 
+from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QApplication, QMessageBox
 
 from config import Config
@@ -128,6 +129,15 @@ from services.solo_scan_service import SoloScanService
 def main():
     app = QApplication(sys.argv)
     app.setApplicationName("Photo Face Organizer")
+    app.setDesktopFileName("photofaceorganizer")
+
+    # Set application icon (PNG / ICO fallback)
+    root_dir = Path(__file__).resolve().parent
+    icon_path = root_dir / "icon.png"
+    if not icon_path.exists():
+        icon_path = root_dir / "icon.ico"
+    if icon_path.exists():
+        app.setWindowIcon(QIcon(str(icon_path)))
 
     config = Config()
     _setup_crash_logging(config)

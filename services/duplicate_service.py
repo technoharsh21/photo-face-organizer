@@ -188,6 +188,8 @@ class DuplicateService:
         self,
         file_paths_to_remove: list[str],
         mode: str = "trash",
+        progress_cb: Any = None,
+        cancel_check: Any = None,
     ) -> tuple[int, int, int]:
         """
         Removes or quarantines selected duplicate files.
@@ -201,8 +203,15 @@ class DuplicateService:
         success_count = 0
         error_count = 0
         freed_bytes = 0
+        total = len(file_paths_to_remove)
 
-        for p_str in file_paths_to_remove:
+        for idx, p_str in enumerate(file_paths_to_remove):
+            if cancel_check and cancel_check():
+                break
+
+            if progress_cb:
+                progress_cb(idx + 1, total, Path(p_str).name)
+
             p = Path(p_str)
             if not p.exists():
                 continue

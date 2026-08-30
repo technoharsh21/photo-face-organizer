@@ -83,6 +83,81 @@ class UnknownFaceService:
                         return True
         return False
 
+    @staticmethod
+    def is_front_facing_face(
+        face_crop: Image.Image,
+        bounding_box: list[int] | tuple[int, int, int, int] | None = None,
+        kps: Any = None,
+        pose: Any = None,
+    ) -> tuple[bool, str]:
+        """
+        Validates that an unknown face is strictly front-facing.
+        Rejects extreme side profiles, 90-degree head turns, back/side angles,
+        and irregular non-frontal face crops while preserving all existing quality checks.
+        """
+        # 1. Bounding box aspect ratio validation (frontal faces have aspect ratios ~ 0.55 - 1.65)
+        if bounding_box and len(bounding_box) == 4:
+            top, right, bottom, left = bounding_box[0], bounding_box[1], bounding_box[2], bounding_box[3]
+            w = max(1, right - left)
+            h = max(1, bottom - top)
+            ar = w / float(h)
+            if ar < 0.55 or ar > 1.65:
+                return False, f"Aspect ratio ({ar:.2f}) outside frontal range (0.55 - 1.65)"
+
+        # 2. 3D Pose Angle validation (yaw <= 28 deg, pitch <= 28 deg, roll <= 35 deg)
+        if pose is not None and len(pose) >= 3:
+            pitch, yaw, roll = float(pose[0]), float(pose[1]), float(pose[2])
+            if abs(yaw) > 28.0:
+                return False, f"Head turn yaw ({abs(yaw):.1f}°) exceeds frontal threshold (28°)"
+            if abs(pitch) > 28.0:
+                return False, f"Head pitch ({abs(pitch):.1f}°) exceeds frontal threshold (28°)"
+            if abs(roll) > 35.0:
+                return False, f"Head roll tilt ({abs(roll):.1f}°) exceeds frontal threshold (35°)"
+
+        # 3. 5-Point Facial Landmark Symmetry (eye-to-nose horizontal ratio >= 0.38)
+        if kps is not None:
+            try:
+                kps_arr = np.asarray(kps, dtype=np.float32)
+                if kps_arr.shape == (5, 2):
+                    le, re, nose = kps_arr[0], kps_arr[1], kps_arr[2]
+                    dL = abs(nose[0] - le[0])
+                    dR = abs(re[0] - nose[0])
+                    mx = max(dL, dR)
+                    if mx > 2.0:
+                        sym = min(dL, dR) / mx
+                        if sym < 0.38:
+                            return False, f"Facial landmark asymmetry ({sym:.2f} < 0.38) indicates side profile"
+                    eye_dx = abs(re[0] - le[0])
+                    eye_dy = abs(re[1] - le[1])
+                    if eye_dx > 2.0 and (eye_dy / eye_dx) > 0.70:
+                        return False, "Extreme eye tilt angle"
+            except Exception:
+                pass
+
+        # 4. Bilateral structural & illumination balance on face crop
+        try:
+            arr = np.array(face_crop.convert("L"), dtype=np.float32)
+            h, w = arr.shape
+            if h >= 25 and w >= 25:
+                y1, y2 = int(h * 0.20), int(h * 0.65)
+                band = arr[y1:y2, :]
+                mid = w // 2
+                left_side = band[:, :mid]
+                right_side = band[:, mid:]
+                min_w = min(left_side.shape[1], right_side.shape[1])
+                if min_w >= 8:
+                    l_part = left_side[:, :min_w]
+                    r_part = np.fliplr(right_side[:, :min_w])
+                    mean_l = float(np.mean(l_part))
+                    mean_r = float(np.mean(r_part))
+                    diff = abs(mean_l - mean_r) / (max(mean_l, mean_r) + 1e-5)
+                    if diff > 0.45:
+                        return False, f"Bilateral illumination asymmetry ({diff:.2f} > 0.45) indicates side profile"
+        except Exception:
+            pass
+
+        return True, "Front-facing"
+
     def store_unknown_face(
         self,
         face_crop: Image.Image,
@@ -92,16 +167,29 @@ class UnknownFaceService:
         scan_id: str,
         check_existing_profiles: bool = True,
         min_stars: int = 4,
+        kps: Any = None,
+        pose: Any = None,
+        require_front_facing: bool = True,
     ) -> dict[str, Any] | None:
         """
         Save cropped image, encoding, and metadata for an unknown face.
-        Returns None if face belongs to an existing profile in the system, is a duplicate,
-        or does not meet the minimum 4 or 5-star quality rating requirement.
+        Returns None if:
+        1. Face matches an existing profile in the system.
+        2. Face is not strictly front-facing (rejects side profiles and head turns).
+        3. Face quality rating is below min_stars (requires 4 or 5 stars).
+        4. Duplicate unknown face entry for this exact photo and location.
         """
         if check_existing_profiles and self.is_known_profile_face(face_encoding):
             return None
 
-        # STRICT QUALITY FILTER: Only allow 4-star and 5-star faces
+        # 1. FRONT-FACING VALIDATION: Only allow frontal faces into Unknown Faces
+        if require_front_facing:
+            is_frontal, reason = self.is_front_facing_face(face_crop, bounding_box=bounding_box, kps=kps, pose=pose)
+            if not is_frontal:
+                logger.info(f"Skipping non-frontal unknown face from {source_photo_path}: {reason}")
+                return None
+
+        # 2. STRICT QUALITY FILTER: Only allow 4-star and 5-star faces
         quality_info = ProfileService.assess_reference_quality(face_crop, bounding_box)
         if quality_info.get("stars", 1) < min_stars:
             logger.info(
@@ -111,6 +199,7 @@ class UnknownFaceService:
             )
             return None
 
+        # 3. DUPLICATE CHECK
         if self._is_duplicate_unknown_face(source_photo_path, bounding_box):
             logger.info(f"Skipping duplicate unknown face for {source_photo_path} at {bounding_box}")
             return None

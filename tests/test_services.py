@@ -238,3 +238,34 @@ def test_four_five_star_quality_enforcement():
         assert success is False
         assert "quality is too low" in msg.lower()
 
+
+def test_front_facing_face_validation():
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        config = Config(app_data_dir=Path(tmp_dir))
+        engine = MockFaceEngine()
+        p_svc = ProfileService(config, engine)
+        u_svc = UnknownFaceService(config, p_svc)
+
+        crop = Image.new("RGB", (100, 100), color="blue")
+        emb = np.zeros(512)
+
+        # 1. Valid frontal face (yaw = 5 deg, pitch = 2 deg) -> Accepted
+        res_frontal = u_svc.store_unknown_face(
+            crop, emb, "photo_frontal.jpg", [0, 100, 100, 0], "scan_1", pose=[2.0, 5.0, 1.0]
+        )
+        assert res_frontal is not None
+
+        # 2. Side profile face (yaw = 45 deg) -> Rejected
+        res_side_yaw = u_svc.store_unknown_face(
+            crop, emb, "photo_side_yaw.jpg", [0, 100, 100, 0], "scan_1", pose=[2.0, 45.0, 1.0]
+        )
+        assert res_side_yaw is None
+
+        # 3. Asymmetric side profile landmarks -> Rejected
+        kps_side = np.array([[20, 40], [45, 40], [42, 60], [25, 80], [40, 80]])
+        res_side_kps = u_svc.store_unknown_face(
+            crop, emb, "photo_side_kps.jpg", [0, 100, 100, 0], "scan_1", kps=kps_side
+        )
+        assert res_side_kps is None
+
+
