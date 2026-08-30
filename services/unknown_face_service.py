@@ -91,12 +91,24 @@ class UnknownFaceService:
         bounding_box: list[int],
         scan_id: str,
         check_existing_profiles: bool = True,
+        min_stars: int = 4,
     ) -> dict[str, Any] | None:
         """
         Save cropped image, encoding, and metadata for an unknown face.
-        Returns None if face belongs to an existing profile in the system or is a duplicate.
+        Returns None if face belongs to an existing profile in the system, is a duplicate,
+        or does not meet the minimum 4 or 5-star quality rating requirement.
         """
         if check_existing_profiles and self.is_known_profile_face(face_encoding):
+            return None
+
+        # STRICT QUALITY FILTER: Only allow 4-star and 5-star faces
+        quality_info = ProfileService.assess_reference_quality(face_crop, bounding_box)
+        if quality_info.get("stars", 1) < min_stars:
+            logger.info(
+                f"Skipping low-quality unknown face from {source_photo_path}: "
+                f"{quality_info.get('stars')}/5 stars ({quality_info.get('quality_label')}). "
+                f"Requires >= {min_stars} stars."
+            )
             return None
 
         if self._is_duplicate_unknown_face(source_photo_path, bounding_box):
@@ -117,6 +129,8 @@ class UnknownFaceService:
             "bounding_box": list(bounding_box),
             "group_id": None,  # Will be assigned during clustering/grouping
             "crop_path": str(crop_path),
+            "quality": quality_info,
+            "quality_stars": quality_info.get("stars", 4),
             "created_at": str(np.datetime64("now")),
         }
 
@@ -255,12 +269,29 @@ class UnknownFaceService:
     def convert_group_to_profile(self, group_id: str, profile_name: str) -> dict[str, Any] | None:
         """
         Creates a new Profile with profile_name (or merges into existing if name matches),
-        adds unknown face crops/embeddings as reference photos, and removes the converted unknown faces from storage.
+        adds verified 4/5-star unknown face crops/embeddings as reference photos,
+        and removes the converted unknown faces from storage.
         """
         all_faces = self.list_unknown_faces()
         group_faces = [f for f in all_faces if f.get("group_id") == group_id]
 
         if not group_faces:
+            return None
+
+        # Filter out any face with quality < 4 stars
+        valid_group_faces = []
+        for gf in group_faces:
+            q_stars = gf.get("quality_stars")
+            if q_stars is None:
+                q_info = gf.get("quality", {})
+                q_stars = q_info.get("stars", 4)
+            if q_stars >= 4:
+                valid_group_faces.append(gf)
+            else:
+                logger.info(f"Skipping low-quality face {gf.get('id')} ({q_stars} stars) during profile conversion.")
+                self.delete_unknown_face(gf["id"])
+
+        if not valid_group_faces:
             return None
 
         # 1. Check if profile already exists, otherwise create new
@@ -270,8 +301,8 @@ class UnknownFaceService:
         else:
             profile = self.profile_service.create_profile(profile_name.strip())
 
-        # 2. Add each unknown face as a reference photo directly using its pre-computed embedding
-        for gf in group_faces:
+        # 2. Add each verified 4/5-star unknown face as a reference photo directly using its pre-computed embedding
+        for gf in valid_group_faces:
             crop_path = Path(gf["crop_path"])
             emb = gf.get("embedding")
             u_id = gf["id"]
@@ -294,7 +325,7 @@ class UnknownFaceService:
 
     def add_group_to_existing_profile(self, group_id: str, profile_id: str) -> dict[str, Any] | None:
         """
-        Appends unknown face crops from a group as reference photos to an existing Profile (profile_id),
+        Appends verified 4/5-star unknown face crops from a group as reference photos to an existing Profile (profile_id),
         and removes the transferred unknown faces from storage.
         """
         all_faces = self.list_unknown_faces()
@@ -303,7 +334,23 @@ class UnknownFaceService:
         if not group_faces:
             return None
 
+        # Filter out any face with quality < 4 stars
+        valid_group_faces = []
         for gf in group_faces:
+            q_stars = gf.get("quality_stars")
+            if q_stars is None:
+                q_info = gf.get("quality", {})
+                q_stars = q_info.get("stars", 4)
+            if q_stars >= 4:
+                valid_group_faces.append(gf)
+            else:
+                logger.info(f"Skipping low-quality face {gf.get('id')} ({q_stars} stars) during profile addition.")
+                self.delete_unknown_face(gf["id"])
+
+        if not valid_group_faces:
+            return None
+
+        for gf in valid_group_faces:
             crop_path = Path(gf["crop_path"])
             emb = gf.get("embedding")
             u_id = gf["id"]

@@ -202,3 +202,39 @@ def test_skip_known_profile_faces_in_unknown_store():
         result = u_svc.store_unknown_face(crop, known_emb, "unmatched_photo.jpg", [0, 50, 50, 0], "scan_123")
         assert result is None
         assert len(u_svc.list_unknown_faces()) == 0
+
+
+def test_four_five_star_quality_enforcement():
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        config = Config(app_data_dir=Path(tmp_dir))
+        engine = MockFaceEngine()
+        p_svc = ProfileService(config, engine)
+        u_svc = UnknownFaceService(config, p_svc)
+
+        p = p_svc.create_profile("Quality Test")
+
+        # 1. High-quality 4/5 star face crop -> Stored successfully
+        high_q_crop = Image.new("RGB", (100, 100), color="green")
+        emb = np.zeros(512)
+        res_high = u_svc.store_unknown_face(high_q_crop, emb, "photo_hq.jpg", [0, 100, 100, 0], "scan_1")
+        assert res_high is not None
+        assert res_high.get("quality_stars") >= 4
+
+        # 2. Extremely tiny/low-res face crop (10x10 px) -> Rejected (< 4 stars)
+        low_q_crop = Image.new("RGB", (10, 10), color="red")
+        res_low = u_svc.store_unknown_face(low_q_crop, emb, "photo_lq.jpg", [0, 10, 10, 0], "scan_1")
+        assert res_low is None
+
+        # 3. Reference photo addition rejecting low-quality crops (< 4 stars)
+        low_ref_path = Path(tmp_dir) / "tiny_ref.jpg"
+        low_q_crop.save(low_ref_path)
+
+        class LowQFaceEngine(MockFaceEngine):
+            def detect_faces(self, image, model="hog"):
+                return [(0, 10, 10, 0)]
+
+        p_svc_low = ProfileService(config, LowQFaceEngine())
+        success, msg = p_svc_low.add_reference_photo(p["id"], low_ref_path)
+        assert success is False
+        assert "quality is too low" in msg.lower()
+

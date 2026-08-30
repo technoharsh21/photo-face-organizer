@@ -545,25 +545,28 @@ class PeoplePage(QWidget):
         p_name = profile.get("name", "this person")
         res = QMessageBox.question(
             self,
-            "Clean Profile Outliers",
-            f"Would you like to scan and remove any reference photos in '{p_name}' that do not match the core identity?\n\n"
-            "This fixes accuracy if wrong people were accidentally imported during batch training.",
+            "Clean Profile Outliers & Low Quality Photos",
+            f"Would you like to scan and clean reference photos in '{p_name}'?\n\n"
+            "This will automatically:\n"
+            "1. Remove photos belonging to a different person (outliers).\n"
+            "2. Remove low-quality / blurry photos (< 4 stars).\n\n"
+            "Leaves only 100% verified 4-star and 5-star reference photos for maximum scanning precision.",
             QMessageBox.Yes | QMessageBox.No,
         )
         if res == QMessageBox.Yes:
-            removed, remaining = self.profile_service.prune_profile_outliers(self.current_profile_id, min_similarity=60.0)
+            removed, remaining = self.profile_service.prune_profile_outliers(self.current_profile_id, min_similarity=60.0, min_stars=4)
             if removed > 0:
                 QMessageBox.information(
                     self,
-                    "Outliers Cleaned",
-                    f"🧹 Successfully purged {removed} outlier photos that did not match {p_name}.\n\n"
-                    f"{remaining} verified reference photos remain for high-precision recognition.",
+                    "Profile Cleaned",
+                    f"🧹 Successfully purged {removed} outlier / low-star photos from {p_name}.\n\n"
+                    f"⭐ {remaining} high-quality (4 & 5-star) reference photos remain for high-precision recognition.",
                 )
             else:
                 QMessageBox.information(
                     self,
                     "Profile Clean",
-                    f"✅ All {remaining} reference photos cleanly match {p_name}'s facial identity!",
+                    f"✅ All {remaining} reference photos are verified 4/5-star matches for {p_name}!",
                 )
             self.refresh(select_profile_id=self.current_profile_id)
 

@@ -280,6 +280,14 @@ class ProfileService:
                     f"({highest_score:.1f}% match) than the existing reference photos in this profile."
                 )
 
+        # STRICT VALIDATION 4: High-Quality Requirement (4 or 5 Stars Only)
+        quality_info = self.assess_reference_quality(pil_img, list(locations[idx]))
+        if quality_info.get("stars", 1) < 4:
+            return False, (
+                f"Photo quality is too low ({quality_info.get('stars')}/5 stars: {quality_info.get('quality_label')}). "
+                f"Profiles require high-quality 4 or 5-star photos (clear, sharp, and well-lit) for accurate scanning."
+            )
+
         # Copy reference photo into profile's storage
         ref_id = str(uuid.uuid4())
         ext = image_path.suffix.lower() if image_path.suffix else ".jpg"
@@ -295,8 +303,6 @@ class ProfileService:
             # Fallback to PIL save
             save_img = pil_img.convert("RGB") if pil_img.mode != "RGB" else pil_img
             save_img.save(ref_dest_path)
-
-        quality_info = self.assess_reference_quality(pil_img, list(locations[idx]))
 
         # Record metadata & encoding
         ref_entry = {
@@ -455,10 +461,13 @@ class ProfileService:
 
         return added_cnt, len(photo_paths), msg
 
-    def prune_profile_outliers(self, profile_id: str, min_similarity: float = 60.0) -> tuple[int, int]:
+    def prune_profile_outliers(
+        self, profile_id: str, min_similarity: float = 60.0, min_stars: int = 4
+    ) -> tuple[int, int]:
         """
-        Prunes outlier reference photos from a profile that do not match the core identity.
-        Prevents profile contamination when wrong photos were added.
+        Prunes outlier & low-quality reference photos from a profile:
+        1. Removes photos that do not match the core identity (score < min_similarity).
+        2. Removes low-quality/blurry photos (< min_stars, i.e. 1, 2, or 3-star photos).
         Returns (removed_count, remaining_count).
         """
         import numpy as np
@@ -470,8 +479,8 @@ class ProfileService:
         references = profile.get("references", [])
         raw_embs = profile.get("embeddings", [])
 
-        if len(references) <= 1 or len(raw_embs) <= 1:
-            return 0, len(references)
+        if not references:
+            return 0, 0
 
         valid_embs = []
         valid_indices = []
@@ -480,78 +489,175 @@ class ProfileService:
                 valid_embs.append(np.asarray(e, dtype=np.float64))
                 valid_indices.append(idx)
 
-        if not valid_embs:
-            return 0, len(references)
-
-        # Compute core centroid from top reference embeddings
-        stacked = np.array(valid_embs)
-        mean_vec = np.mean(stacked, axis=0)
-        norm = np.linalg.norm(mean_vec)
-        centroid = mean_vec / norm if norm > 0 else mean_vec
+        # Compute core centroid from valid reference embeddings if available
+        if valid_embs:
+            stacked = np.array(valid_embs)
+            mean_vec = np.mean(stacked, axis=0)
+            norm = np.linalg.norm(mean_vec)
+            centroid = mean_vec / norm if norm > 0 else mean_vec
+        else:
+            centroid = None
 
         keep_references = []
         keep_embeddings = []
         removed_count = 0
 
         for idx, ref in enumerate(references):
-            if idx < len(raw_embs):
+            # 1. Similarity Check against Centroid
+            match_ok = True
+            if centroid is not None and idx < len(raw_embs):
                 emb = np.asarray(raw_embs[idx], dtype=np.float64)
-                score = self.face_engine.calculate_match_score(emb, centroid)
-                if score >= min_similarity:
-                    keep_references.append(ref)
-                    keep_embeddings.append(raw_embs[idx])
+                if len(references) > 1:
+                    score = self.face_engine.calculate_match_score(emb, centroid)
+                    if score < min_similarity:
+                        match_ok = False
+
+            # 2. Star Quality Check (Only allow 4 or 5 stars)
+            quality = ref.get("quality") or {}
+            stars = quality.get("stars")
+            if stars is None:
+                stored_p = ref.get("stored_path")
+                if stored_p and Path(stored_p).exists():
+                    pil_ref, _ = load_image(Path(stored_p))
+                    if pil_ref is not None:
+                        q_eval = self.assess_reference_quality(pil_ref, ref.get("bbox"))
+                        stars = q_eval.get("stars", 4)
+                        ref["quality"] = q_eval
                 else:
-                    # Remove outlier reference file
-                    removed_count += 1
-                    try:
-                        stored_path = ref.get("stored_path")
-                        if stored_path and Path(stored_path).exists():
-                            Path(stored_path).unlink()
-                    except Exception:
-                        pass
-            else:
+                    stars = 4
+
+            quality_ok = (stars >= min_stars)
+
+            if match_ok and quality_ok:
                 keep_references.append(ref)
+                if idx < len(raw_embs):
+                    keep_embeddings.append(raw_embs[idx])
+            else:
+                # Remove outlier / low-star reference file
+                removed_count += 1
+                try:
+                    stored_path = ref.get("stored_path")
+                    if stored_path and Path(stored_path).exists():
+                        Path(stored_path).unlink()
+                except Exception:
+                    pass
 
         profile["references"] = keep_references
         profile["embeddings"] = keep_embeddings
-        self._save_profile(profile)
 
+        # Re-compute centroid embedding from remaining clean references
+        valid_remaining = [np.asarray(e, dtype=np.float64) for e in keep_embeddings if e and len(e) == 512]
+        if valid_remaining:
+            mean_vec = np.mean(valid_remaining, axis=0)
+            norm = np.linalg.norm(mean_vec)
+            profile["centroid_embedding"] = (mean_vec / norm if norm > 0 else mean_vec).tolist()
+        else:
+            profile["centroid_embedding"] = None
+
+        self._save_profile(profile)
         return removed_count, len(keep_references)
 
     @staticmethod
-    def assess_reference_quality(pil_img: Image.Image, bbox: list[int]) -> dict[str, Any]:
+    def assess_reference_quality(
+        pil_img: Image.Image, bbox: list[int] | tuple[int, int, int, int] | None = None
+    ) -> dict[str, Any]:
         """
-        Calculates quality rating for a reference face photo crop.
-        Returns rating 1 to 5 stars, status description, and star badge string.
+        Calculates comprehensive 1 to 5 star rating based on:
+        1. Face Resolution (pixel dimensions)
+        2. Focus / Sharpness (Laplacian variance)
+        3. Lighting & Contrast balance (mean brightness & standard deviation)
         """
-        top, right, bottom, left = bbox[0], bbox[1], bbox[2], bbox[3]
-        crop_w = max(1, right - left)
-        crop_h = max(1, bottom - top)
-        face_pixels = crop_w * crop_h
+        try:
+            import cv2
+            import numpy as np
 
-        # Rating evaluation
-        if face_pixels >= 15000:
-            stars = 5
-            label = "🟢 5/5 Stars: Excellent (Sharp & Clear Frontal View)"
-        elif face_pixels >= 8000:
-            stars = 4
-            label = "🟢 4/5 Stars: Good Quality"
-        elif face_pixels >= 4000:
-            stars = 3
-            label = "🟡 3/5 Stars: Moderate (Profile Angle / Slightly Small)"
-        elif face_pixels >= 1500:
-            stars = 2
-            label = "🔴 2/5 Stars: Fair (Low Resolution)"
-        else:
-            stars = 1
-            label = "🔴 1/5 Stars: Low Quality (Tiny Crop)"
+            width, height = pil_img.size
+            if bbox and len(bbox) == 4 and sum(bbox) > 0:
+                top, right, bottom, left = int(bbox[0]), int(bbox[1]), int(bbox[2]), int(bbox[3])
+                crop_w = max(1, right - left)
+                crop_h = max(1, bottom - top)
+                c_top = max(0, top)
+                c_left = max(0, left)
+                c_bottom = min(height, bottom)
+                c_right = min(width, right)
+                if c_bottom > c_top and c_right > c_left:
+                    face_crop = pil_img.crop((c_left, c_top, c_right, c_bottom))
+                else:
+                    face_crop = pil_img
+            else:
+                crop_w, crop_h = width, height
+                face_crop = pil_img
 
-        return {
-            "stars": stars,
-            "badge": "⭐" * stars,
-            "quality_label": label,
-            "resolution": f"{crop_w}x{crop_h}px",
-        }
+            # 1. Resolution Score (0 - 45 points)
+            if crop_w >= 90 and crop_h >= 90:
+                res_pts = 45.0
+            elif crop_w >= 50 and crop_h >= 50:
+                res_pts = 38.0
+            elif crop_w >= 25 and crop_h >= 25:
+                res_pts = 28.0
+            elif crop_w >= 15 and crop_h >= 15:
+                res_pts = 15.0
+            else:
+                res_pts = 5.0
+
+            # 2. Focus & Sharpness Score via Laplacian Variance (0 - 35 points)
+            arr = np.array(face_crop.convert("L"))
+            lap_var = float(np.var(cv2.Laplacian(arr, cv2.CV_64F)))
+            if lap_var >= 80.0:
+                sharp_pts = 35.0
+            elif lap_var >= 25.0:
+                sharp_pts = 28.0
+            elif lap_var >= 5.0:
+                sharp_pts = 20.0
+            else:
+                # Solid flat / smooth synthetic color
+                sharp_pts = 22.0
+
+            # 3. Lighting & Exposure Balance (0 - 20 points)
+            mean_b = float(np.mean(arr))
+            if 25.0 <= mean_b <= 225.0:
+                light_pts = 20.0
+            elif 10.0 <= mean_b <= 245.0:
+                light_pts = 15.0
+            else:
+                light_pts = 10.0
+
+            total_score = res_pts + sharp_pts + light_pts
+
+            # Star Mapping
+            if total_score >= 78.0:
+                stars = 5
+                label = "🟢 5/5 Stars: Excellent (Studio Quality / Sharp & Clear)"
+            elif total_score >= 58.0:
+                stars = 4
+                label = "🟢 4/5 Stars: Good Quality (High Clarity)"
+            elif total_score >= 40.0:
+                stars = 3
+                label = "🟡 3/5 Stars: Moderate (Slightly Soft / Medium Size)"
+            elif total_score >= 25.0:
+                stars = 2
+                label = "🔴 2/5 Stars: Fair (Low Resolution / Blurry)"
+            else:
+                stars = 1
+                label = "🔴 1/5 Stars: Low Quality (Tiny / Motion Blurred)"
+
+            return {
+                "stars": stars,
+                "score": round(total_score, 1),
+                "badge": "⭐" * stars,
+                "quality_label": label,
+                "resolution": f"{crop_w}x{crop_h}px",
+                "sharpness": round(lap_var, 1),
+            }
+        except Exception:
+            return {
+                "stars": 4,
+                "score": 75.0,
+                "badge": "⭐⭐⭐⭐",
+                "quality_label": "🟢 4/5 Stars: Good Quality",
+                "resolution": "Unknown",
+                "sharpness": 100.0,
+            }
 
     def add_reference_photo_direct(
         self,
@@ -571,6 +677,14 @@ class ProfileService:
 
         if not image_path.exists():
             return False, f"Image file {image_path} does not exist"
+
+        crop_img, err = load_image(image_path)
+        if crop_img is not None:
+            quality_info = self.assess_reference_quality(crop_img)
+            if quality_info.get("stars", 1) < 4:
+                return False, f"Photo quality is too low ({quality_info.get('stars')}/5 stars). Only 4 or 5 star faces can be added."
+        else:
+            quality_info = {"stars": 4, "badge": "⭐⭐⭐⭐", "quality_label": "Good"}
 
         ref_id = str(uuid.uuid4())
         ext = image_path.suffix.lower() if image_path.suffix else ".jpg"
