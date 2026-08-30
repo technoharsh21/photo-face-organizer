@@ -274,10 +274,20 @@ class UnknownFacesPage(QWidget):
 
         name, ok = QInputDialog.getText(self, "Convert Group to Profile", "Enter New Profile Name:", text=default_name)
         if ok and name.strip():
-            profile = self.unknown_face_service.convert_group_to_profile(self.current_group_id, name.strip())
-            if profile:
-                QMessageBox.information(self, "Success", f"Created Profile '{profile['name']}' from unknown face group.")
-                self.refresh()
+            try:
+                profile = self.unknown_face_service.convert_group_to_profile(self.current_group_id, name.strip())
+                if profile:
+                    QMessageBox.information(self, "Success", f"Created Profile '{profile['name']}' from unknown face group.")
+                    self.refresh()
+            except ValueError as e:
+                # Duplicate profile name — show a clear, actionable message instead of crashing
+                QMessageBox.warning(
+                    self,
+                    "Profile Already Exists",
+                    f"A profile named '{name.strip()}' already exists.\n\n"
+                    "Please choose a different name, or use 'Add to Existing Profile' to merge this group into the existing profile.",
+                )
+
 
     def _add_group_to_existing_profile(self):
         if not self.current_group_id:

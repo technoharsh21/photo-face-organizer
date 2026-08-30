@@ -411,8 +411,46 @@ class InsightFaceEngine:
                 locations.append((top, right, bottom, left))
             return locations
         except Exception as e:
+
+            err_str = str(e)
             logger.warning(f"SCRFD detect_faces exception: {e}")
+
+            # DML Reshape crash recovery: known DirectML bug where certain image resolutions
+            # trigger an E_INVALIDARG (0x80070057) error in the Reshape ONNX node.
+            # Automatically fall back to CPU for this image and degrade engine to CPU-only
+            # for all subsequent images to prevent further crashes and "not responding" freezes.
+            is_dml_reshape_error = (
+                "DmlExecutionProvider" in str(self.providers)
+                and ("80070057" in err_str or "Reshape" in err_str or "RUNTIME_EXCEPTION" in err_str)
+            )
+            if is_dml_reshape_error:
+                logger.warning(
+                    "DirectML Reshape error detected — falling back to CPU for this image "
+                    "and switching engine to CPU-only mode for remaining scan."
+                )
+                try:
+                    cpu_app = FaceAnalysis(name="buffalo_sc", providers=["CPUExecutionProvider"])
+                    cpu_app.prepare(ctx_id=0, det_size=(640, 640))
+                    faces = cpu_app.get(img_bgr)
+                    locations = []
+                    for face in faces:
+                        bbox = face.bbox.astype(int)
+                        left, top, right, bottom = int(bbox[0]), int(bbox[1]), int(bbox[2]), int(bbox[3])
+                        locations.append((top, right, bottom, left))
+                    # Permanently degrade this engine instance to CPU-only so future images
+                    # don't hit the same DML crash, avoiding repeated "not responding" freezes.
+                    self.app = cpu_app
+                    self.providers = ["CPUExecutionProvider"]
+                    cpu_name = self.get_system_cpu_name()
+                    self.active_device = f"Multi-Core CPU ({cpu_name})"
+                    self.gpu_available = False
+                    logger.info(f"Engine degraded to CPU-only: {self.active_device}")
+                    return locations
+                except Exception as cpu_err:
+                    logger.warning(f"CPU fallback for DML Reshape error also failed: {cpu_err}")
+
             return []
+
 
     def create_embeddings(
         self, image: Any, face_locations: list[tuple[int, int, int, int]] | None = None

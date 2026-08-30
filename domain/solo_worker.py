@@ -111,13 +111,21 @@ class SoloScanWorker(QThread):
         return self._is_cancelled
 
     def run(self):
+        import os  # Explicit local import: safety guard for PyInstaller --windowed bundled exe
         start_time = time.time()
         logger.info(f"Starting deep solo scan worker {self.scan_id} on {self.total_files} files (mode={self.operation_mode}).")
 
         from concurrent.futures import ThreadPoolExecutor, as_completed
 
         cpu_count = os.cpu_count() or 4
-        max_workers = max(4, cpu_count * 2) if self.performance_mode == "Maximum Performance" else max(2, cpu_count // 2)
+        if self.performance_mode == "Maximum Performance":
+            max_workers = max(4, cpu_count * 2)
+            # Cap GPU workers to avoid VRAM saturation on consumer GPUs (e.g. GTX 1650 = 4GB VRAM).
+            # Each InsightFace worker holds ~300MB VRAM; 6 workers safely fits within 4GB headroom.
+            if getattr(self.face_engine, "gpu_available", False):
+                max_workers = min(max_workers, 6)
+        else:
+            max_workers = max(2, cpu_count // 2)
         batch_size = max(4, max_workers * 2)
         remaining_files = [f for f in self.files[self.start_index:] if str(f) not in self.processed_files]
 

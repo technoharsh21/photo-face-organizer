@@ -13,18 +13,31 @@ from PIL import Image, ImageOps
 
 logger = logging.getLogger(__name__)
 
-# Register pillow-heif if available
+# Register pillow-heif if available (enables HEIC/HEIF support in Pillow)
 try:
     import pillow_heif
     pillow_heif.register_heif_opener()
+    _HEIF_AVAILABLE = True
 except ImportError:
     pillow_heif = None
+    _HEIF_AVAILABLE = False
+    logger.warning(
+        "pillow-heif not installed — HEIC/HEIF files will be skipped. "
+        "Install with: pip install pillow-heif"
+    )
 
-# Check rawpy availability
+# Check rawpy availability (enables RAW format support: ARW, CR2, NEF, DNG, etc.)
 try:
     import rawpy
+    _RAWPY_AVAILABLE = True
 except ImportError:
     rawpy = None
+    _RAWPY_AVAILABLE = False
+    logger.warning(
+        "rawpy not installed — RAW files (.ARW, .CR2, .NEF, .DNG, etc.) will be skipped. "
+        "Install with: pip install rawpy"
+    )
+
 
 # Check tifffile availability
 try:
@@ -116,8 +129,30 @@ def load_image(file_path: Path) -> tuple[Image.Image | None, str | None]:
             raw_img = _load_raw_image(path)
             if raw_img is not None:
                 return raw_img, None
+            # rawpy unavailable or failed — give a clear actionable error message
+            if not _RAWPY_AVAILABLE:
+                return None, f"Cannot read RAW file {path.name}: rawpy not installed. Install with: pip install rawpy"
+            return None, f"Failed to read RAW file {path.name} (file may be corrupt or unsupported)"
 
-        # 2. TIFF handling via tifffile if standard Pillow fails or for tifffile priority
+        # 2. HEIC/HEIF formats — try direct pillow_heif decode first, then registered Pillow opener
+        if ext in {".heic", ".heif"}:
+            if not _HEIF_AVAILABLE:
+                return None, f"Cannot read HEIC/HEIF file {path.name}: pillow-heif not installed. Install with: pip install pillow-heif"
+            if pillow_heif is not None:
+                try:
+                    # Direct decode via pillow_heif — most reliable in PyInstaller bundles
+                    heif_file = pillow_heif.open_heif(str(path), convert_hdr_to_8bit=True)
+                    img = Image.frombytes(
+                        heif_file.mode, heif_file.size, heif_file.data, "raw"
+                    )
+                    if img.mode != "RGB":
+                        img = img.convert("RGB")
+                    return ImageOps.exif_transpose(img), None
+                except Exception as heif_err:
+                    logger.debug(f"Direct pillow_heif decode failed for {path}, trying Pillow opener: {heif_err}")
+                    # Fall through to standard Pillow open (uses registered opener)
+
+        # 3. TIFF handling via tifffile if standard Pillow fails or for tifffile priority
         if ext in {".tif", ".tiff"} and tifffile is not None:
             try:
                 arr = tifffile.imread(str(path))
@@ -128,7 +163,7 @@ def load_image(file_path: Path) -> tuple[Image.Image | None, str | None]:
             except Exception:
                 pass  # Fall through to Pillow
 
-        # 3. Standard Pillow opening (including HEIF/HEIC if registered)
+        # 4. Standard Pillow opening (including HEIF/HEIC if registered)
         with Image.open(path) as img:
             img.load()  # Verify image integrity
             # Apply EXIF transpose so phone photos are oriented upright for face detection
@@ -141,3 +176,4 @@ def load_image(file_path: Path) -> tuple[Image.Image | None, str | None]:
     except Exception as e:
         logger.warning(f"Failed to load image {path}: {e}")
         return None, f"Corrupted or unreadable image: {e!s}"
+
