@@ -49,10 +49,22 @@ export const DOCS_NAV: DocNavItem[] = [
     description: "Folder selection, recursive scanning, and match thresholds."
   },
   {
+    title: "Solo Photo Scanning",
+    href: "/docs/solo-scan",
+    category: "Usage Guide",
+    description: "Single-person pure albums, profile-angle detection, and couple solo scanning."
+  },
+  {
     title: "Group Photos & Profiles",
     href: "/docs/group-photos",
     category: "Usage Guide",
     description: "Multi-person routing and compulsory group profile matching."
+  },
+  {
+    title: "Duplicate Photos Finder",
+    href: "/docs/duplicates",
+    category: "Usage Guide",
+    description: "Fast cryptographic SHA-256 duplicate scanning and safe cleanup."
   },
   {
     title: "Unknown Faces Management",
@@ -61,10 +73,16 @@ export const DOCS_NAV: DocNavItem[] = [
     description: "Inspecting unmatched faces and converting face clusters."
   },
   {
+    title: "Quality Ratings & Outliers",
+    href: "/docs/quality-ratings",
+    category: "Usage Guide",
+    description: "4/5-star multi-factor quality scoring and 1-click outlier cleaning."
+  },
+  {
     title: "Hardware & Acceleration",
     href: "/docs/hardware",
     category: "Performance",
-    description: "CPU multi-threading and optional CUDA GPU acceleration."
+    description: "Universal GPU acceleration (DirectML, CUDA, ROCm, CoreML, OpenVINO) and CPU."
   },
   {
     title: "Privacy & File Safety",

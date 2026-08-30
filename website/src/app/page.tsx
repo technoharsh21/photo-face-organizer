@@ -19,7 +19,9 @@ import {
   Monitor,
   Terminal,
   Apple,
-  HelpCircle,
+  Star,
+  Copy,
+  Layers,
 } from "lucide-react";
 
 export default function HomePage() {
@@ -47,7 +49,7 @@ export default function HomePage() {
 
             {/* Subtitle */}
             <p className="text-lg sm:text-xl text-slate-600 dark:text-slate-300 leading-relaxed">
-              Photo Face Organizer uses local AI face recognition to automatically scan your photos and copy them into organized person and group folders. Your original photos remain untouched, and zero data ever leaves your computer.
+              Photo Face Organizer uses local AI face recognition and universal GPU acceleration to automatically scan your photos, isolate solo portraits, find duplicate images, and organize memories safely without cloud uploads.
             </p>
 
             {/* Hero CTAs */}
@@ -76,19 +78,19 @@ export default function HomePage() {
             <div className="pt-8 grid grid-cols-2 md:grid-cols-4 gap-4 text-left border-t border-slate-200 dark:border-slate-800">
               <div className="flex items-center gap-2 text-xs font-medium text-slate-700 dark:text-slate-300">
                 <ShieldCheck className="w-4 h-4 text-emerald-500 flex-shrink-0" />
-                <span>100% Local Processing</span>
-              </div>
-              <div className="flex items-center gap-2 text-xs font-medium text-slate-700 dark:text-slate-300">
-                <FolderLock className="w-4 h-4 text-brand-500 flex-shrink-0" />
-                <span>Original Files Safe</span>
-              </div>
-              <div className="flex items-center gap-2 text-xs font-medium text-slate-700 dark:text-slate-300">
-                <Users className="w-4 h-4 text-purple-500 flex-shrink-0" />
-                <span>Compulsory Group Matching</span>
+                <span>100% Local Privacy</span>
               </div>
               <div className="flex items-center gap-2 text-xs font-medium text-slate-700 dark:text-slate-300">
                 <Cpu className="w-4 h-4 text-amber-500 flex-shrink-0" />
-                <span>CPU & GPU Acceleration</span>
+                <span>Universal GPU Acceleration</span>
+              </div>
+              <div className="flex items-center gap-2 text-xs font-medium text-slate-700 dark:text-slate-300">
+                <Users className="w-4 h-4 text-purple-500 flex-shrink-0" />
+                <span>Solo &amp; Group Precision</span>
+              </div>
+              <div className="flex items-center gap-2 text-xs font-medium text-slate-700 dark:text-slate-300">
+                <Star className="w-4 h-4 text-brand-500 flex-shrink-0" />
+                <span>4/5-Star Quality Gates</span>
               </div>
             </div>
           </div>
@@ -109,44 +111,44 @@ export default function HomePage() {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
           {[
             {
-              icon: <ShieldCheck className="w-6 h-6 text-emerald-500" />,
-              title: "100% Local Processing",
-              desc: "All face detection and matching algorithms execute on your device. No cloud uploads, telemetry, or accounts required.",
+              icon: <Cpu className="w-6 h-6 text-amber-500" />,
+              title: "Universal GPU Acceleration",
+              desc: "Auto-binds to DirectX 12 DirectML (NVIDIA/AMD/Intel), CUDA, TensorRT, ROCm, Apple Neural Engine CoreML, or Multi-Core CPU.",
             },
             {
-              icon: <FolderLock className="w-6 h-6 text-brand-500" />,
-              title: "Original Files Untouched",
-              desc: "The app works strictly in non-destructive copy mode. Your original photo library is never moved, renamed, or modified.",
+              icon: <Sparkles className="w-6 h-6 text-brand-500" />,
+              title: "Solo Photo Scanning",
+              desc: "Isolates pure single-person and couple portraits with 360° profile face detection and secondary deep exclusion scans.",
+            },
+            {
+              icon: <Copy className="w-6 h-6 text-blue-500" />,
+              title: "Cryptographic Duplicate Finder",
+              desc: "Finds 100% byte-for-byte duplicate photos at multi-GB/s speed using hardware-accelerated CPU SHA-256 hashing.",
+            },
+            {
+              icon: <Star className="w-6 h-6 text-emerald-500" />,
+              title: "4 & 5-Star Quality Gates",
+              desc: "Multi-dimensional scoring evaluates resolution, Laplacian focus sharpness, and lighting to reject blurry low-quality faces.",
+            },
+            {
+              icon: <FolderLock className="w-6 h-6 text-indigo-500" />,
+              title: "100% Non-Destructive",
+              desc: "Your original photo library is never modified. Photos are safely copied with automatic collision and file audit reconciliation.",
             },
             {
               icon: <Users className="w-6 h-6 text-purple-500" />,
               title: "Compulsory Group Photos",
-              desc: "Group profiles (like 'Me & Friend') require ALL compulsory individuals to appear together in a single photo before routing.",
+              desc: "Group profiles require ALL compulsory individuals to appear together in a photo before routing into shared albums.",
             },
             {
-              icon: <Cpu className="w-6 h-6 text-amber-500" />,
-              title: "CPU & GPU Acceleration",
-              desc: "Runs smoothly on multi-core CPUs and automatically leverages supported CUDA GPUs for high-speed batch processing.",
+              icon: <Layers className="w-6 h-6 text-pink-500" />,
+              title: "1-Click Clean Outliers",
+              desc: "Instantly purges wrong identities and degraded low-star photos to maintain a pristine, high-precision reference database.",
             },
             {
-              icon: <Zap className="w-6 h-6 text-blue-500" />,
-              title: "Automatic Folder Routing",
-              desc: "Creates clean person subfolders and copies matching photos automatically into designated target directories.",
-            },
-            {
-              icon: <CheckCheck className="w-6 h-6 text-teal-500" />,
-              title: "File Audit & Zero Loss",
-              desc: "Integrated File Reconciliation Summary verifies 100% of discovered photos are accounted for with zero data loss.",
-            },
-            {
-              icon: <HardDrive className="w-6 h-6 text-indigo-500" />,
-              title: "Large Collections Support",
-              desc: "Designed to scan deep directory trees containing thousands of high-resolution RAW, JPEG, and PNG images.",
-            },
-            {
-              icon: <Sparkles className="w-6 h-6 text-pink-500" />,
-              title: "Unknown Face Clustering",
-              desc: "Clusters unrecognized faces so you can review unmatched people and turn them into new profiles with one click.",
+              icon: <ShieldCheck className="w-6 h-6 text-teal-500" />,
+              title: "5-Point Landmark Geometry",
+              desc: "Validates anatomical eye-to-nose geometry to guarantee 0% false detections from t-shirts, patterns, or statues.",
             },
           ].map((benefit, idx) => (
             <div
@@ -174,7 +176,7 @@ export default function HomePage() {
             How Photo Face Organizer Works
           </h2>
           <p className="mt-3 text-slate-600 dark:text-slate-400">
-            A simple, intuitive 5-step workflow designed for total control.
+            A simple, intuitive 6-step workflow designed for total control.
           </p>
         </div>
 
@@ -190,7 +192,7 @@ export default function HomePage() {
               step: "02",
               icon: <ImageIcon className="w-5 h-5 text-purple-500" />,
               title: "Add References",
-              desc: "Upload 1 or more reference photos.",
+              desc: "Upload 4/5-star reference photos.",
             },
             {
               step: "03",
@@ -238,7 +240,7 @@ export default function HomePage() {
         </div>
 
         <div className="mt-8 p-4 rounded-xl bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-900 text-blue-800 dark:text-blue-200 text-sm text-center">
-          💡 <strong>Multi-Person Copy Rule:</strong> If a photo contains both Alice and Bob, it is automatically copied into <code>Output/Alice/</code>, <code>Output/Bob/</code>, AND <code>Output/Alice & Bob/</code> without deleting or moving the original file.
+          💡 <strong>Multi-Person Copy Rule:</strong> If a photo contains both Alice and Bob, it is automatically copied into <code>Output/Alice/</code>, <code>Output/Bob/</code>, AND <code>Output/Alice &amp; Bob/</code> without deleting or moving the original file.
         </div>
       </section>
 
@@ -249,7 +251,7 @@ export default function HomePage() {
             Feature Showcase
           </h2>
           <p className="mt-3 text-slate-600 dark:text-slate-400">
-            Engineered with strict safety standards and flexible matching logic.
+            Engineered with strict safety standards, multi-architecture GPU engines, and flexible matching logic.
           </p>
         </div>
 
@@ -257,22 +259,22 @@ export default function HomePage() {
           {/* Card 1 */}
           <div className="p-8 rounded-3xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 space-y-4">
             <div className="p-3 rounded-2xl bg-brand-50 dark:bg-brand-950/60 text-brand-600 w-fit">
-              <Sparkles className="w-6 h-6" />
+              <Cpu className="w-6 h-6" />
             </div>
             <h3 className="text-xl font-bold text-slate-900 dark:text-white">
-              AI Face Recognition Engine
+              Universal GPU Acceleration Engine
             </h3>
             <p className="text-sm text-slate-600 dark:text-slate-400 leading-relaxed">
-              Utilizes 128-dimensional facial embedding vectors generated via local neural networks. Detects multiple face angles and calibrates match scores accurately.
+              Utilizes 512-dimensional ArcFace facial embedding vectors generated via local neural networks. Automatically binds to DirectML (Windows all GPUs), CUDA / TensorRT (NVIDIA), ROCm (AMD), CoreML (Apple Silicon), or OpenVINO (Intel).
             </p>
             <ul className="space-y-2 text-xs text-slate-700 dark:text-slate-300">
               <li className="flex items-center gap-2">
                 <CheckCircle2 className="w-4 h-4 text-emerald-500" />
-                <span>Adjustable match confidence threshold</span>
+                <span>100% compute saturation with concurrent worker pipelines</span>
               </li>
               <li className="flex items-center gap-2">
                 <CheckCircle2 className="w-4 h-4 text-emerald-500" />
-                <span>Support for multiple reference photos per person</span>
+                <span>Zero-crash fallback to multi-core CPU execution</span>
               </li>
             </ul>
           </div>
@@ -280,45 +282,45 @@ export default function HomePage() {
           {/* Card 2 */}
           <div className="p-8 rounded-3xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 space-y-4">
             <div className="p-3 rounded-2xl bg-purple-50 dark:bg-purple-950/60 text-purple-600 w-fit">
-              <Users className="w-6 h-6" />
+              <Sparkles className="w-6 h-6" />
             </div>
             <h3 className="text-xl font-bold text-slate-900 dark:text-white">
-              Compulsory Group Profiles
+              Precision Solo Photo Scanning
             </h3>
             <p className="text-sm text-slate-600 dark:text-slate-400 leading-relaxed">
-              Create special Group Profiles like &quot;Me &amp; Partner&quot; or &quot;Family&quot;. Enforces strict multi-person rules requiring ALL compulsory individuals to appear together in a photo before routing.
+              Create pure solo albums containing only the target individual. Features SCRFD 360° multi-angle detection (90° side profiles) and automatic 2-stage deep background exclusion verification.
             </p>
             <ul className="space-y-2 text-xs text-slate-700 dark:text-slate-300">
               <li className="flex items-center gap-2">
                 <CheckCircle2 className="w-4 h-4 text-emerald-500" />
-                <span>Prevents single-person photos from cluttering group folders</span>
+                <span>Exclusive couple solo mode (exact 2-person matching, 0% strangers)</span>
               </li>
               <li className="flex items-center gap-2">
                 <CheckCircle2 className="w-4 h-4 text-emerald-500" />
-                <span>Direct reference photo verification fallback</span>
+                <span>Dominant subject portrait framing &amp; photobomber crowd control</span>
               </li>
             </ul>
           </div>
 
           {/* Card 3 */}
           <div className="p-8 rounded-3xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 space-y-4">
-            <div className="p-3 rounded-2xl bg-amber-50 dark:bg-amber-950/60 text-amber-600 w-fit">
-              <Sparkles className="w-6 h-6" />
+            <div className="p-3 rounded-2xl bg-blue-50 dark:bg-blue-950/60 text-blue-600 w-fit">
+              <Copy className="w-6 h-6" />
             </div>
             <h3 className="text-xl font-bold text-slate-900 dark:text-white">
-              Unknown Faces Management
+              Cryptographic Duplicate Photos Finder
             </h3>
             <p className="text-sm text-slate-600 dark:text-slate-400 leading-relaxed">
-              Unmatched face crops are stored in a dedicated Unknown Faces manager. Similar unknown faces are automatically clustered so you can create new profiles with a single click.
+              Instantly identify 100% byte-for-byte identical photos using a 3-tier CPU hashing pipeline (instant file-size pre-filtering + hardware SHA-256 hashing).
             </p>
             <ul className="space-y-2 text-xs text-slate-700 dark:text-slate-300">
               <li className="flex items-center gap-2">
                 <CheckCircle2 className="w-4 h-4 text-emerald-500" />
-                <span>High-contrast visual crop inspector</span>
+                <span>Smart 1-click selection rules (keep oldest, newest, or shortest path)</span>
               </li>
               <li className="flex items-center gap-2">
                 <CheckCircle2 className="w-4 h-4 text-emerald-500" />
-                <span>Convert unknown clusters directly into new profiles</span>
+                <span>Safe cleanup via OS Recycle Bin / Trash or quarantine folders</span>
               </li>
             </ul>
           </div>
@@ -326,22 +328,22 @@ export default function HomePage() {
           {/* Card 4 */}
           <div className="p-8 rounded-3xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 space-y-4">
             <div className="p-3 rounded-2xl bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 w-fit">
-              <ShieldCheck className="w-6 h-6" />
+              <Star className="w-6 h-6" />
             </div>
             <h3 className="text-xl font-bold text-slate-900 dark:text-white">
-              Non-Destructive File Safety
+              4 &amp; 5-Star Quality Gates &amp; Clean Outliers
             </h3>
             <p className="text-sm text-slate-600 dark:text-slate-400 leading-relaxed">
-              Built on a strict copy-only architecture. Original files are never modified. In-memory SHA-256 disk checking prevents false skips when scanning into new output folders.
+              Every face is evaluated on resolution, focus sharpness (Laplacian variance), and lighting. Enforces strict 4 &amp; 5-star quality standards on reference photos and Unknown Face conversions.
             </p>
             <ul className="space-y-2 text-xs text-slate-700 dark:text-slate-300">
               <li className="flex items-center gap-2">
                 <CheckCircle2 className="w-4 h-4 text-emerald-500" />
-                <span>Automatic filename collision resolution (photo_1.jpg)</span>
+                <span>🧹 1-Click &quot;Clean Outliers&quot; purges wrong identities &amp; blurry photos</span>
               </li>
               <li className="flex items-center gap-2">
                 <CheckCircle2 className="w-4 h-4 text-emerald-500" />
-                <span>Full Audit Reconciliation Summary card</span>
+                <span>5-Point landmark geometry rejects non-human texture artifacts</span>
               </li>
             </ul>
           </div>
@@ -402,7 +404,7 @@ export default function HomePage() {
               </div>
             </div>
             <p className="text-sm text-slate-600 dark:text-slate-400">
-              Windows Setup Installer (Inno Setup <code>.exe</code> wizard with Desktop &amp; Start Menu icons).
+              Windows Setup Installer (Inno Setup <code>.exe</code> wizard with DirectML GPU acceleration).
             </p>
             <div className="space-y-2 pt-2">
               <Link
@@ -432,7 +434,7 @@ export default function HomePage() {
               </div>
             </div>
             <p className="text-sm text-slate-600 dark:text-slate-400">
-              macOS standalone <code>.dmg</code> build pipeline is in progress. Can be installed via <code>pip install</code>.
+              macOS standalone <code>.dmg</code> build with Apple Neural Engine CoreML acceleration.
             </p>
             <div className="space-y-2 pt-2">
               <Link

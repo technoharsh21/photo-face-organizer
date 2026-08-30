@@ -9,11 +9,15 @@ describe("Release Architecture & Data System", () => {
   test("getLatestRelease correctly resolves current latest version", () => {
     const latest = getLatestRelease();
     expect(latest).toBeDefined();
-    expect(latest.version).toBe("v1.0.0");
+    expect(latest.version).toBe("v1.1.0");
     expect(latest.isLatest).toBe(true);
   });
 
   test("getReleaseByVersion finds existing release and returns undefined for unknown version", () => {
+    const v11 = getReleaseByVersion("v1.1.0");
+    expect(v11).toBeDefined();
+    expect(v11?.version).toBe("v1.1.0");
+
     const v1 = getReleaseByVersion("v1.0.0");
     expect(v1).toBeDefined();
     expect(v1?.version).toBe("v1.0.0");

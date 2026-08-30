@@ -19,40 +19,58 @@ export const FAQ_DATA: FAQItem[] = [
     answer: "Your original photos are never moved, deleted, renamed, or modified. Photo Face Organizer operates strictly in copy mode: it reads your source photos and creates clean copies inside your designated target output directory."
   },
   {
+    id: "solo-scanning",
+    category: "Features",
+    question: "How does Solo Photo Scanning work?",
+    answer: "Solo Photo Scanning enforces pure individual portraits. A photo is only copied into a person's folder if they are the ONLY person in the photo. The engine utilizes sensitive 360° SCRFD detection (90° side profile faces) and performs an automatic secondary deep exclusion verification pass to catch background bystanders or turned heads."
+  },
+  {
+    id: "couple-solo",
+    category: "Features",
+    question: "Can I create Solo albums for exclusive 2-person couples?",
+    answer: "Yes! If you select an exclusive 2-person group profile in Solo Mode (e.g. 'Me & Partner'), the scanner strictly requires that EXACTLY the 2 partners appear in the photo. If a 3rd person or stranger is present, the photo is excluded from the couple album."
+  },
+  {
+    id: "duplicate-scanner",
+    category: "Features",
+    question: "How does the Duplicate Photo Finder detect duplicates?",
+    answer: "The Duplicate Finder uses a 3-tier CPU cryptographic pipeline: (1) 0 ms file-size metadata filter, (2) hardware-accelerated SHA-256 hashing at multi-GB/s speed, and (3) smart auto-selection rules (keep oldest/newest/shortest path). Duplicates can be safely moved to your OS Recycle Bin or quarantine folder."
+  },
+  {
+    id: "quality-ratings",
+    category: "Features",
+    question: "What are the 4 and 5-star quality rating requirements?",
+    answer: "Every face is scored on resolution, focus sharpness (Laplacian variance), and lighting. To maintain high scanning precision, only faces scoring 4 or 5 stars (clear, sharp, well-lit) are accepted into Person Profiles or saved in Unknown Faces. Blurry or low-res crops are automatically rejected."
+  },
+  {
+    id: "clean-outliers",
+    category: "Features",
+    question: "What does the 'Clean Outliers' button do?",
+    answer: "On any profile, clicking '🧹 Clean Outliers' automatically computes the core centroid facial vector and purges reference photos that do not match the person's identity (< 60% similarity), as well as any low-quality photos (< 4 stars)."
+  },
+  {
     id: "group-photos",
     category: "Features",
-    question: "Does it support group photos with multiple people?",
-    answer: "Yes! If a photo contains multiple recognized faces (e.g. Alice AND Bob), the application copies that photo into Alice's folder, Bob's folder, and any Group Profile folder that requires both Alice and Bob together."
+    question: "Does it support standard group photos with multiple people?",
+    answer: "Yes! In standard scan mode, if a photo contains multiple recognized faces (e.g. Alice AND Bob), the application copies that photo into Alice's folder, Bob's folder, and any Group Profile folder that requires both Alice and Bob together."
   },
   {
-    id: "group-profile-rules",
+    id: "format-support",
     category: "Features",
-    question: "How do Group Profiles (e.g. 'Family' or 'Me & Friend') work?",
-    answer: "Group Profiles enforce compulsory multi-person matching. A photo is ONLY copied into a Group Profile folder if ALL compulsory individuals defined for that profile are detected together in that single photo."
-  },
-  {
-    id: "no-match",
-    category: "Features",
-    question: "What happens to photos where no matching person is found?",
-    answer: "Photos that contain unrecognized faces or no matching profiles are copied safely into a dedicated 'No Match' folder inside your output directory. Unmatched face thumbnails are also stored in the 'Unknown Faces' tab in the app so you can review them or turn them into new profiles."
-  },
-  {
-    id: "multiple-references",
-    category: "Features",
-    question: "Can I add multiple reference photos for a single person?",
-    answer: "Yes! You can add multiple reference photos of the same person from different angles, lighting conditions, or ages to improve recognition accuracy."
+    question: "Which photo file formats are supported?",
+    answer: "Photo Face Organizer supports JPEG, JPG, PNG, WebP, TIFF, BMP, Apple HEIC/HEIF photos, and professional camera RAW formats (Canon CR2/CR3, Nikon NEF, Sony ARW, DNG, Fujifilm RAF, Olympus ORF) with automatic EXIF orientation correction."
   },
   {
     id: "gpu-support",
     category: "Installation & Hardware",
-    question: "Does Photo Face Organizer require a dedicated GPU?",
-    answer: "No, a dedicated GPU is not required. Photo Face Organizer runs efficiently on standard multi-core CPUs. If a compatible NVIDIA CUDA GPU is available on your machine, the engine can utilize GPU acceleration for faster batch scanning."
+    question: "Which GPUs and hardware accelerators are supported?",
+    answer: "Photo Face Organizer features a Universal Hardware Engine that auto-detects and binds to: (1) DirectX 12 DirectML on Windows (supports NVIDIA, AMD Radeon, and Intel Arc / Iris Xe GPUs), (2) NVIDIA CUDA & TensorRT, (3) AMD ROCm on Linux, (4) Apple Silicon Neural Engine CoreML (M1/M2/M3/M4 on macOS), (5) Intel OpenVINO, and (6) High-throughput Multi-Core CPU fallback."
   },
   {
     id: "supported-os",
     category: "Installation & Hardware",
     question: "Which operating systems are supported?",
-    answer: "Photo Face Organizer supports 64-bit Linux (Ubuntu, Debian, Mint, Fedora), Windows (10/11 64-bit), and macOS (Apple Silicon & Intel)."
+    answer: "Photo Face Organizer supports 64-bit Linux (Ubuntu, Debian, Mint, Fedora, Arch), Windows (10/11 64-bit), and macOS (Apple Silicon M-series & Intel)."
   },
   {
     id: "multiple-folders",
@@ -65,17 +83,5 @@ export const FAQ_DATA: FAQItem[] = [
     category: "General",
     question: "Where is my profile and scan history data stored?",
     answer: "All profiles, face encodings, and scan history are saved in standard OS application data locations (e.g., ~/.local/share/PhotoFaceOrganizer on Linux, %APPDATA%/PhotoFaceOrganizer on Windows). No data ever leaves your computer."
-  },
-  {
-    id: "updating",
-    category: "Installation & Hardware",
-    question: "How do I update the application?",
-    answer: "On Linux, download and install the latest .deb package or run 'pip install --upgrade git+https://github.com/technoharsh21/photo-face-organizer.git'. On Windows, download the latest setup installer from our Releases page."
-  },
-  {
-    id: "uninstalling",
-    category: "General",
-    question: "How do I uninstall Photo Face Organizer?",
-    answer: "On Linux, run 'sudo dpkg -r photo-face-organizer' or 'pipx uninstall photo-face-organizer'. On Windows, use 'Add or Remove Programs' in Control Panel."
   }
 ];
