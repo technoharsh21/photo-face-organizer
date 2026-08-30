@@ -119,15 +119,11 @@ class SoloScanWorker(QThread):
 
         cpu_count = os.cpu_count() or 4
         if self.performance_mode == "Maximum Performance":
-            max_workers = max(4, cpu_count * 2)
+            max_workers = max(4, min(cpu_count * 2, 16))
         elif self.performance_mode == "Balanced":
-            max_workers = max(2, cpu_count // 2)
+            max_workers = max(2, cpu_count)
         else:
             max_workers = max(1, cpu_count // 4)
-
-        # Cap GPU workers to avoid VRAM saturation on consumer GPUs (e.g. GTX 1650 = 4GB VRAM).
-        if getattr(self.face_engine, "gpu_available", False):
-            max_workers = min(max_workers, 4)
 
         batch_size = max(4, max_workers * 2)
         remaining_files = [f for f in self.files[self.start_index:] if str(f) not in self.processed_files]

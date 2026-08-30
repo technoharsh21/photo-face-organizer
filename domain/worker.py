@@ -137,18 +137,15 @@ class ScanWorker(QThread):
 
         self.matcher = FaceMatcher(face_engine=face_engine, threshold=threshold)
 
-        # Resolve CPU cores for process pool
+        # Resolve CPU cores for worker pool (parallel image decoding + AI pipeline)
         cpu_count = os.cpu_count() or 4
         if performance_mode == "Eco":
             self.max_workers = max(1, cpu_count // 4)
         elif performance_mode == "Balanced":
-            self.max_workers = max(2, cpu_count // 2)
+            self.max_workers = max(2, cpu_count)
         else:
-            self.max_workers = max(1, cpu_count)
-
-        # Cap workers on GPU mode to prevent VRAM saturation and graphics driver crashes
-        if getattr(self.face_engine, "gpu_available", False):
-            self.max_workers = min(self.max_workers, 4)
+            # Maximum Performance: keeps GPU/CPU compute fully saturated with parallel I/O & decode
+            self.max_workers = max(4, min(cpu_count * 2, 16))
 
     def pause(self):
         self._is_paused = True

@@ -220,9 +220,17 @@ class InsightFaceEngine:
                 self.providers = ["CPUExecutionProvider"]
                 self.active_device = f"Multi-Core CPU ({cpu_name})"
                 self.gpu_available = False
-            elif "CUDAExecutionProvider" in available_providers and self.device_preference in ("Auto", "CUDA"):
+            elif "TensorrtExecutionProvider" in available_providers and self.device_preference in ("Auto", "TensorRT", "GPU"):
+                self.providers = ["TensorrtExecutionProvider", "CUDAExecutionProvider", "CPUExecutionProvider"]
+                self.active_device = f"NVIDIA TensorRT GPU ({gpu_name})" if gpu_name else "TensorRT GPU"
+                self.gpu_available = True
+            elif "CUDAExecutionProvider" in available_providers and self.device_preference in ("Auto", "CUDA", "GPU"):
                 self.providers = ["CUDAExecutionProvider", "CPUExecutionProvider"]
                 self.active_device = f"CUDA GPU ({gpu_name})" if gpu_name else "CUDA GPU"
+                self.gpu_available = True
+            elif "ROCMExecutionProvider" in available_providers and self.device_preference in ("Auto", "ROCM", "GPU"):
+                self.providers = ["ROCMExecutionProvider", "CPUExecutionProvider"]
+                self.active_device = f"AMD ROCm GPU ({gpu_name})" if gpu_name else "AMD ROCm GPU"
                 self.gpu_available = True
             elif "DmlExecutionProvider" in available_providers and self.device_preference in ("Auto", "DirectML", "GPU"):
                 self.providers = ["DmlExecutionProvider", "CPUExecutionProvider"]
@@ -435,10 +443,24 @@ class InsightFaceEngine:
         norm = np.linalg.norm(mean_vec)
         return mean_vec / norm if norm > 0 else mean_vec
 
+    def _run_inference(self, app: Any, img_bgr: np.ndarray) -> list[Any]:
+        """
+        Execute neural network inference with provider-specific concurrency rules.
+        DirectML on Windows requires serializing D3D12 command lists via _infer_lock.
+        CUDA, ROCm, CoreML, OpenVINO, and CPU are fully thread-safe in ONNX Runtime
+        and run concurrently across all worker threads without lock contention.
+        """
+        if app is None:
+            return []
+        if "DmlExecutionProvider" in self.providers:
+            with InsightFaceEngine._infer_lock:
+                return app.get(img_bgr)
+        return app.get(img_bgr)
+
     def detect_faces(self, image: Any, upsample_num_times: int = 1) -> list[tuple[int, int, int, int]]:
         """
         Detect faces using SCRFD 360° deep detector.
-        Thread-safe: uses _infer_lock to prevent concurrent DirectX 12 command list collisions.
+        Thread-safe: uses _infer_lock when on DirectML to prevent DirectX 12 command list collisions.
         Returns bounding boxes in [top, right, bottom, left] order.
         """
         self._ensure_initialized()
@@ -448,8 +470,7 @@ class InsightFaceEngine:
 
         img_bgr = self._preprocess_bgr_image(self._to_numpy_bgr(image))
         try:
-            with InsightFaceEngine._infer_lock:
-                faces = self.app.get(img_bgr)
+            faces = self._run_inference(self.app, img_bgr)
             locations = []
             for face in faces:
                 bbox = face.bbox.astype(int)  # [left, top, right, bottom]
@@ -472,8 +493,7 @@ class InsightFaceEngine:
                 try:
                     cpu_app = FaceAnalysis(name="buffalo_sc", providers=["CPUExecutionProvider"])
                     cpu_app.prepare(ctx_id=0, det_size=(640, 640))
-                    with InsightFaceEngine._infer_lock:
-                        faces = cpu_app.get(img_bgr)
+                    faces = self._run_inference(cpu_app, img_bgr)
                     locations = []
                     for face in faces:
                         bbox = face.bbox.astype(int)
@@ -496,7 +516,7 @@ class InsightFaceEngine:
     ) -> list[np.ndarray]:
         """
         Extract 512-dimensional normalized ArcFace embeddings.
-        Thread-safe: uses _infer_lock to serialize GPU neural net forward passes.
+        Thread-safe: uses _infer_lock when on DirectML to serialize GPU neural net forward passes.
         """
         self._ensure_initialized()
         if self.app is None:
@@ -504,8 +524,7 @@ class InsightFaceEngine:
 
         img_bgr = self._preprocess_bgr_image(self._to_numpy_bgr(image))
         try:
-            with InsightFaceEngine._infer_lock:
-                faces = self.app.get(img_bgr)
+            faces = self._run_inference(self.app, img_bgr)
             embeddings = []
 
             for face in faces:
@@ -552,8 +571,7 @@ class InsightFaceEngine:
         t0 = time.time()
 
         try:
-            with InsightFaceEngine._infer_lock:
-                faces = self.app.get(img_bgr)
+            faces = self._run_inference(self.app, img_bgr)
 
             locations = []
             embeddings = []
@@ -604,8 +622,7 @@ class InsightFaceEngine:
                 try:
                     cpu_app = FaceAnalysis(name="buffalo_sc", providers=["CPUExecutionProvider"])
                     cpu_app.prepare(ctx_id=0, det_size=(640, 640))
-                    with InsightFaceEngine._infer_lock:
-                        faces = cpu_app.get(img_bgr)
+                    faces = self._run_inference(cpu_app, img_bgr)
                     locations = []
                     embeddings = []
                     crops = []
