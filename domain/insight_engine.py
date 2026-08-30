@@ -336,22 +336,35 @@ class InsightFaceEngine:
         Enhances image for face scanning:
         1. Low-light CLAHE contrast boost for dark/night images (mean brightness < 65).
         2. Adaptive det_size configuration based on megapixel resolution.
+
+        NOTE: Dynamic det_size changes are intentionally SKIPPED for DmlExecutionProvider.
+        DirectML pre-compiles the ONNX graph at initialization time (640x640). Calling
+        app.prepare() again with a different det_size causes the Reshape_213 node to throw
+        E_INVALIDARG (0x80070057) — the root cause of the "not responding" crash on large
+        wedding/4K photos. CPU and CUDA providers handle dynamic reshaping correctly.
         """
         if img_bgr is None or img_bgr.size == 0:
             return img_bgr
 
-        # Adaptive detection resolution based on image size (4K/8K images use 1024x1024 grid)
-        h, w = img_bgr.shape[:2]
-        target_det = (1024, 1024) if max(h, w) >= 2500 else (640, 640)
-        if hasattr(self, "_current_det_size") and self._current_det_size != target_det:
-            if self.app is not None:
-                try:
-                    self.app.prepare(ctx_id=0, det_size=target_det)
-                    self._current_det_size = target_det
-                except Exception:
-                    pass
-        elif not hasattr(self, "_current_det_size"):
-            self._current_det_size = (640, 640)
+        # Adaptive detection resolution — ONLY for non-DML providers.
+        # DML pre-compiles at (640,640) and CANNOT be dynamically resized without crashing.
+        _using_dml = "DmlExecutionProvider" in self.providers
+        if not _using_dml:
+            h, w = img_bgr.shape[:2]
+            target_det = (1024, 1024) if max(h, w) >= 2500 else (640, 640)
+            if hasattr(self, "_current_det_size") and self._current_det_size != target_det:
+                if self.app is not None:
+                    try:
+                        self.app.prepare(ctx_id=0, det_size=target_det)
+                        self._current_det_size = target_det
+                    except Exception:
+                        pass
+            elif not hasattr(self, "_current_det_size"):
+                self._current_det_size = (640, 640)
+        else:
+            # DML is fixed at (640,640) — set tracker but never call prepare() again
+            if not hasattr(self, "_current_det_size"):
+                self._current_det_size = (640, 640)
 
         # Low-light CLAHE contrast enhancement for dark nighttime photos
         try:
