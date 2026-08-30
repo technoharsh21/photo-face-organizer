@@ -56,6 +56,27 @@ class SettingsPage(QWidget):
 
         self._setup_ui()
 
+    @staticmethod
+    def _create_action_button(
+        text: str,
+        bg_color: str = "#1e293b",
+        hover_color: str = "#334155",
+        text_color: str = "#ffffff",
+        border_color: str | None = None,
+        padding_h: int = 20,
+    ) -> QPushButton:
+        """Create a standardized 42px action button component matching across all sections."""
+        btn = QPushButton(text)
+        btn.setCursor(Qt.PointingHandCursor)
+        btn.setFixedHeight(42)
+        btn.setMinimumHeight(42)
+        border_css = f"border: 1px solid {border_color};" if border_color else "border: none;"
+        btn.setStyleSheet(
+            f"QPushButton {{ background-color: {bg_color}; color: {text_color}; font-weight: 700; border-radius: 8px; padding: 0 {padding_h}px; font-size: 13px; min-height: 42px; max-height: 42px; {border_css} }}"
+            f"QPushButton:hover {{ background-color: {hover_color}; color: #ffffff; }}"
+        )
+        return btn
+
     def _setup_ui(self):
         page_layout = QVBoxLayout(self)
         page_layout.setContentsMargins(0, 0, 0, 0)
@@ -105,13 +126,13 @@ class SettingsPage(QWidget):
 
         hero_layout.addLayout(hero_left, 1)
 
-        self.btn_view_logs = QPushButton("📋 View Diagnostic Logs")
-        self.btn_view_logs.setProperty("class", "SecondaryButton")
-        self.btn_view_logs.setCursor(Qt.PointingHandCursor)
-        self.btn_view_logs.setFixedHeight(42)
-        self.btn_view_logs.setStyleSheet(
-            "QPushButton { background-color: #1e293b; color: #38bdf8; font-weight: 700; border-radius: 8px; padding: 0 20px; font-size: 13px; border: 1px solid #3b82f6; }"
-            "QPushButton:hover { background-color: #1d4ed8; color: #ffffff; }"
+        self.btn_view_logs = self._create_action_button(
+            "📋 View Diagnostic Logs",
+            bg_color="#1e293b",
+            hover_color="#1d4ed8",
+            text_color="#38bdf8",
+            border_color="#3b82f6",
+            padding_h=20,
         )
         self.btn_view_logs.clicked.connect(self._view_diagnostic_logs)
         hero_layout.addWidget(self.btn_view_logs)
@@ -236,13 +257,13 @@ class SettingsPage(QWidget):
 
         cache_row.addLayout(cache_info, 1)
 
-        btn_clear_cache = QPushButton("🧹 Clear Cache")
-        btn_clear_cache.setProperty("class", "DangerButton")
-        btn_clear_cache.setCursor(Qt.PointingHandCursor)
-        btn_clear_cache.setFixedHeight(42)
-        btn_clear_cache.setStyleSheet(
-            "QPushButton { background-color: #dc2626; color: #ffffff; border: none; border-radius: 8px; padding: 0 20px; font-size: 13px; font-weight: 700; }"
-            "QPushButton:hover { background-color: #b91c1c; }"
+        btn_clear_cache = self._create_action_button(
+            "🧹 Clear Cache",
+            bg_color="#dc2626",
+            hover_color="#b91c1c",
+            text_color="#ffffff",
+            border_color="#b91c1c",
+            padding_h=20,
         )
         btn_clear_cache.clicked.connect(self._clear_cache)
         cache_row.addWidget(btn_clear_cache)
@@ -269,13 +290,13 @@ class SettingsPage(QWidget):
         )
         st_row.addWidget(self.lbl_storage, 1)
 
-        btn_open_folder = QPushButton("📂 Open Folder")
-        btn_open_folder.setProperty("class", "SecondaryButton")
-        btn_open_folder.setCursor(Qt.PointingHandCursor)
-        btn_open_folder.setFixedHeight(42)
-        btn_open_folder.setStyleSheet(
-            "QPushButton { background-color: #1e293b; color: #38bdf8; font-weight: 700; border-radius: 8px; padding: 0 20px; font-size: 13px; border: 1px solid #3b82f6; }"
-            "QPushButton:hover { background-color: #1d4ed8; color: #ffffff; }"
+        btn_open_folder = self._create_action_button(
+            "📂 Open Folder",
+            bg_color="#1e293b",
+            hover_color="#1d4ed8",
+            text_color="#38bdf8",
+            border_color="#3b82f6",
+            padding_h=20,
         )
         btn_open_folder.clicked.connect(self._open_app_data_folder)
         st_row.addWidget(btn_open_folder)
@@ -287,24 +308,24 @@ class SettingsPage(QWidget):
         btn_layout = QHBoxLayout()
         btn_layout.setSpacing(16)
 
-        btn_save = QPushButton("💾 Save Settings")
-        btn_save.setProperty("class", "PrimaryButton")
-        btn_save.setCursor(Qt.PointingHandCursor)
-        btn_save.setFixedHeight(46)
-        btn_save.setStyleSheet(
-            "QPushButton { background-color: #10b981; color: #ffffff; font-weight: 800; border-radius: 8px; padding: 0 32px; font-size: 14px; border: 1px solid #059669; }"
-            "QPushButton:hover { background-color: #059669; }"
+        btn_save = self._create_action_button(
+            "💾 Save Settings",
+            bg_color="#10b981",
+            hover_color="#059669",
+            text_color="#ffffff",
+            border_color="#059669",
+            padding_h=30,
         )
         btn_save.clicked.connect(self._save)
         btn_layout.addWidget(btn_save)
 
-        btn_reset = QPushButton("🔄 Reset Defaults")
-        btn_reset.setProperty("class", "SecondaryButton")
-        btn_reset.setCursor(Qt.PointingHandCursor)
-        btn_reset.setFixedHeight(46)
-        btn_reset.setStyleSheet(
-            "QPushButton { background-color: #1e293b; color: #94a3b8; border: 1px solid #334155; border-radius: 8px; padding: 0 26px; font-size: 13px; font-weight: 700; }"
-            "QPushButton:hover { background-color: #334155; color: #ffffff; }"
+        btn_reset = self._create_action_button(
+            "🔄 Reset Defaults",
+            bg_color="#1e293b",
+            hover_color="#334155",
+            text_color="#94a3b8",
+            border_color="#334155",
+            padding_h=24,
         )
         btn_reset.clicked.connect(self._reset)
         btn_layout.addWidget(btn_reset)
