@@ -226,13 +226,13 @@ class SoloScanWorker(QThread):
 
             if not face_locations:
                 self.no_match_count += 1
+                logger.info(f"[SOLO: {file_path.name}] 0 faces detected.")
                 self.source_to_output_map[str(file_path)] = ["No faces detected"]
                 return
 
             # 2. Evaluate solo and exclusive group solo matches
             matched_person_names, face_results = self.matcher.evaluate_solo_photo_matches(
                 face_encodings=face_encodings,
-
                 face_locations=face_locations,
                 profiles=self.profiles,
                 all_system_profiles=self.all_system_profiles,
@@ -242,6 +242,8 @@ class SoloScanWorker(QThread):
             if matched_person_names:
                 self.matched_count += 1
                 output_targets = []
+                matched_str = ", ".join(sorted(matched_person_names))
+                logger.info(f"[SOLO: {file_path.name}] MATCHED -> {matched_str} (faces in photo: {len(face_locations)})")
                 for p_name in sorted(matched_person_names):
                     self.results_by_person[p_name] = self.results_by_person.get(p_name, 0) + 1
                     clean_name = self.output_service.sanitize_folder_name(p_name)
@@ -259,6 +261,12 @@ class SoloScanWorker(QThread):
             else:
                 # Unmatched photo -> Increment no_match counter, DO NOT create 'No Match' folder
                 self.no_match_count += 1
+                top_score = face_results[0].match_score if face_results else 0.0
+                if len(face_locations) > 1:
+                    logger.info(f"[SOLO: {file_path.name}] SKIPPED -> Group photo ({len(face_locations)} faces detected, solo requires exactly 1)")
+                else:
+                    logger.info(f"[SOLO: {file_path.name}] NO MATCH -> Best score: {top_score:.1f}% (Required: {self.threshold:.1f}%)")
+
                 if len(face_locations) == 1 and face_results and face_crops:
                     res = face_results[0]
                     stored = self.unknown_face_service.store_unknown_face(

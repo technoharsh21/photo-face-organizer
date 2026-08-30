@@ -184,6 +184,7 @@ class ScanWorker(QThread):
                 face_crops = self.face_engine.extract_faces(pil_img, face_locations)
 
             if not face_locations:
+                logger.info(f"[{file_path.name}] 0 faces detected.")
                 return {
                     "status": "no_faces",
                     "file_path": file_path_str,
@@ -199,6 +200,9 @@ class ScanWorker(QThread):
                 profiles=self.profiles,
             )
 
+            matched_str = ", ".join(sorted(matched_person_names)) if matched_person_names else "No Match"
+            logger.info(f"[{file_path.name}] {len(face_locations)} face(s) found -> Result: {matched_str}")
+
             return {
                 "status": "success",
                 "file_path": file_path_str,
@@ -207,8 +211,9 @@ class ScanWorker(QThread):
                 "face_crops": face_crops,
             }
         except Exception as e:
-            logger.warning(f"Error processing {file_path.name}: {e}", exc_info=True)
+            logger.error(f"Error processing {file_path.name}: {e}", exc_info=True)
             return {"status": "error", "file_path": file_path_str, "error": str(e)}
+
 
 
     def run(self):

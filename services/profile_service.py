@@ -7,6 +7,7 @@ Supports selecting specific face from multi-face group reference photos and grac
 """
 
 import json
+import logging
 import shutil
 import uuid
 from pathlib import Path
@@ -17,6 +18,9 @@ from PIL import Image
 from config import Config
 from domain.face_engine import FaceEngine
 from domain.image_loader import load_image
+
+logger = logging.getLogger(__name__)
+
 
 
 class ProfileService:
