@@ -393,8 +393,9 @@ class DashboardPage(QWidget):
 
         btn_add = QPushButton("➕ Create Profile")
         btn_add.setCursor(Qt.PointingHandCursor)
+        btn_add.setFixedHeight(38)
         btn_add.setStyleSheet(
-            "QPushButton { background-color: #1e293b; color: #38bdf8; font-weight: 700; border-radius: 8px; padding: 6px 14px; font-size: 12px; border: 1px solid #3b82f6; }"
+            "QPushButton { background-color: #1e293b; color: #ffffff; font-weight: 700; border-radius: 8px; padding: 0 16px; font-size: 13px; border: 1px solid #3b82f6; }"
             "QPushButton:hover { background-color: #1d4ed8; color: #ffffff; }"
         )
         btn_add.clicked.connect(lambda: self.navigate_cb("People"))

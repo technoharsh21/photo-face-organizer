@@ -103,20 +103,28 @@ class ProcessingPage(QWidget):
 
         # Control Buttons
         btn_layout = QHBoxLayout()
-        btn_layout.setSpacing(12)
+        btn_layout.setSpacing(14)
         btn_layout.addStretch()
 
         self.btn_pause = QPushButton("⏸ Pause")
         self.btn_pause.setProperty("class", "SecondaryButton")
         self.btn_pause.setCursor(Qt.PointingHandCursor)
-        self.btn_pause.setFixedHeight(38)
+        self.btn_pause.setFixedHeight(42)
+        self.btn_pause.setStyleSheet(
+            "QPushButton { background-color: #1e293b; color: #ffffff; font-weight: 700; border-radius: 8px; padding: 0 24px; font-size: 13px; min-height: 42px; max-height: 42px; border: 1px solid #3b82f6; }"
+            "QPushButton:hover { background-color: #1d4ed8; color: #ffffff; }"
+        )
         self.btn_pause.clicked.connect(self._toggle_pause)
         btn_layout.addWidget(self.btn_pause)
 
         self.btn_cancel = QPushButton("🛑 Cancel Scan")
         self.btn_cancel.setProperty("class", "DangerButton")
         self.btn_cancel.setCursor(Qt.PointingHandCursor)
-        self.btn_cancel.setFixedHeight(38)
+        self.btn_cancel.setFixedHeight(42)
+        self.btn_cancel.setStyleSheet(
+            "QPushButton { background-color: #dc2626; color: #ffffff; border: none; border-radius: 8px; padding: 0 24px; font-size: 13px; min-height: 42px; max-height: 42px; font-weight: 700; }"
+            "QPushButton:hover { background-color: #b91c1c; }"
+        )
         self.btn_cancel.clicked.connect(self._cancel_scan)
         btn_layout.addWidget(self.btn_cancel)
 

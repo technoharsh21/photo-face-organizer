@@ -127,9 +127,9 @@ class ResultsPage(QWidget):
         self.btn_skipped_details = QPushButton("ℹ️ Skipped Details")
         self.btn_skipped_details.setProperty("class", "SecondaryButton")
         self.btn_skipped_details.setCursor(Qt.PointingHandCursor)
-        self.btn_skipped_details.setFixedHeight(36)
+        self.btn_skipped_details.setFixedHeight(42)
         self.btn_skipped_details.setStyleSheet(
-            "QPushButton { background-color: #1e293b; color: #38bdf8; font-weight: 600; border-radius: 6px; padding: 0 14px; font-size: 12px; border: 1px solid #3b82f6; }"
+            "QPushButton { background-color: #1e293b; color: #ffffff; font-weight: 700; border-radius: 8px; padding: 0 18px; font-size: 13px; min-height: 42px; max-height: 42px; border: 1px solid #3b82f6; }"
             "QPushButton:hover { background-color: #1d4ed8; color: #ffffff; }"
         )
         self.btn_skipped_details.clicked.connect(self._open_skipped_details_dialog)
@@ -138,9 +138,9 @@ class ResultsPage(QWidget):
         self.btn_correct_match = QPushButton("🛠️ Correct Match")
         self.btn_correct_match.setProperty("class", "SecondaryButton")
         self.btn_correct_match.setCursor(Qt.PointingHandCursor)
-        self.btn_correct_match.setFixedHeight(36)
+        self.btn_correct_match.setFixedHeight(42)
         self.btn_correct_match.setStyleSheet(
-            "QPushButton { background-color: #1e293b; color: #38bdf8; font-weight: 600; border-radius: 6px; padding: 0 14px; font-size: 12px; border: 1px solid #3b82f6; }"
+            "QPushButton { background-color: #1e293b; color: #ffffff; font-weight: 700; border-radius: 8px; padding: 0 18px; font-size: 13px; min-height: 42px; max-height: 42px; border: 1px solid #3b82f6; }"
             "QPushButton:hover { background-color: #1d4ed8; color: #ffffff; }"
         )
         self.btn_correct_match.clicked.connect(self._correct_wrong_match)
@@ -149,9 +149,9 @@ class ResultsPage(QWidget):
         self.btn_open_folder = QPushButton("📂 Open Output Folder")
         self.btn_open_folder.setProperty("class", "PrimaryButton")
         self.btn_open_folder.setCursor(Qt.PointingHandCursor)
-        self.btn_open_folder.setFixedHeight(36)
+        self.btn_open_folder.setFixedHeight(42)
         self.btn_open_folder.setStyleSheet(
-            "QPushButton { background-color: #10b981; color: #ffffff; font-weight: 700; border-radius: 8px; padding: 0 18px; font-size: 13px; border: 1px solid #059669; }"
+            "QPushButton { background-color: #10b981; color: #ffffff; font-weight: 700; border-radius: 8px; padding: 0 20px; font-size: 13px; min-height: 42px; max-height: 42px; border: 1px solid #059669; }"
             "QPushButton:hover { background-color: #059669; }"
         )
         self.btn_open_folder.clicked.connect(self._open_output_folder)

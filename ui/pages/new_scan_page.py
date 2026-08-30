@@ -193,9 +193,9 @@ class NewScanPage(QWidget):
 
         btn_reset_hdr = QPushButton("🔄 Reset Wizard")
         btn_reset_hdr.setCursor(Qt.PointingHandCursor)
-        btn_reset_hdr.setFixedHeight(34)
+        btn_reset_hdr.setFixedHeight(38)
         btn_reset_hdr.setStyleSheet(
-            "QPushButton { background-color: #1e293b; color: #94a3b8; border: 1px solid #334155; border-radius: 6px; padding: 0 14px; font-size: 12px; font-weight: 600; }"
+            "QPushButton { background-color: #1e293b; color: #ffffff; border: 1px solid #334155; border-radius: 8px; padding: 0 16px; font-size: 12px; font-weight: 700; }"
             "QPushButton:hover { background-color: #334155; color: #ffffff; }"
         )
         btn_reset_hdr.setToolTip("Reset all wizard steps and start fresh.")
@@ -242,12 +242,16 @@ class NewScanPage(QWidget):
 
         # 4. Navigation Controls Footer
         nav_footer = QHBoxLayout()
-        nav_footer.setSpacing(12)
+        nav_footer.setSpacing(14)
 
         self.btn_prev = QPushButton("◀ Back")
         self.btn_prev.setProperty("class", "SecondaryButton")
         self.btn_prev.setCursor(Qt.PointingHandCursor)
-        self.btn_prev.setFixedHeight(38)
+        self.btn_prev.setFixedHeight(42)
+        self.btn_prev.setStyleSheet(
+            "QPushButton { background-color: #1e293b; color: #ffffff; font-weight: 700; border-radius: 8px; padding: 0 20px; font-size: 13px; border: 1px solid #3b82f6; }"
+            "QPushButton:hover { background-color: #1d4ed8; color: #ffffff; }"
+        )
         self.btn_prev.clicked.connect(self._go_prev)
         nav_footer.addWidget(self.btn_prev)
 
@@ -256,17 +260,20 @@ class NewScanPage(QWidget):
         self.btn_next = QPushButton("Next ▶")
         self.btn_next.setProperty("class", "PrimaryButton")
         self.btn_next.setCursor(Qt.PointingHandCursor)
-        self.btn_next.setFixedHeight(38)
-        self.btn_next.setStyleSheet("min-width: 110px;")
+        self.btn_next.setFixedHeight(42)
+        self.btn_next.setStyleSheet(
+            "QPushButton { background-color: #10b981; color: #ffffff; font-weight: 700; border-radius: 8px; padding: 0 24px; font-size: 13px; border: 1px solid #059669; min-width: 120px; }"
+            "QPushButton:hover { background-color: #059669; }"
+        )
         self.btn_next.clicked.connect(self._go_next)
         nav_footer.addWidget(self.btn_next)
 
         self.btn_start = QPushButton("🚀 Start AI Scan")
         self.btn_start.setProperty("class", "PrimaryButton")
         self.btn_start.setCursor(Qt.PointingHandCursor)
-        self.btn_start.setFixedHeight(40)
+        self.btn_start.setFixedHeight(44)
         self.btn_start.setStyleSheet(
-            "QPushButton { background-color: #10b981; color: #ffffff; font-weight: 800; border-radius: 8px; padding: 0 24px; font-size: 13px; border: 1px solid #059669; min-width: 140px; }"
+            "QPushButton { background-color: #10b981; color: #ffffff; font-weight: 800; border-radius: 8px; padding: 0 28px; font-size: 14px; border: 1px solid #059669; min-width: 160px; }"
             "QPushButton:hover { background-color: #059669; }"
         )
         self.btn_start.clicked.connect(self._start_scan)
@@ -306,9 +313,9 @@ class NewScanPage(QWidget):
         btn_add_folder = QPushButton("📁 Add Folder")
         btn_add_folder.setProperty("class", "SecondaryButton")
         btn_add_folder.setCursor(Qt.PointingHandCursor)
-        btn_add_folder.setFixedHeight(34)
+        btn_add_folder.setFixedHeight(38)
         btn_add_folder.setStyleSheet(
-            "QPushButton { background-color: #1e293b; color: #38bdf8; font-weight: 600; border-radius: 6px; padding: 0 14px; font-size: 12px; border: 1px solid #3b82f6; }"
+            "QPushButton { background-color: #1e293b; color: #ffffff; font-weight: 700; border-radius: 8px; padding: 0 16px; font-size: 12px; border: 1px solid #3b82f6; }"
             "QPushButton:hover { background-color: #1d4ed8; color: #ffffff; }"
         )
         btn_add_folder.clicked.connect(self._add_folder)
@@ -316,9 +323,9 @@ class NewScanPage(QWidget):
         btn_add_files = QPushButton("🖼️ Add Image Files")
         btn_add_files.setProperty("class", "SecondaryButton")
         btn_add_files.setCursor(Qt.PointingHandCursor)
-        btn_add_files.setFixedHeight(34)
+        btn_add_files.setFixedHeight(38)
         btn_add_files.setStyleSheet(
-            "QPushButton { background-color: #1e293b; color: #38bdf8; font-weight: 600; border-radius: 6px; padding: 0 14px; font-size: 12px; border: 1px solid #3b82f6; }"
+            "QPushButton { background-color: #1e293b; color: #ffffff; font-weight: 700; border-radius: 8px; padding: 0 16px; font-size: 12px; border: 1px solid #3b82f6; }"
             "QPushButton:hover { background-color: #1d4ed8; color: #ffffff; }"
         )
         btn_add_files.clicked.connect(self._add_files)
@@ -326,7 +333,11 @@ class NewScanPage(QWidget):
         btn_clear = QPushButton("🗑️ Clear All")
         btn_clear.setProperty("class", "DangerButton")
         btn_clear.setCursor(Qt.PointingHandCursor)
-        btn_clear.setFixedHeight(34)
+        btn_clear.setFixedHeight(38)
+        btn_clear.setStyleSheet(
+            "QPushButton { background-color: #dc2626; color: #ffffff; border: none; border-radius: 8px; padding: 0 16px; font-size: 12px; font-weight: 700; }"
+            "QPushButton:hover { background-color: #b91c1c; }"
+        )
         btn_clear.clicked.connect(self._clear_sources)
 
         btn_layout.addWidget(btn_add_folder)
@@ -472,9 +483,9 @@ class NewScanPage(QWidget):
         btn_browse = QPushButton("📁 Browse Folder...")
         btn_browse.setProperty("class", "SecondaryButton")
         btn_browse.setCursor(Qt.PointingHandCursor)
-        btn_browse.setFixedHeight(36)
+        btn_browse.setFixedHeight(38)
         btn_browse.setStyleSheet(
-            "QPushButton { background-color: #1e293b; color: #38bdf8; font-weight: 600; border-radius: 6px; padding: 0 14px; font-size: 12px; border: 1px solid #3b82f6; }"
+            "QPushButton { background-color: #1e293b; color: #ffffff; font-weight: 700; border-radius: 8px; padding: 0 18px; font-size: 12px; border: 1px solid #3b82f6; }"
             "QPushButton:hover { background-color: #1d4ed8; color: #ffffff; }"
         )
         btn_browse.clicked.connect(self._select_output_dir)

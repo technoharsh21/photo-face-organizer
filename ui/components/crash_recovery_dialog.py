@@ -59,9 +59,16 @@ class CrashRecoveryDialog(QDialog):
 
         # Buttons
         btn_layout = QHBoxLayout()
+        btn_layout.setSpacing(12)
 
         discard_btn = QPushButton("Discard Recovery")
         discard_btn.setProperty("class", "DangerButton")
+        discard_btn.setCursor(Qt.PointingHandCursor)
+        discard_btn.setFixedHeight(38)
+        discard_btn.setStyleSheet(
+            "QPushButton { background-color: #dc2626; color: #ffffff; border: none; border-radius: 8px; padding: 0 16px; font-size: 13px; font-weight: 700; }"
+            "QPushButton:hover { background-color: #b91c1c; }"
+        )
         discard_btn.clicked.connect(self._on_discard)
         btn_layout.addWidget(discard_btn)
 
@@ -69,11 +76,23 @@ class CrashRecoveryDialog(QDialog):
 
         restart_btn = QPushButton("Restart")
         restart_btn.setProperty("class", "SecondaryButton")
+        restart_btn.setCursor(Qt.PointingHandCursor)
+        restart_btn.setFixedHeight(38)
+        restart_btn.setStyleSheet(
+            "QPushButton { background-color: #1e293b; color: #ffffff; font-weight: 700; border-radius: 8px; padding: 0 16px; font-size: 13px; border: 1px solid #3b82f6; }"
+            "QPushButton:hover { background-color: #1d4ed8; color: #ffffff; }"
+        )
         restart_btn.clicked.connect(self._on_restart)
         btn_layout.addWidget(restart_btn)
 
         resume_btn = QPushButton("Resume Scan")
         resume_btn.setProperty("class", "PrimaryButton")
+        resume_btn.setCursor(Qt.PointingHandCursor)
+        resume_btn.setFixedHeight(38)
+        resume_btn.setStyleSheet(
+            "QPushButton { background-color: #10b981; color: #ffffff; font-weight: 700; border-radius: 8px; padding: 0 20px; font-size: 13px; border: 1px solid #059669; }"
+            "QPushButton:hover { background-color: #059669; }"
+        )
         resume_btn.clicked.connect(self._on_resume)
         btn_layout.addWidget(resume_btn)
 

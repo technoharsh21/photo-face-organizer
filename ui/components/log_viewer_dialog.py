@@ -69,17 +69,27 @@ class LogViewerDialog(QDialog):
 
         # Bottom Buttons
         btn_box = QHBoxLayout()
-        btn_box.setSpacing(10)
+        btn_box.setSpacing(12)
 
         btn_copy = QPushButton("📋 Copy Logs to Clipboard")
         btn_copy.setProperty("class", "SecondaryButton")
         btn_copy.setCursor(Qt.PointingHandCursor)
+        btn_copy.setFixedHeight(38)
+        btn_copy.setStyleSheet(
+            "QPushButton { background-color: #1e293b; color: #ffffff; font-weight: 700; border-radius: 8px; padding: 0 16px; font-size: 13px; border: 1px solid #3b82f6; }"
+            "QPushButton:hover { background-color: #1d4ed8; color: #ffffff; }"
+        )
         btn_copy.clicked.connect(self._copy_logs)
         btn_box.addWidget(btn_copy)
 
         btn_open = QPushButton("📂 Open Log File")
         btn_open.setProperty("class", "SecondaryButton")
         btn_open.setCursor(Qt.PointingHandCursor)
+        btn_open.setFixedHeight(38)
+        btn_open.setStyleSheet(
+            "QPushButton { background-color: #1e293b; color: #ffffff; font-weight: 700; border-radius: 8px; padding: 0 16px; font-size: 13px; border: 1px solid #3b82f6; }"
+            "QPushButton:hover { background-color: #1d4ed8; color: #ffffff; }"
+        )
         btn_open.clicked.connect(self._open_log_file)
         btn_box.addWidget(btn_open)
 
@@ -88,6 +98,11 @@ class LogViewerDialog(QDialog):
         btn_close = QPushButton("Close")
         btn_close.setProperty("class", "PrimaryButton")
         btn_close.setCursor(Qt.PointingHandCursor)
+        btn_close.setFixedHeight(38)
+        btn_close.setStyleSheet(
+            "QPushButton { background-color: #10b981; color: #ffffff; font-weight: 700; border-radius: 8px; padding: 0 24px; font-size: 13px; border: 1px solid #059669; }"
+            "QPushButton:hover { background-color: #059669; }"
+        )
         btn_close.clicked.connect(self.accept)
         btn_box.addWidget(btn_close)
 

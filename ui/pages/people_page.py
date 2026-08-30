@@ -505,17 +505,17 @@ class PeoplePage(QWidget):
         sep.setStyleSheet("background-color: #1e293b; max-height: 1px; border: none;")
         hero_layout.addWidget(sep)
 
-        # Row 2: Secondary Tools Toolbar (Compact, uniform 30px height, perfect alignment)
+        # Row 2: Secondary Tools Toolbar (Compact, uniform 34px height, perfect alignment)
         tools_row = QHBoxLayout()
-        tools_row.setSpacing(8)
+        tools_row.setSpacing(10)
         tools_row.setAlignment(Qt.AlignVCenter)
 
         self.btn_batch_train = QPushButton("📁 Batch Train")
         self.btn_batch_train.setProperty("class", "SecondaryButton")
         self.btn_batch_train.setCursor(Qt.PointingHandCursor)
-        self.btn_batch_train.setFixedHeight(30)
+        self.btn_batch_train.setFixedHeight(34)
         self.btn_batch_train.setStyleSheet(
-            "QPushButton { background-color: #1e293b; color: #38bdf8; font-weight: 600; border-radius: 6px; padding: 0 10px; font-size: 11px; border: 1px solid #3b82f6; }"
+            "QPushButton { background-color: #1e293b; color: #38bdf8; font-weight: 600; border-radius: 6px; padding: 0 12px; font-size: 12px; border: 1px solid #3b82f6; }"
             "QPushButton:hover { background-color: #1d4ed8; color: #ffffff; }"
         )
         self.btn_batch_train.clicked.connect(self._batch_train_profile)
@@ -524,9 +524,9 @@ class PeoplePage(QWidget):
         self.btn_clean_outliers = QPushButton("🧹 Clean Outliers")
         self.btn_clean_outliers.setProperty("class", "SecondaryButton")
         self.btn_clean_outliers.setCursor(Qt.PointingHandCursor)
-        self.btn_clean_outliers.setFixedHeight(30)
+        self.btn_clean_outliers.setFixedHeight(34)
         self.btn_clean_outliers.setStyleSheet(
-            "QPushButton { background-color: #1e293b; color: #38bdf8; font-weight: 600; border-radius: 6px; padding: 0 10px; font-size: 11px; border: 1px solid #3b82f6; }"
+            "QPushButton { background-color: #1e293b; color: #38bdf8; font-weight: 600; border-radius: 6px; padding: 0 12px; font-size: 12px; border: 1px solid #3b82f6; }"
             "QPushButton:hover { background-color: #1d4ed8; color: #ffffff; }"
         )
         self.btn_clean_outliers.setToolTip("Scan and purge outlier photos or low-star faces.")
@@ -536,9 +536,9 @@ class PeoplePage(QWidget):
         self.btn_group_type = QPushButton("⚙️ Settings")
         self.btn_group_type.setProperty("class", "SecondaryButton")
         self.btn_group_type.setCursor(Qt.PointingHandCursor)
-        self.btn_group_type.setFixedHeight(30)
+        self.btn_group_type.setFixedHeight(34)
         self.btn_group_type.setStyleSheet(
-            "QPushButton { background-color: #1e293b; color: #38bdf8; font-weight: 600; border-radius: 6px; padding: 0 10px; font-size: 11px; border: 1px solid #3b82f6; }"
+            "QPushButton { background-color: #1e293b; color: #38bdf8; font-weight: 600; border-radius: 6px; padding: 0 12px; font-size: 12px; border: 1px solid #3b82f6; }"
             "QPushButton:hover { background-color: #1d4ed8; color: #ffffff; }"
         )
         self.btn_group_type.clicked.connect(self._edit_group_settings)
@@ -546,12 +546,12 @@ class PeoplePage(QWidget):
 
         tools_row.addStretch()
 
-        self.btn_delete = QPushButton("🗑️ Delete")
+        self.btn_delete = QPushButton("🗑️ Delete Profile")
         self.btn_delete.setProperty("class", "DangerButton")
         self.btn_delete.setCursor(Qt.PointingHandCursor)
-        self.btn_delete.setFixedHeight(30)
+        self.btn_delete.setFixedHeight(34)
         self.btn_delete.setStyleSheet(
-            "QPushButton { background-color: #991b1b; color: #ffffff; font-weight: 600; border-radius: 6px; padding: 0 12px; font-size: 11px; border: 1px solid #dc2626; }"
+            "QPushButton { background-color: #991b1b; color: #ffffff; font-weight: 600; border-radius: 6px; padding: 0 14px; font-size: 12px; border: 1px solid #dc2626; }"
             "QPushButton:hover { background-color: #dc2626; }"
         )
         self.btn_delete.clicked.connect(self._delete_profile)
