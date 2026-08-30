@@ -197,20 +197,20 @@ class ResultsPage(QWidget):
             self.lbl_audit_status.setText(f"<b>File Reconciliation Audit:</b> Accounted: {acc} / {tot} ({pct}%) • ⚠️ {missed} Missed Photos")
             self.lbl_audit_status.setStyleSheet("color: #ef4444; font-size: 12px;")
 
-    def _open_skipped_details_dialog(self):
-        if not self.summary_data:
-            QMessageBox.information(self, "No Scan Data", "No scan summary data available.")
-            return
+        # Populate the person folders + matched photos tree
+        self._populate_results_tree(summary)
 
-        from ui.components.skipped_files_dialog import SkippedFilesDialog
-        dlg = SkippedFilesDialog(self, self.summary_data)
-        dlg.exec()
-
+    def _populate_results_tree(self, summary: dict[str, Any]):
+        """Build the person folder tree from the output directory after scan completes."""
         self.tree.clear()
         self._clear_preview()
 
         output_dir_str = summary.get("output_dir")
         if not output_dir_str or not Path(output_dir_str).exists():
+            # No output folder yet — show a helpful placeholder message
+            placeholder = QTreeWidgetItem(["No output folder found", ""])
+            placeholder.setDisabled(True)
+            self.tree.addTopLevelItem(placeholder)
             return
 
         out_path = Path(output_dir_str)
@@ -218,13 +218,18 @@ class ResultsPage(QWidget):
         known_person_names = set(results_by_person.keys())
         known_person_names.add("No Match")
 
+        found_any = False
         # Scan output directory for person subfolders
         for person_dir in sorted(out_path.iterdir()):
             if person_dir.is_dir():
-                # Show folder if it matches a known profile / No Match or contains files
                 files = [f for f in person_dir.iterdir() if f.is_file()]
                 if files or person_dir.name in known_person_names:
-                    parent_item = QTreeWidgetItem([person_dir.name, f"{len(files)} photos"])
+                    found_any = True
+                    photo_count = len(files)
+                    parent_item = QTreeWidgetItem([
+                        f"📁 {person_dir.name}",
+                        f"{photo_count} photo{'s' if photo_count != 1 else ''}",
+                    ])
                     parent_item.setData(0, Qt.UserRole, str(person_dir))
 
                     for f in sorted(files):
@@ -234,9 +239,24 @@ class ResultsPage(QWidget):
 
                     self.tree.addTopLevelItem(parent_item)
 
+        if not found_any:
+            placeholder = QTreeWidgetItem(["No matched photos found", "0 photos"])
+            placeholder.setDisabled(True)
+            self.tree.addTopLevelItem(placeholder)
+
         self.tree.expandAll()
 
+    def _open_skipped_details_dialog(self):
+        """Show dialog with details of skipped/unreadable files."""
+        if not self.summary_data:
+            QMessageBox.information(self, "No Scan Data", "No scan summary data available.")
+            return
+        from ui.components.skipped_files_dialog import SkippedFilesDialog
+        dlg = SkippedFilesDialog(self, self.summary_data)
+        dlg.exec()
+
     def _clear_preview(self):
+
         self.img_preview_lbl.setPixmap(QPixmap())
         self.img_preview_lbl.setText("Select a photo from the left tree to view preview")
         self.lbl_photo_info.setText("")

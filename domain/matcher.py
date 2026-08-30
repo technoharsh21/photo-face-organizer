@@ -101,13 +101,26 @@ class FaceMatcher:
                 continue
 
             sorted_scores = sorted(scores, reverse=True)
-            if len(sorted_scores) >= 3:
-                # Robust Consensus Scoring: requires support from multiple reference vectors
-                best_p_score = 0.60 * sorted_scores[0] + 0.25 * sorted_scores[1] + 0.15 * sorted_scores[2]
-            elif len(sorted_scores) == 2:
-                best_p_score = 0.70 * sorted_scores[0] + 0.30 * sorted_scores[1]
+            best_raw = sorted_scores[0]
+
+            # Consensus boost: if 2+ references agree the face is a match, slightly boost confidence.
+            # This rewards having multiple diverse reference photos without penalizing score when
+            # secondary refs are from different angles (old weighted avg pulled scores DOWN).
+            if len(sorted_scores) >= 2 and sorted_scores[1] >= 45.0:
+                # Both top references agree — small boost for consensus confidence
+                consensus_boost = min(5.0, (sorted_scores[1] / 100.0) * 8.0)
+                best_p_score = min(100.0, best_raw + consensus_boost)
             else:
-                best_p_score = sorted_scores[0]
+                best_p_score = best_raw
+            # Centroid tiebreaker: for near-threshold scores, compare against profile's mean
+            # centroid embedding for a more stable decision at the decision boundary.
+            centroid = profile.get("centroid_embedding")
+            if centroid is not None and len(centroid) == 512:
+                centroid_arr = np.asarray(centroid, dtype=np.float64)
+                centroid_score = self.face_engine.calculate_match_score(face_encoding, centroid_arr)
+                # Use centroid score if it's better than current best_p_score
+                if centroid_score > best_p_score:
+                    best_p_score = centroid_score
 
             # Apply discriminative SVM classifier margin adjustment
             final_p_score = self.classifier_service.evaluate_discriminative_margin(
@@ -186,22 +199,19 @@ class FaceMatcher:
                 else:
                     # Check reference photos added directly to this Group Profile
                     embeddings = profile.get("embeddings", [])
-                    if len(embeddings) >= 2:
-                        all_refs_matched = True
+                    if len(embeddings) >= 2 and len(face_encodings) >= len(embeddings):
+                        import itertools
+
+                        n_refs = len(embeddings)
+                        matrix = []
                         for ref_emb in embeddings:
                             ref_arr = np.asarray(ref_emb, dtype=np.float64)
-                            ref_matched = False
-                            for enc in face_encodings:
-                                score = self.face_engine.calculate_match_score(enc, ref_arr)
-                                if score >= self.threshold:
-                                    ref_matched = True
-                                    break
-                            if not ref_matched:
-                                all_refs_matched = False
-                                break
+                            matrix.append([self.face_engine.calculate_match_score(enc, ref_arr) for enc in face_encodings])
 
-                        if all_refs_matched:
-                            matched_profile_names.add(profile["name"])
-                            matched_profile_ids.add(profile["id"])
+                        for perm in itertools.permutations(range(len(face_encodings)), n_refs):
+                            if all(matrix[i][perm[i]] >= self.threshold for i in range(n_refs)):
+                                matched_profile_names.add(profile["name"])
+                                matched_profile_ids.add(profile["id"])
+                                break
 
         return matched_profile_names, face_results

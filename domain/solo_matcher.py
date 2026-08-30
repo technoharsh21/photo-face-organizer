@@ -6,23 +6,27 @@ Rejects photos containing 2 or more faces (group photos) to ensure person folder
 contain ONLY solo photos.
 """
 
+import itertools
 from typing import Any
 import numpy as np
 
 from domain.face_engine import FaceEngine
 from domain.matcher import ProfileMatchResult
+from services.classifier_service import ProfileClassifierService
 
 
 class SoloFaceMatcher:
     """
     Face matcher dedicated to solo photo organization.
-    Only matches photos where len(face_locations) == 1.
-    Uses high-precision threshold (default 70.0%) to prevent false-positive person matches.
+    Only matches photos where len(face_locations) == 1 (or exact N for exclusive group profiles).
+    Uses precision threshold (default 70.0%) to prevent false-positive person matches.
     """
 
     def __init__(self, face_engine: FaceEngine, threshold: float = 70.0):
         self.face_engine = face_engine
         self.threshold = threshold
+        self.classifier_service = ProfileClassifierService()
+        self._last_profile_count = -1
 
     def match_face(
         self,
@@ -33,12 +37,17 @@ class SoloFaceMatcher:
     ) -> ProfileMatchResult:
         """
         Evaluate a single face encoding against individual profiles.
-        Ignores group profiles and enforces strict 70%+ score threshold.
+        Ignores group profiles and enforces precision threshold.
         """
         best_match_id = None
         best_match_name = None
         highest_score = 0.0
         profile_best_scores: dict[str, float] = {}
+
+        # Auto-train fast discriminative classifier on-device when profile set changes
+        if len(profiles) != self._last_profile_count:
+            self.classifier_service.train_classifier(profiles)
+            self._last_profile_count = len(profiles)
 
         for profile in profiles:
             p_id = profile["id"]
@@ -59,17 +68,32 @@ class SoloFaceMatcher:
                 continue
 
             sorted_scores = sorted(scores, reverse=True)
-            if len(sorted_scores) >= 3:
-                p_best_score = 0.60 * sorted_scores[0] + 0.25 * sorted_scores[1] + 0.15 * sorted_scores[2]
-            elif len(sorted_scores) == 2:
-                p_best_score = 0.70 * sorted_scores[0] + 0.30 * sorted_scores[1]
+            best_raw = sorted_scores[0]
+
+            # Consensus boost: small confidence boost when 2+ references agree the face matches.
+            if len(sorted_scores) >= 2 and sorted_scores[1] >= 45.0:
+                consensus_boost = min(5.0, (sorted_scores[1] / 100.0) * 8.0)
+                p_best_score = min(100.0, best_raw + consensus_boost)
             else:
-                p_best_score = sorted_scores[0]
+                p_best_score = best_raw
 
-            profile_best_scores[p_id] = p_best_score
+            # Centroid tiebreaker: for near-threshold scores, compare against profile's mean centroid
+            centroid = profile.get("centroid_embedding")
+            if centroid is not None and len(centroid) == 512:
+                centroid_arr = np.asarray(centroid, dtype=np.float64)
+                centroid_score = self.face_engine.calculate_match_score(face_encoding, centroid_arr)
+                if centroid_score > p_best_score:
+                    p_best_score = centroid_score
 
-            if p_best_score >= self.threshold and p_best_score > highest_score:
-                highest_score = p_best_score
+            # Apply discriminative SVM classifier margin adjustment
+            final_p_score = self.classifier_service.evaluate_discriminative_margin(
+                face_encoding, p_id, p_best_score
+            )
+
+            profile_best_scores[p_id] = final_p_score
+
+            if final_p_score >= self.threshold and final_p_score > highest_score:
+                highest_score = final_p_score
                 best_match_id = p_id
                 best_match_name = p_name
 
@@ -97,10 +121,10 @@ class SoloFaceMatcher:
         RULES:
         1. Individual Solo Profile:
            - Matches ONLY when len(face_locations) == 1.
-           - Single face must match individual profile with score >= threshold (70%).
+           - Single face must match individual profile with score >= threshold.
         2. Group Solo Profile (e.g. Couple / Family Group):
            - Matches ONLY when len(face_locations) == N (exact member count).
-           - Every compulsory member of the Group Profile must match a distinct face with score >= threshold (70%).
+           - Every compulsory member of the Group Profile must match a distinct face with score >= threshold.
            - Guarantees 0% strangers/outsiders in the photo.
 
         :return: (set_of_matched_profile_names, list_of_face_results)
@@ -160,43 +184,48 @@ class SoloFaceMatcher:
     ) -> bool:
         """
         Verifies that every compulsory member profile matches a distinct detected face in the photo.
+        Uses exact permutation matching (optimal 1-to-1 bijection) to avoid order-dependent false rejections.
         Returns True if 100% of member profiles are present with score >= self.threshold.
         """
         if len(face_encodings) != len(member_profiles):
             return False
 
         n = len(member_profiles)
-        used_faces = set()
+        if n == 0:
+            return False
 
+        # Build score matrix: scores_matrix[m_idx][f_idx] is best match score between member m and face f
+        scores_matrix = []
         for m_prof in member_profiles:
             embeddings = m_prof.get("embeddings", [])
             if not embeddings:
                 return False
 
-            best_face_idx = None
-            best_score = 0.0
+            centroid = m_prof.get("centroid_embedding")
+            centroid_arr = np.asarray(centroid, dtype=np.float64) if (centroid and len(centroid) == 512) else None
 
-            for f_idx, face_enc in enumerate(face_encodings):
-                if f_idx in used_faces:
-                    continue
-
-                p_best_score = 0.0
+            m_row = []
+            for face_enc in face_encodings:
+                best_sc = 0.0
                 for ref_emb in embeddings:
                     ref_arr = np.asarray(ref_emb, dtype=np.float64)
                     if np.all(ref_arr == 0):
                         continue
-                    score = self.face_engine.calculate_match_score(face_enc, ref_arr)
-                    if score > p_best_score:
-                        p_best_score = score
+                    sc = self.face_engine.calculate_match_score(face_enc, ref_arr)
+                    if sc > best_sc:
+                        best_sc = sc
 
-                if p_best_score >= self.threshold and p_best_score > best_score:
-                    best_score = p_best_score
-                    best_face_idx = f_idx
+                if centroid_arr is not None:
+                    c_sc = self.face_engine.calculate_match_score(face_enc, centroid_arr)
+                    if c_sc > best_sc:
+                        best_sc = c_sc
 
-            if best_face_idx is not None:
-                used_faces.add(best_face_idx)
-            else:
-                # Compulsory member was not found in photo
-                return False
+                m_row.append(best_sc)
+            scores_matrix.append(m_row)
 
-        return len(used_faces) == n
+        # Check if there exists any 1-to-1 assignment where every member matches a distinct face >= threshold
+        for perm in itertools.permutations(range(len(face_encodings)), n):
+            if all(scores_matrix[i][perm[i]] >= self.threshold for i in range(n)):
+                return True
+
+        return False

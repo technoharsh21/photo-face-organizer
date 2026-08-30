@@ -252,19 +252,23 @@ class SoloScanWorker(QThread):
 
                 self.source_to_output_map[str(file_path)] = output_targets
             else:
-                # Unmatched single face -> Increment counter, DO NOT create 'No Match' folder
+                # Unmatched photo -> Increment no_match counter, DO NOT create 'No Match' folder
                 self.no_match_count += 1
-                res = face_results[0]
-                stored = self.unknown_face_service.store_unknown_face(
-                    face_crop=face_crops[0],
-                    face_encoding=res.face_encoding,
-                    source_photo_path=str(file_path),
-                    bounding_box=list(res.bounding_box),
-                    scan_id=self.scan_id,
-                )
-                if stored is not None:
-                    self.unknown_faces_count += 1
-                self.source_to_output_map[str(file_path)] = ["Unmatched Single Face (No Output Copy)"]
+                if len(face_locations) == 1 and face_results and face_crops:
+                    res = face_results[0]
+                    stored = self.unknown_face_service.store_unknown_face(
+                        face_crop=face_crops[0],
+                        face_encoding=res.face_encoding,
+                        source_photo_path=str(file_path),
+                        bounding_box=list(res.bounding_box),
+                        scan_id=self.scan_id,
+                    )
+                    if stored is not None:
+                        self.unknown_faces_count += 1
+                    self.source_to_output_map[str(file_path)] = ["Unmatched Single Face (No Output Copy)"]
+                else:
+                    self.source_to_output_map[str(file_path)] = [f"Filtered Out Group Photo ({len(face_locations)} faces)"]
+
 
         except Exception as e:
             logger.error(f"Error processing solo photo {file_path}: {e}")

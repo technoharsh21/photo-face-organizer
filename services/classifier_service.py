@@ -153,12 +153,13 @@ class ProfileClassifierService:
                 margin = float(scores[target_class])
 
             if is_target:
-                # Confidence boost for clear decision boundary match
-                boost = min(15.0, max(0.0, margin * 5.0))
+                # Confidence boost for clear decision boundary match — capped to avoid over-confidence
+                boost = min(10.0, max(0.0, margin * 4.0))
                 return min(100.0, base_similarity_score + boost)
             else:
-                # Mild penalty if classifier strongly attributes face to a rival profile
-                penalty = min(20.0, max(0.0, abs(margin) * 5.0))
+                # Small penalty if classifier strongly attributes face to a rival profile.
+                # Kept small (max -8 pts) so genuine borderline matches near threshold are not falsely rejected.
+                penalty = min(8.0, max(0.0, abs(margin) * 3.0))
                 return max(0.0, base_similarity_score - penalty)
 
         except Exception as e:

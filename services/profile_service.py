@@ -89,6 +89,14 @@ class ProfileService:
                 data["embeddings"] = new_embs
                 self._save_profile(data)
 
+        if ("centroid_embedding" not in data or not data["centroid_embedding"]) and data.get("embeddings"):
+            import numpy as np
+            valid_embs = [np.asarray(e, dtype=np.float64) for e in data["embeddings"] if e and len(e) == 512]
+            if valid_embs:
+                mean_vec = np.mean(valid_embs, axis=0)
+                norm = np.linalg.norm(mean_vec)
+                data["centroid_embedding"] = (mean_vec / norm if norm > 0 else mean_vec).tolist()
+
         return data
 
     def list_profiles(self) -> list[dict[str, Any]]:
@@ -297,6 +305,17 @@ class ProfileService:
         }
         profile.setdefault("references", []).append(ref_entry)
         profile.setdefault("embeddings", []).append(encoding.tolist())
+
+        # Auto-compute normalized centroid embedding from all reference embeddings.
+        # Used by matcher as a noise-smoothed identity vector for near-threshold tiebreaking.
+        import numpy as np
+        all_embs = profile.get("embeddings", [])
+        valid_embs = [np.asarray(e, dtype=np.float64) for e in all_embs if e and len(e) == 512]
+        if valid_embs:
+            mean_vec = np.mean(valid_embs, axis=0)
+            norm = np.linalg.norm(mean_vec)
+            centroid = (mean_vec / norm if norm > 0 else mean_vec).tolist()
+            profile["centroid_embedding"] = centroid
 
         self._save_profile(profile)
         return True, "Reference photo added successfully"

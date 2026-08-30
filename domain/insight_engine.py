@@ -13,6 +13,7 @@ import io
 import logging
 import os
 import sys
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -36,6 +37,10 @@ class InsightFaceEngine:
     """
     World-class AI face detection and recognition engine powered by InsightFace and ONNX Runtime.
     """
+
+    # Class-level lock: prevents multiple scan worker threads from simultaneously
+    # initializing the GPU model (race condition crashes DirectML/CUDA with no error message)
+    _init_lock = threading.Lock()
 
     def __init__(self, device_preference: str = "Auto"):
         self.device_preference = device_preference
@@ -238,64 +243,79 @@ class InsightFaceEngine:
             self.gpu_available = False
 
     def _ensure_initialized(self):
-        """Lazy load ONNX models into memory when required with cascading GPU fallback."""
+        """Lazy load ONNX models into memory when required with cascading GPU fallback.
+
+        Thread-safe: uses a class-level lock so multiple scan worker threads cannot
+        simultaneously call FaceAnalysis() / app.prepare() on the same GPU context,
+        which would silently crash DirectML without any error message or log output.
+        """
+        # Fast path: already initialized — no lock needed
         if self._is_initialized and self.app is not None:
             return
 
-        # Guard stdout/stderr during InsightFace model loading (PyInstaller --windowed)
-        _orig_stdout = sys.stdout
-        _orig_stderr = sys.stderr
-        try:
-            try:
-                import cv2
-                cpu_cores = os.cpu_count() or 4
-                cv2.setNumThreads(cpu_cores)
-            except Exception:
-                pass
+        # Serialized init: only one thread at a time initializes the GPU model.
+        # Without this lock, 6 scan worker threads simultaneously call FaceAnalysis()
+        # and app.prepare() on the same DML GPU context, silently crashing the app.
+        with InsightFaceEngine._init_lock:
+            # Double-check inside lock: another thread may have finished init while we waited
+            if self._is_initialized and self.app is not None:
+                return
 
-            logger.info(f"Initializing InsightFace models with providers: {self.providers}...")
-
-            # 1. Attempt primary configured provider list
+            # Guard stdout/stderr during InsightFace model loading (PyInstaller --windowed)
+            _orig_stdout = sys.stdout
+            _orig_stderr = sys.stderr
             try:
+                try:
+                    import cv2
+                    cpu_cores = os.cpu_count() or 4
+                    cv2.setNumThreads(cpu_cores)
+                except Exception:
+                    pass
+
+                logger.info(f"Initializing InsightFace models with providers: {self.providers}...")
+
+                # 1. Attempt primary configured provider list
+                try:
+                    self.app = FaceAnalysis(name="buffalo_sc", providers=self.providers)
+                    self.app.prepare(ctx_id=0, det_size=(640, 640))
+                    self._is_initialized = True
+                    logger.info(f"InsightFace engine initialized successfully on {self.active_device}.")
+                    return
+                except Exception as primary_err:
+                    logger.warning(f"Primary GPU provider ({self.providers}) failed: {primary_err}", exc_info=True)
+
+                # 2. Cascading Fallback 1: Try DirectX 12 DirectML (NVIDIA / AMD / Intel GPU)
+                available = onnxruntime.get_available_providers()
+                if "DmlExecutionProvider" in available and "DmlExecutionProvider" not in self.providers:
+                    try:
+                        logger.info("Attempting cascading fallback to DirectX 12 DirectML GPU...")
+                        dml_providers = ["DmlExecutionProvider", "CPUExecutionProvider"]
+                        self.app = FaceAnalysis(name="buffalo_sc", providers=dml_providers)
+                        self.app.prepare(ctx_id=0, det_size=(640, 640))
+                        self.providers = dml_providers
+                        gpu_name = self.get_system_gpu_name()
+                        self.active_device = f"DirectX 12 GPU ({gpu_name})"
+                        self.gpu_available = True
+                        self._is_initialized = True
+                        logger.info(f"InsightFace successfully initialized on DirectX 12 DirectML GPU ({gpu_name})!")
+                        return
+                    except Exception as dml_err:
+                        logger.warning(f"DirectX 12 DirectML GPU fallback failed: {dml_err}", exc_info=True)
+
+                # 3. Cascading Fallback 2: Multi-Core CPU
+                logger.info("Falling back to Multi-Core CPU execution...")
+                cpu_name = self.get_system_cpu_name()
+                self.providers = ["CPUExecutionProvider"]
+                self.active_device = f"Multi-Core CPU ({cpu_name})"
+                self.gpu_available = False
                 self.app = FaceAnalysis(name="buffalo_sc", providers=self.providers)
                 self.app.prepare(ctx_id=0, det_size=(640, 640))
                 self._is_initialized = True
-                logger.info(f"InsightFace engine initialized successfully on {self.active_device}.")
-                return
-            except Exception as primary_err:
-                logger.warning(f"Primary GPU provider ({self.providers}) failed: {primary_err}", exc_info=True)
+                logger.info(f"InsightFace engine initialized on Multi-Core CPU ({cpu_name}).")
 
-            # 2. Cascading Fallback 1: Try DirectX 12 DirectML (NVIDIA / AMD / Intel GPU)
-            available = onnxruntime.get_available_providers()
-            if "DmlExecutionProvider" in available and "DmlExecutionProvider" not in self.providers:
-                try:
-                    logger.info("Attempting cascading fallback to DirectX 12 DirectML GPU...")
-                    dml_providers = ["DmlExecutionProvider", "CPUExecutionProvider"]
-                    self.app = FaceAnalysis(name="buffalo_sc", providers=dml_providers)
-                    self.app.prepare(ctx_id=0, det_size=(640, 640))
-                    self.providers = dml_providers
-                    gpu_name = self.get_system_gpu_name()
-                    self.active_device = f"DirectX 12 GPU ({gpu_name})"
-                    self.gpu_available = True
-                    self._is_initialized = True
-                    logger.info(f"InsightFace successfully initialized on DirectX 12 DirectML GPU ({gpu_name})!")
-                    return
-                except Exception as dml_err:
-                    logger.warning(f"DirectX 12 DirectML GPU fallback failed: {dml_err}", exc_info=True)
+            except Exception as cpu_err:
+                logger.error(f"Failed to initialize InsightFace engine: {cpu_err}", exc_info=True)
 
-            # 3. Cascading Fallback 2: Multi-Core CPU
-            logger.info("Falling back to Multi-Core CPU execution...")
-            cpu_name = self.get_system_cpu_name()
-            self.providers = ["CPUExecutionProvider"]
-            self.active_device = f"Multi-Core CPU ({cpu_name})"
-            self.gpu_available = False
-            self.app = FaceAnalysis(name="buffalo_sc", providers=self.providers)
-            self.app.prepare(ctx_id=0, det_size=(640, 640))
-            self._is_initialized = True
-            logger.info(f"InsightFace engine initialized on Multi-Core CPU ({cpu_name}).")
-
-        except Exception as cpu_err:
-            logger.error(f"Failed to initialize InsightFace engine: {cpu_err}", exc_info=True)
 
     def _detect_system_gpu(self) -> bool:
         """Detect system GPU hardware presence (NVIDIA, AMD, Intel)."""
@@ -525,15 +545,20 @@ class InsightFaceEngine:
 
         raw_cosine = float(np.dot(e1, e2) / (norm1 * norm2))
 
-        if raw_cosine < 0.18:
+        # ArcFace buffalo_sc calibration for GTX 1650 / DML:
+        # < 0.15  → clearly different people (return 0%)
+        # 0.15-0.22 → uncertain zone scaled to 0-49.9%
+        # 0.22-0.55 → same person range scaled to 50-100%
+        # (buffalo_sc typically scores 0.55-0.80 for same person, so upper bound 0.55 avoids clipping)
+        if raw_cosine < 0.15:
             return 0.0
 
-        if raw_cosine < 0.25:
-            # Scale [0.18, 0.25] -> [0.0%, 49.9%]
-            score = ((raw_cosine - 0.18) / (0.25 - 0.18)) * 49.9
+        if raw_cosine < 0.22:
+            # Scale [0.15, 0.22] → [0.0%, 49.9%]
+            score = ((raw_cosine - 0.15) / (0.22 - 0.15)) * 49.9
         else:
-            # Scale [0.25, 0.50] -> [50.0%, 100.0%]
-            score = 50.0 + ((raw_cosine - 0.25) / (0.50 - 0.25)) * 50.0
+            # Scale [0.22, 0.55] → [50.0%, 100.0%]
+            score = 50.0 + ((raw_cosine - 0.22) / (0.55 - 0.22)) * 50.0
 
         return round(max(0.0, min(100.0, score)), 1)
 
