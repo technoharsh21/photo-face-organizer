@@ -19,7 +19,9 @@ class FaceEngine(ABC):
     """Abstract base class defining the Face Engine contract."""
 
     @abstractmethod
-    def detect_faces(self, image: Any, model: str = "hog") -> list[tuple[int, int, int, int]]:
+    def detect_faces(
+        self, image: Any, model: str = "hog", det_thresh: float | None = None
+    ) -> list[tuple[int, int, int, int]]:
         """
         Detect face bounding boxes in an image.
         Returns list of (top, right, bottom, left) tuples.
@@ -42,13 +44,13 @@ class FaceEngine(ABC):
         """
 
     def detect_and_embed_faces(
-        self, image: Any
+        self, image: Any, det_thresh: float | None = None
     ) -> tuple[list[tuple[int, int, int, int]], list[np.ndarray], list[Image.Image]]:
         """
         Unified single-pass detection, ArcFace embedding extraction, and face cropping.
         Returns: (face_locations, face_encodings, face_crops)
         """
-        locs = self.detect_faces(image)
+        locs = self.detect_faces(image, det_thresh=det_thresh)
         embs = self.create_embeddings(image, locs)
         crops = self.extract_faces(image, locs)
         return locs, embs, crops

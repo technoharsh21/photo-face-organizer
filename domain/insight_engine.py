@@ -294,7 +294,7 @@ class InsightFaceEngine:
                 # 1. Attempt primary configured provider list
                 try:
                     self.app = FaceAnalysis(name="buffalo_sc", providers=self.providers)
-                    self.app.prepare(ctx_id=0, det_size=(640, 640))
+                    self.app.prepare(ctx_id=0, det_size=(640, 640), det_thresh=0.35)
                     self._is_initialized = True
                     logger.info(f"InsightFace engine initialized successfully on {self.active_device}.")
                     return
@@ -308,7 +308,7 @@ class InsightFaceEngine:
                         logger.info("Attempting cascading fallback to DirectX 12 DirectML GPU...")
                         dml_providers = ["DmlExecutionProvider", "CPUExecutionProvider"]
                         self.app = FaceAnalysis(name="buffalo_sc", providers=dml_providers)
-                        self.app.prepare(ctx_id=0, det_size=(640, 640))
+                        self.app.prepare(ctx_id=0, det_size=(640, 640), det_thresh=0.35)
                         self.providers = dml_providers
                         gpu_name = self.get_system_gpu_name()
                         self.active_device = f"DirectX 12 GPU ({gpu_name})"
@@ -326,7 +326,7 @@ class InsightFaceEngine:
                 self.active_device = f"Multi-Core CPU ({cpu_name})"
                 self.gpu_available = False
                 self.app = FaceAnalysis(name="buffalo_sc", providers=self.providers)
-                self.app.prepare(ctx_id=0, det_size=(640, 640))
+                self.app.prepare(ctx_id=0, det_size=(640, 640), det_thresh=0.35)
                 self._is_initialized = True
                 logger.info(f"InsightFace engine initialized on Multi-Core CPU ({cpu_name}).")
 
@@ -443,7 +443,7 @@ class InsightFaceEngine:
         norm = np.linalg.norm(mean_vec)
         return mean_vec / norm if norm > 0 else mean_vec
 
-    def _run_inference(self, app: Any, img_bgr: np.ndarray) -> list[Any]:
+    def _run_inference(self, app: Any, img_bgr: np.ndarray, det_thresh: float | None = None) -> list[Any]:
         """
         Execute neural network inference with provider-specific concurrency rules.
         DirectML on Windows requires serializing D3D12 command lists via _infer_lock.
@@ -452,12 +452,70 @@ class InsightFaceEngine:
         """
         if app is None:
             return []
+        if det_thresh is not None and hasattr(app, "models") and "detection" in app.models:
+            try:
+                app.models["detection"].det_thresh = float(det_thresh)
+            except Exception:
+                pass
         if "DmlExecutionProvider" in self.providers:
             with InsightFaceEngine._infer_lock:
                 return app.get(img_bgr)
         return app.get(img_bgr)
 
-    def detect_faces(self, image: Any, upsample_num_times: int = 1) -> list[tuple[int, int, int, int]]:
+    @staticmethod
+    def calculate_face_sharpness(image: Any) -> float:
+        """
+        Computes focus / sharpness score of a face using Laplacian variance.
+        Returns float score: typical sharp face > 80, blurry < 35.
+        """
+        try:
+            import cv2
+            if isinstance(image, Image.Image):
+                arr = np.array(image.convert("L"))
+            elif isinstance(image, np.ndarray):
+                if image.ndim == 3:
+                    arr = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY if image.shape[2] == 3 else cv2.COLOR_RGB2GRAY)
+                else:
+                    arr = image
+            else:
+                return 100.0
+            lap = cv2.Laplacian(arr, cv2.CV_64F)
+            score = float(np.var(lap))
+            return round(score, 1)
+        except Exception:
+            return 100.0
+
+    @staticmethod
+    def is_valid_face_geometry(bbox: list[int] | tuple[int, int, int, int], kps: Any = None) -> bool:
+        """
+        Verifies anatomical human facial proportions to reject non-human texture artifacts
+        (e.g., T-shirt graphics, knees, wallpaper patterns, statues).
+        Bbox format: [left, top, right, bottom] or (top, right, bottom, left)
+        """
+        try:
+            if len(bbox) == 4:
+                w = abs(bbox[2] - bbox[0])
+                h = abs(bbox[3] - bbox[1])
+                if w <= 8 or h <= 8:
+                    return False
+                aspect = w / h if h > 0 else 0
+                if aspect < 0.30 or aspect > 3.0:
+                    return False
+
+                if kps is not None:
+                    kps_arr = np.asarray(kps, dtype=np.float32)
+                    if kps_arr.shape == (5, 2):
+                        # Distance between left eye and right eye
+                        eye_dist = np.linalg.norm(kps_arr[0] - kps_arr[1])
+                        if eye_dist < 1.5:
+                            return False
+            return True
+        except Exception:
+            return True
+
+    def detect_faces(
+        self, image: Any, upsample_num_times: int = 1, det_thresh: float | None = None
+    ) -> list[tuple[int, int, int, int]]:
         """
         Detect faces using SCRFD 360° deep detector.
         Thread-safe: uses _infer_lock when on DirectML to prevent DirectX 12 command list collisions.
@@ -470,10 +528,13 @@ class InsightFaceEngine:
 
         img_bgr = self._preprocess_bgr_image(self._to_numpy_bgr(image))
         try:
-            faces = self._run_inference(self.app, img_bgr)
+            faces = self._run_inference(self.app, img_bgr, det_thresh=det_thresh)
             locations = []
             for face in faces:
                 bbox = face.bbox.astype(int)  # [left, top, right, bottom]
+                kps = getattr(face, "kps", None)
+                if not self.is_valid_face_geometry(bbox, kps):
+                    continue
                 left, top, right, bottom = int(bbox[0]), int(bbox[1]), int(bbox[2]), int(bbox[3])
                 locations.append((top, right, bottom, left))
             return locations
@@ -492,8 +553,8 @@ class InsightFaceEngine:
                 )
                 try:
                     cpu_app = FaceAnalysis(name="buffalo_sc", providers=["CPUExecutionProvider"])
-                    cpu_app.prepare(ctx_id=0, det_size=(640, 640))
-                    faces = self._run_inference(cpu_app, img_bgr)
+                    cpu_app.prepare(ctx_id=0, det_size=(640, 640), det_thresh=0.35)
+                    faces = self._run_inference(cpu_app, img_bgr, det_thresh=det_thresh)
                     locations = []
                     for face in faces:
                         bbox = face.bbox.astype(int)
@@ -550,7 +611,7 @@ class InsightFaceEngine:
             return [np.zeros(512, dtype=np.float64)] * (len(face_locations) if face_locations else 1)
 
     def detect_and_embed_faces(
-        self, image: Any
+        self, image: Any, det_thresh: float | None = None
     ) -> tuple[list[tuple[int, int, int, int]], list[np.ndarray], list[Image.Image]]:
         """
         Unified single-pass detection, ArcFace embedding extraction, and face cropping.
@@ -571,7 +632,7 @@ class InsightFaceEngine:
         t0 = time.time()
 
         try:
-            faces = self._run_inference(self.app, img_bgr)
+            faces = self._run_inference(self.app, img_bgr, det_thresh=det_thresh)
 
             locations = []
             embeddings = []
@@ -580,6 +641,10 @@ class InsightFaceEngine:
 
             for face in faces:
                 bbox = face.bbox.astype(int)  # [left, top, right, bottom]
+                kps = getattr(face, "kps", None)
+                if not self.is_valid_face_geometry(bbox, kps):
+                    continue
+
                 left, top, right, bottom = int(bbox[0]), int(bbox[1]), int(bbox[2]), int(bbox[3])
                 locations.append((top, right, bottom, left))
 
@@ -621,8 +686,8 @@ class InsightFaceEngine:
                 )
                 try:
                     cpu_app = FaceAnalysis(name="buffalo_sc", providers=["CPUExecutionProvider"])
-                    cpu_app.prepare(ctx_id=0, det_size=(640, 640))
-                    faces = self._run_inference(cpu_app, img_bgr)
+                    cpu_app.prepare(ctx_id=0, det_size=(640, 640), det_thresh=0.35)
+                    faces = self._run_inference(cpu_app, img_bgr, det_thresh=det_thresh)
                     locations = []
                     embeddings = []
                     crops = []

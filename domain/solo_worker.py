@@ -56,12 +56,16 @@ class SoloScanWorker(QThread):
         start_index: int = 0,
         initial_stats: dict[str, Any] | None = None,
         all_system_profiles: list[dict[str, Any]] | None = None,
+        allow_distant_photobombers: bool = False,
+        min_sharpness: float = 0.0,
     ):
         super().__init__()
         self.scan_id = scan_id
         self.files = files
         self.profiles = profiles
         self.all_system_profiles = all_system_profiles or profiles
+        self.allow_distant_photobombers = allow_distant_photobombers
+        self.min_sharpness = min_sharpness
         self.output_dir = Path(output_dir)
         self.checkpoint_file = Path(checkpoint_file)
         self.face_engine = face_engine
@@ -202,20 +206,36 @@ class SoloScanWorker(QThread):
                 face_locations, face_encodings = cached
                 face_crops = self.face_engine.extract_faces(pil_img, face_locations)
             else:
-                # 1. Single-pass detection and embedding extraction
+                # 1. Sensitive single-pass detection and embedding extraction (catches profile & side faces)
                 if hasattr(self.face_engine, "detect_and_embed_faces"):
-                    face_locations, face_encodings, face_crops = self.face_engine.detect_and_embed_faces(pil_img)
+                    face_locations, face_encodings, face_crops = self.face_engine.detect_and_embed_faces(pil_img, det_thresh=0.35)
                 else:
-                    face_locations = self.face_engine.detect_faces(pil_img)
+                    face_locations = self.face_engine.detect_faces(pil_img, det_thresh=0.35)
                     face_encodings = self.face_engine.create_embeddings(pil_img, face_locations)
                     face_crops = self.face_engine.extract_faces(pil_img, face_locations)
 
                 # Retry with upsample=2 if 0 faces found
                 if not face_locations:
-                    face_locations = self.face_engine.detect_faces(pil_img, upsample_num_times=2)
+                    face_locations = self.face_engine.detect_faces(pil_img, upsample_num_times=2, det_thresh=0.30)
                     if face_locations:
                         face_encodings = self.face_engine.create_embeddings(pil_img, face_locations)
                         face_crops = self.face_engine.extract_faces(pil_img, face_locations)
+
+                # 2. Secondary Deep Background & Profile Face Verification:
+                # If exactly 1 face was detected in a medium/high-res photo, perform high-sensitivity check
+                # to guarantee no subtle side-profile, turned head, or background person was missed.
+                if len(face_locations) == 1:
+                    w, h = pil_img.size
+                    if max(w, h) >= 1200:
+                        extra_locs = self.face_engine.detect_faces(pil_img, upsample_num_times=1, det_thresh=0.28)
+                        if len(extra_locs) > len(face_locations):
+                            logger.info(
+                                f"[SOLO: {file_path.name}] Secondary side/background face detected on deep scan "
+                                f"({len(extra_locs)} total faces). Excluding from solo."
+                            )
+                            face_locations = extra_locs
+                            face_encodings = self.face_engine.create_embeddings(pil_img, face_locations)
+                            face_crops = self.face_engine.extract_faces(pil_img, face_locations)
 
                 if self.face_cache_service:
                     self.face_cache_service.save_cached_faces(file_path, face_locations, face_encodings)
@@ -232,14 +252,24 @@ class SoloScanWorker(QThread):
                 face_locations=face_locations,
                 profiles=self.profiles,
                 all_system_profiles=self.all_system_profiles,
+                allow_distant_photobombers=self.allow_distant_photobombers,
             )
+
+            # 3. Quality & Sharpness Verification
+            sharpness = 100.0
+            if face_crops and hasattr(self.face_engine, "calculate_face_sharpness"):
+                sharpness = self.face_engine.calculate_face_sharpness(face_crops[0])
+
+            if self.min_sharpness > 0 and sharpness < self.min_sharpness and matched_person_names:
+                logger.info(f"[SOLO: {file_path.name}] SKIPPED -> Low image sharpness/blur ({sharpness:.1f} < {self.min_sharpness:.1f})")
+                matched_person_names = set()
 
             # 4. Route copies ONLY IF matched to a person profile
             if matched_person_names:
                 self.matched_count += 1
                 output_targets = []
                 matched_str = ", ".join(sorted(matched_person_names))
-                logger.info(f"[SOLO: {file_path.name}] MATCHED -> {matched_str} (faces in photo: {len(face_locations)})")
+                logger.info(f"[SOLO: {file_path.name}] MATCHED -> {matched_str} (faces: {len(face_locations)}, sharpness: {sharpness:.1f})")
                 for p_name in sorted(matched_person_names):
                     self.results_by_person[p_name] = self.results_by_person.get(p_name, 0) + 1
                     clean_name = self.output_service.sanitize_folder_name(p_name)

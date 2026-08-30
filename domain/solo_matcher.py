@@ -108,19 +108,51 @@ class SoloFaceMatcher:
             profile_scores=profile_best_scores,
         )
 
+    @staticmethod
+    def is_dominant_solo_portrait(face_locations: list[tuple[int, int, int, int]]) -> tuple[bool, int]:
+        """
+        Determines if a multi-face photo is actually a dominant solo portrait with an accidental,
+        tiny, distant background photobomber in a wide-angle/street scene.
+        Returns: (is_dominant, dominant_index)
+        """
+        if len(face_locations) <= 1:
+            return False, 0
+
+        areas = []
+        for top, right, bottom, left in face_locations:
+            w = max(0, right - left)
+            h = max(0, bottom - top)
+            areas.append(w * h)
+
+        total_area = sum(areas)
+        if total_area == 0:
+            return False, 0
+
+        max_area = max(areas)
+        max_idx = areas.index(max_area)
+        other_areas = [areas[i] for i in range(len(areas)) if i != max_idx]
+
+        # Dominant: Foreground face occupies >= 90% of total facial area in photo,
+        # and all background faces are tiny (< 4% of primary face area).
+        if (max_area / total_area >= 0.90) and all(oa < (0.04 * max_area) for oa in other_areas):
+            return True, max_idx
+
+        return False, 0
+
     def evaluate_solo_photo_matches(
         self,
         face_encodings: list[np.ndarray],
         face_locations: list[tuple[int, int, int, int]],
         profiles: list[dict[str, Any]],
         all_system_profiles: list[dict[str, Any]] | None = None,
+        allow_distant_photobombers: bool = False,
     ) -> tuple[set[str], list[ProfileMatchResult]]:
         """
         Evaluates detected faces in a photo for solo and exclusive group matching.
 
         RULES:
         1. Individual Solo Profile:
-           - Matches ONLY when len(face_locations) == 1.
+           - Matches ONLY when len(face_locations) == 1 (or 1 dominant subject if photobomber mode enabled).
            - Single face must match individual profile with score >= threshold.
         2. Group Solo Profile (e.g. Couple / Family Group):
            - Matches ONLY when len(face_locations) == N (exact member count).
@@ -136,9 +168,17 @@ class SoloFaceMatcher:
         individual_profiles = [p for p in profiles if not p.get("is_group_profile")]
         group_profiles = [p for p in profiles if p.get("is_group_profile")]
 
-        # 1. Individual Solo Matching (Requires EXACTLY 1 face)
-        if len(face_locations) == 1:
-            res = self.match_face(face_encodings[0], individual_profiles, bounding_box=face_locations[0], face_index=0)
+        # 1. Individual Solo Matching (Requires EXACTLY 1 face, or dominant subject in photobomber mode)
+        is_dominant, dominant_idx = self.is_dominant_solo_portrait(face_locations) if allow_distant_photobombers else (False, 0)
+
+        if len(face_locations) == 1 or is_dominant:
+            target_idx = dominant_idx if is_dominant else 0
+            res = self.match_face(
+                face_encodings[target_idx],
+                individual_profiles,
+                bounding_box=face_locations[target_idx],
+                face_index=target_idx,
+            )
             face_results.append(res)
             if res.is_match and res.matched_profile_name:
                 matched_profile_names.add(res.matched_profile_name)

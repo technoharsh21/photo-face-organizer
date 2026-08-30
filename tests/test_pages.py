@@ -63,8 +63,12 @@ def test_all_pages_load_and_navigate(qapp, tmp_path):
         settings_service=settings,
     )
 
-    # Verify all 8 pages exist and can be navigated to
-    pages = ["Dashboard", "People", "New Scan", "Processing", "Results", "Unknown Faces", "History", "Settings"]
+    # Verify all 10 pages exist and can be navigated to
+    pages = [
+        "Dashboard", "People", "New Scan", "Solo Scan",
+        "Processing", "Results", "Unknown Faces", "History",
+        "Settings", "Duplicates"
+    ]
 
     for page_name in pages:
         window.navigate_to(page_name)

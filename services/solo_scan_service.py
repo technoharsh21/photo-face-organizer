@@ -58,6 +58,8 @@ class SoloScanService:
         performance_mode: str = "Maximum Performance",
         operation_mode: str = "copy",  # "copy" or "move"
         threshold: float = 70.0,
+        allow_distant_photobombers: bool = False,
+        min_sharpness: float = 0.0,
     ) -> tuple[SoloScanWorker, dict[str, Any]]:
         """
         Initializes and returns a SoloScanWorker thread configured for single-person photo matching.
@@ -97,6 +99,8 @@ class SoloScanService:
             "performance_mode": performance_mode,
             "operation_mode": operation_mode,
             "threshold": threshold,
+            "allow_distant_photobombers": allow_distant_photobombers,
+            "min_sharpness": min_sharpness,
             "total_files": len(discovered_paths),
         }
 
@@ -124,6 +128,8 @@ class SoloScanService:
             operation_mode=operation_mode,
             start_index=0,
             all_system_profiles=all_sys_profiles,
+            allow_distant_photobombers=allow_distant_photobombers,
+            min_sharpness=min_sharpness,
         )
 
         self.current_worker = worker

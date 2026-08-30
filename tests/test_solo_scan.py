@@ -139,3 +139,44 @@ def test_exclusive_group_solo_matching(mock_face_engine):
         all_system_profiles=all_sys_profiles,
     )
     assert "Harsh & Arya" not in names3
+
+
+def test_photobomber_and_geometry_features(mock_face_engine):
+    matcher = SoloFaceMatcher(face_engine=mock_face_engine, threshold=50.0)
+
+    enc_harsh = np.ones(512, dtype=np.float64)
+    enc_photobomber = np.zeros(512, dtype=np.float64)
+    profiles = [{"id": "p_harsh", "name": "Harsh", "is_group_profile": False, "embeddings": [enc_harsh.tolist()]}]
+
+    # Large dominant foreground face (300x300 = 90,000 px) + tiny background photobomber (30x30 = 900 px)
+    loc_dominant = (50, 350, 350, 50)
+    loc_photobomber = (10, 40, 40, 10)
+
+    # 1. Strict Mode (Default): Photo with 2 faces is rejected
+    names_strict, _ = matcher.evaluate_solo_photo_matches(
+        face_encodings=[enc_harsh, enc_photobomber],
+        face_locations=[loc_dominant, loc_photobomber],
+        profiles=profiles,
+        allow_distant_photobombers=False,
+    )
+    assert len(names_strict) == 0
+
+    # 2. Dominant Subject Photobomber Mode: Main subject dominates >= 90% face area -> Accepted!
+    names_dominant, _ = matcher.evaluate_solo_photo_matches(
+        face_encodings=[enc_harsh, enc_photobomber],
+        face_locations=[loc_dominant, loc_photobomber],
+        profiles=profiles,
+        allow_distant_photobombers=True,
+    )
+    assert "Harsh" in names_dominant
+
+    # 3. Geometry Validation: Normal face vs tiny sliver/invalid aspect ratio
+    assert mock_face_engine.is_valid_face_geometry([10, 10, 100, 100]) is True
+    assert mock_face_engine.is_valid_face_geometry([0, 0, 4, 4]) is False  # too small (<=8px)
+    assert mock_face_engine.is_valid_face_geometry([0, 0, 200, 5]) is False  # extreme aspect ratio
+
+    # 4. Sharpness calculation
+    dummy_img = np.ones((50, 50, 3), dtype=np.uint8) * 128
+    score = mock_face_engine.calculate_face_sharpness(dummy_img)
+    assert isinstance(score, float)
+
