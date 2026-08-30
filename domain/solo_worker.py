@@ -120,12 +120,15 @@ class SoloScanWorker(QThread):
         cpu_count = os.cpu_count() or 4
         if self.performance_mode == "Maximum Performance":
             max_workers = max(4, cpu_count * 2)
-            # Cap GPU workers to avoid VRAM saturation on consumer GPUs (e.g. GTX 1650 = 4GB VRAM).
-            # Each InsightFace worker holds ~300MB VRAM; 6 workers safely fits within 4GB headroom.
-            if getattr(self.face_engine, "gpu_available", False):
-                max_workers = min(max_workers, 6)
-        else:
+        elif self.performance_mode == "Balanced":
             max_workers = max(2, cpu_count // 2)
+        else:
+            max_workers = max(1, cpu_count // 4)
+
+        # Cap GPU workers to avoid VRAM saturation on consumer GPUs (e.g. GTX 1650 = 4GB VRAM).
+        if getattr(self.face_engine, "gpu_available", False):
+            max_workers = min(max_workers, 4)
+
         batch_size = max(4, max_workers * 2)
         remaining_files = [f for f in self.files[self.start_index:] if str(f) not in self.processed_files]
 
@@ -201,19 +204,22 @@ class SoloScanWorker(QThread):
             cached = self.face_cache_service.get_cached_faces(file_path) if self.face_cache_service else None
             if cached is not None:
                 face_locations, face_encodings = cached
+                face_crops = self.face_engine.extract_faces(pil_img, face_locations)
             else:
-                # 1. Dual-Pass Face Detection
-                # Pass 1: Standard scale detection (upsample=1)
-                face_locations = self.face_engine.detect_faces(pil_img, upsample_num_times=1)
+                # 1. Single-pass detection and embedding extraction
+                if hasattr(self.face_engine, "detect_and_embed_faces"):
+                    face_locations, face_encodings, face_crops = self.face_engine.detect_and_embed_faces(pil_img)
+                else:
+                    face_locations = self.face_engine.detect_faces(pil_img)
+                    face_encodings = self.face_engine.create_embeddings(pil_img, face_locations)
+                    face_crops = self.face_engine.extract_faces(pil_img, face_locations)
 
-                # If 0 faces found at standard scale, try upsample=2 to find smaller/distant faces
+                # Retry with upsample=2 if 0 faces found
                 if not face_locations:
                     face_locations = self.face_engine.detect_faces(pil_img, upsample_num_times=2)
-
-                if face_locations:
-                    face_encodings = self.face_engine.create_embeddings(pil_img, face_locations)
-                else:
-                    face_encodings = []
+                    if face_locations:
+                        face_encodings = self.face_engine.create_embeddings(pil_img, face_locations)
+                        face_crops = self.face_engine.extract_faces(pil_img, face_locations)
 
                 if self.face_cache_service:
                     self.face_cache_service.save_cached_faces(file_path, face_locations, face_encodings)
@@ -223,11 +229,10 @@ class SoloScanWorker(QThread):
                 self.source_to_output_map[str(file_path)] = ["No faces detected"]
                 return
 
-            face_crops = self.face_engine.extract_faces(pil_img, face_locations)
-
-            # 3. Evaluate solo and exclusive group solo matches
+            # 2. Evaluate solo and exclusive group solo matches
             matched_person_names, face_results = self.matcher.evaluate_solo_photo_matches(
                 face_encodings=face_encodings,
+
                 face_locations=face_locations,
                 profiles=self.profiles,
                 all_system_profiles=self.all_system_profiles,

@@ -146,6 +146,10 @@ class ScanWorker(QThread):
         else:
             self.max_workers = max(1, cpu_count)
 
+        # Cap workers on GPU mode to prevent VRAM saturation and graphics driver crashes
+        if getattr(self.face_engine, "gpu_available", False):
+            self.max_workers = min(self.max_workers, 4)
+
     def pause(self):
         self._is_paused = True
 
@@ -171,8 +175,14 @@ class ScanWorker(QThread):
             if pil_img is None:
                 return {"status": "unreadable", "file_path": file_path_str, "error": err or "Unreadable image"}
 
-            # 1. Detect faces using self.face_engine (InsightFace 512-d)
-            face_locations = self.face_engine.detect_faces(pil_img)
+            # 1. Single-pass detection, embedding, and crop extraction (1 GPU forward pass instead of 2)
+            if hasattr(self.face_engine, "detect_and_embed_faces"):
+                face_locations, face_encodings, face_crops = self.face_engine.detect_and_embed_faces(pil_img)
+            else:
+                face_locations = self.face_engine.detect_faces(pil_img)
+                face_encodings = self.face_engine.create_embeddings(pil_img, face_locations)
+                face_crops = self.face_engine.extract_faces(pil_img, face_locations)
+
             if not face_locations:
                 return {
                     "status": "no_faces",
@@ -182,11 +192,7 @@ class ScanWorker(QThread):
                     "face_crops": [],
                 }
 
-            # 2. Extract encodings and crops
-            face_encodings = self.face_engine.create_embeddings(pil_img, face_locations)
-            face_crops = self.face_engine.extract_faces(pil_img, face_locations)
-
-            # 3. Evaluate matches against 512-d profile embeddings
+            # 2. Evaluate matches against 512-d profile embeddings
             matched_person_names, face_results = self.matcher.evaluate_photo_matches(
                 face_encodings=face_encodings,
                 face_locations=face_locations,
@@ -201,7 +207,9 @@ class ScanWorker(QThread):
                 "face_crops": face_crops,
             }
         except Exception as e:
+            logger.warning(f"Error processing {file_path.name}: {e}", exc_info=True)
             return {"status": "error", "file_path": file_path_str, "error": str(e)}
+
 
     def run(self):
         start_time = time.time()

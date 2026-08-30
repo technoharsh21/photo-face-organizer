@@ -42,6 +42,12 @@ class InsightFaceEngine:
     # initializing the GPU model (race condition crashes DirectML/CUDA with no error message)
     _init_lock = threading.Lock()
 
+    # Class-level inference lock: Direct3D 12 DirectML command allocators/lists are explicitly
+    # NOT thread-safe for concurrent app.get() calls. This mutex serializes only the ~15ms GPU forward pass,
+    # preventing D3D12 device lost / status access violation (0xC0000005) crashes while letting CPU threads
+    # decode and prepare images in parallel.
+    _infer_lock = threading.Lock()
+
     def __init__(self, device_preference: str = "Auto"):
         self.device_preference = device_preference
         self.active_device = "Multi-Core CPU"
@@ -51,6 +57,7 @@ class InsightFaceEngine:
         self._is_initialized = False
 
         self._configure_providers()
+
 
     def get_system_gpu_name(self) -> str:
         """Dynamically fetch the exact real GPU model name in real-time from OS kernel queries for any user machine."""
@@ -335,11 +342,14 @@ class InsightFaceEngine:
         return False
 
     def set_device_preference(self, preference: str) -> str:
-        """Update hardware device preference."""
-        self.device_preference = preference
-        self._is_initialized = False
-        self._configure_providers()
+        """Update hardware device preference with clean lock-protected state reset."""
+        with InsightFaceEngine._init_lock:
+            self.device_preference = preference
+            self._is_initialized = False
+            self.app = None
+            self._configure_providers()
         return self.active_device
+
 
     def get_device_info(self) -> dict[str, Any]:
         """Return active AI hardware acceleration status and model info."""
@@ -426,7 +436,7 @@ class InsightFaceEngine:
     def detect_faces(self, image: Any, upsample_num_times: int = 1) -> list[tuple[int, int, int, int]]:
         """
         Detect faces using SCRFD 360° deep detector.
-        Detects frontal, 180° profile, tilted, and dark faces down to 10x10 pixels.
+        Thread-safe: uses _infer_lock to prevent concurrent DirectX 12 command list collisions.
         Returns bounding boxes in [top, right, bottom, left] order.
         """
         self._ensure_initialized()
@@ -436,7 +446,8 @@ class InsightFaceEngine:
 
         img_bgr = self._preprocess_bgr_image(self._to_numpy_bgr(image))
         try:
-            faces = self.app.get(img_bgr)
+            with InsightFaceEngine._infer_lock:
+                faces = self.app.get(img_bgr)
             locations = []
             for face in faces:
                 bbox = face.bbox.astype(int)  # [left, top, right, bottom]
@@ -444,14 +455,9 @@ class InsightFaceEngine:
                 locations.append((top, right, bottom, left))
             return locations
         except Exception as e:
-
             err_str = str(e)
-            logger.warning(f"SCRFD detect_faces exception: {e}")
+            logger.warning(f"SCRFD detect_faces exception on {self.active_device}: {e}")
 
-            # DML Reshape crash recovery: known DirectML bug where certain image resolutions
-            # trigger an E_INVALIDARG (0x80070057) error in the Reshape ONNX node.
-            # Automatically fall back to CPU for this image and degrade engine to CPU-only
-            # for all subsequent images to prevent further crashes and "not responding" freezes.
             is_dml_reshape_error = (
                 "DmlExecutionProvider" in str(self.providers)
                 and ("80070057" in err_str or "Reshape" in err_str or "RUNTIME_EXCEPTION" in err_str)
@@ -464,14 +470,13 @@ class InsightFaceEngine:
                 try:
                     cpu_app = FaceAnalysis(name="buffalo_sc", providers=["CPUExecutionProvider"])
                     cpu_app.prepare(ctx_id=0, det_size=(640, 640))
-                    faces = cpu_app.get(img_bgr)
+                    with InsightFaceEngine._infer_lock:
+                        faces = cpu_app.get(img_bgr)
                     locations = []
                     for face in faces:
                         bbox = face.bbox.astype(int)
                         left, top, right, bottom = int(bbox[0]), int(bbox[1]), int(bbox[2]), int(bbox[3])
                         locations.append((top, right, bottom, left))
-                    # Permanently degrade this engine instance to CPU-only so future images
-                    # don't hit the same DML crash, avoiding repeated "not responding" freezes.
                     self.app = cpu_app
                     self.providers = ["CPUExecutionProvider"]
                     cpu_name = self.get_system_cpu_name()
@@ -484,12 +489,12 @@ class InsightFaceEngine:
 
             return []
 
-
     def create_embeddings(
         self, image: Any, face_locations: list[tuple[int, int, int, int]] | None = None
     ) -> list[np.ndarray]:
         """
         Extract 512-dimensional normalized ArcFace embeddings.
+        Thread-safe: uses _infer_lock to serialize GPU neural net forward passes.
         """
         self._ensure_initialized()
         if self.app is None:
@@ -497,7 +502,8 @@ class InsightFaceEngine:
 
         img_bgr = self._preprocess_bgr_image(self._to_numpy_bgr(image))
         try:
-            faces = self.app.get(img_bgr)
+            with InsightFaceEngine._infer_lock:
+                faces = self.app.get(img_bgr)
             embeddings = []
 
             for face in faces:
@@ -519,8 +525,118 @@ class InsightFaceEngine:
 
             return embeddings
         except Exception as e:
-            logger.warning(f"ArcFace create_embeddings exception: {e}")
+            logger.warning(f"ArcFace create_embeddings exception on {self.active_device}: {e}")
             return [np.zeros(512, dtype=np.float64)] * (len(face_locations) if face_locations else 1)
+
+    def detect_and_embed_faces(
+        self, image: Any
+    ) -> tuple[list[tuple[int, int, int, int]], list[np.ndarray], list[Image.Image]]:
+        """
+        Unified single-pass detection, ArcFace embedding extraction, and face cropping.
+        Runs the InsightFace neural network ONCE per photo instead of twice, halving GPU execution
+        time, cutting VRAM overhead in half, and preventing GPU multi-thread race conditions.
+        Returns: (face_locations, face_encodings, face_crops)
+        """
+        self._ensure_initialized()
+        if self.app is None:
+            return [], [], []
+
+        if isinstance(image, Image.Image):
+            pil_img = image
+        else:
+            pil_img = Image.fromarray(self._to_numpy_rgb(image))
+
+        img_bgr = self._preprocess_bgr_image(self._to_numpy_bgr(image))
+        t0 = time.time()
+
+        try:
+            with InsightFaceEngine._infer_lock:
+                faces = self.app.get(img_bgr)
+
+            locations = []
+            embeddings = []
+            crops = []
+            width, height = pil_img.size
+
+            for face in faces:
+                bbox = face.bbox.astype(int)  # [left, top, right, bottom]
+                left, top, right, bottom = int(bbox[0]), int(bbox[1]), int(bbox[2]), int(bbox[3])
+                locations.append((top, right, bottom, left))
+
+                if hasattr(face, "normed_embedding") and face.normed_embedding is not None:
+                    embeddings.append(np.asarray(face.normed_embedding, dtype=np.float64))
+                elif hasattr(face, "embedding") and face.embedding is not None:
+                    norm = np.linalg.norm(face.embedding)
+                    norm_emb = face.embedding / norm if norm > 0 else face.embedding
+                    embeddings.append(np.asarray(norm_emb, dtype=np.float64))
+                else:
+                    embeddings.append(np.zeros(512, dtype=np.float64))
+
+                c_top = max(0, top)
+                c_left = max(0, left)
+                c_bottom = min(height, bottom)
+                c_right = min(width, right)
+                if c_bottom > c_top and c_right > c_left:
+                    crops.append(pil_img.crop((c_left, c_top, c_right, c_bottom)))
+                else:
+                    crops.append(pil_img.copy())
+
+            elapsed = time.time() - t0
+            logger.debug(f"InsightFace [{self.active_device}]: {len(faces)} faces extracted in {elapsed*1000:.1f}ms")
+            return locations, embeddings, crops
+
+        except Exception as e:
+            err_str = str(e)
+            logger.warning(f"detect_and_embed_faces exception on {self.active_device}: {e}")
+
+            # DML Reshape crash recovery fallback
+            is_dml_reshape_error = (
+                "DmlExecutionProvider" in str(self.providers)
+                and ("80070057" in err_str or "Reshape" in err_str or "RUNTIME_EXCEPTION" in err_str)
+            )
+            if is_dml_reshape_error:
+                logger.warning(
+                    "DirectML Reshape error in detect_and_embed_faces — falling back to CPU "
+                    "and degrading engine to CPU-only mode."
+                )
+                try:
+                    cpu_app = FaceAnalysis(name="buffalo_sc", providers=["CPUExecutionProvider"])
+                    cpu_app.prepare(ctx_id=0, det_size=(640, 640))
+                    with InsightFaceEngine._infer_lock:
+                        faces = cpu_app.get(img_bgr)
+                    locations = []
+                    embeddings = []
+                    crops = []
+                    width, height = pil_img.size
+                    for face in faces:
+                        bbox = face.bbox.astype(int)
+                        left, top, right, bottom = int(bbox[0]), int(bbox[1]), int(bbox[2]), int(bbox[3])
+                        locations.append((top, right, bottom, left))
+                        if hasattr(face, "normed_embedding") and face.normed_embedding is not None:
+                            embeddings.append(np.asarray(face.normed_embedding, dtype=np.float64))
+                        elif hasattr(face, "embedding") and face.embedding is not None:
+                            norm = np.linalg.norm(face.embedding)
+                            embeddings.append(np.asarray(face.embedding / norm, dtype=np.float64))
+                        else:
+                            embeddings.append(np.zeros(512, dtype=np.float64))
+                        c_top, c_left, c_bottom, c_right = max(0, top), max(0, left), min(height, bottom), min(width, right)
+                        if c_bottom > c_top and c_right > c_left:
+                            crops.append(pil_img.crop((c_left, c_top, c_right, c_bottom)))
+                        else:
+                            crops.append(pil_img.copy())
+
+                    self.app = cpu_app
+                    self.providers = ["CPUExecutionProvider"]
+                    cpu_name = self.get_system_cpu_name()
+                    self.active_device = f"Multi-Core CPU ({cpu_name})"
+                    self.gpu_available = False
+                    logger.info(f"Engine degraded to CPU-only: {self.active_device}")
+                    return locations, embeddings, crops
+                except Exception as cpu_err:
+                    logger.warning(f"CPU fallback in detect_and_embed_faces failed: {cpu_err}")
+
+            return [], [], []
+
 
     def calculate_match_score(self, embedding1: np.ndarray, embedding2: np.ndarray) -> float:
         """

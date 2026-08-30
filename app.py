@@ -42,6 +42,7 @@ if not getattr(sys, "frozen", False):
 from PySide6.QtWidgets import QApplication, QMessageBox
 
 from config import Config
+import faulthandler
 from domain.duplicate_detector import DuplicateDetector
 from domain.insight_engine import InsightFaceEngine
 from services.history_service import HistoryService
@@ -52,19 +53,42 @@ from services.settings_service import SettingsService
 from services.unknown_face_service import UnknownFaceService
 from ui.main_window import MainWindow
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
+
+class AutoFlushFileHandler(logging.FileHandler):
+    """FileHandler that flushes on every write so logs are never lost on process abort."""
+
+    def emit(self, record):
+        super().emit(record)
+        self.flush()
 
 
 def _setup_crash_logging(config: Config):
-    """Setup persistent file logging and global uncaught exception crash handler."""
+    """Setup persistent file logging, auto-flush handlers, and native C++ faulthandler."""
     log_file = config.app_data_dir / "photo_face_organizer.log"
     crash_file = config.app_data_dir / "crash_log.txt"
 
     try:
         config.app_data_dir.mkdir(parents=True, exist_ok=True)
-        file_handler = logging.FileHandler(log_file, encoding="utf-8")
-        file_handler.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s"))
-        logging.getLogger().addHandler(file_handler)
+        file_handler = AutoFlushFileHandler(log_file, encoding="utf-8")
+        file_handler.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] (%(threadName)s) %(name)s: %(message)s"))
+        
+        root_logger = logging.getLogger()
+        root_logger.setLevel(logging.INFO)
+        root_logger.addHandler(file_handler)
+
+        # Enable native faulthandler to catch C++ segfaults, Direct3D12 device lost, Access Violations
+        # and dump the Python call stack of all threads directly to crash_log.txt
+        try:
+            fault_fp = open(crash_file, "a", encoding="utf-8")
+            faulthandler.enable(file=fault_fp, all_threads=True)
+        except Exception as f_err:
+            logging.warning(f"Could not enable faulthandler: {f_err}")
+
+        logging.info("=" * 60)
+        logging.info("Photo Face Organizer started - Auto-flushing log initialized")
+        logging.info(f"Python: {sys.version} on {sys.platform}")
+        logging.info(f"Executable: {sys.executable}")
+        logging.info("=" * 60)
     except Exception as e:
         print(f"Failed to initialize log file: {e}")
 
@@ -77,8 +101,8 @@ def _setup_crash_logging(config: Config):
         logging.critical(f"Uncaught Exception:\n{err_str}")
 
         try:
-            with open(crash_file, "w", encoding="utf-8") as f:
-                f.write(err_str)
+            with open(crash_file, "a", encoding="utf-8") as f:
+                f.write(f"\n--- UNCAUGHT EXCEPTION [{sys.platform}] ---\n{err_str}\n")
         except Exception:
             pass
 
@@ -94,6 +118,7 @@ def _setup_crash_logging(config: Config):
             pass
 
     sys.excepthook = uncaught_exception_hook
+
 
 
 from services.face_cache_service import FaceCacheService

@@ -41,6 +41,19 @@ class FaceEngine(ABC):
         Generate 128-dimensional encodings for face locations in the image.
         """
 
+    def detect_and_embed_faces(
+        self, image: Any
+    ) -> tuple[list[tuple[int, int, int, int]], list[np.ndarray], list[Image.Image]]:
+        """
+        Unified single-pass detection, ArcFace embedding extraction, and face cropping.
+        Returns: (face_locations, face_encodings, face_crops)
+        """
+        locs = self.detect_faces(image)
+        embs = self.create_embeddings(image, locs)
+        crops = self.extract_faces(image, locs)
+        return locs, embs, crops
+
+
     @abstractmethod
     def compare_embeddings(self, embedding1: np.ndarray, embedding2: np.ndarray) -> float:
         """
