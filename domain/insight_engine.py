@@ -572,6 +572,38 @@ class InsightFaceEngine:
 
             return []
 
+    def detect_faces_with_kps(
+        self, image: Any, det_thresh: float | None = None
+    ) -> list[tuple[tuple[int, int, int, int], "np.ndarray | None"]]:
+        """
+        Detect faces returning (bbox, 5-point keypoints) pairs.
+        bbox order: (top, right, bottom, left). kps is np.ndarray (5,2) or None.
+        """
+        self._ensure_initialized()
+        if self.app is None:
+            return []
+
+        img_bgr = self._preprocess_bgr_image(self._to_numpy_bgr(image))
+        results: list[tuple[tuple[int, int, int, int], "np.ndarray | None"]] = []
+        try:
+            faces = self._run_inference(self.app, img_bgr, det_thresh=det_thresh)
+            for face in faces:
+                bbox = face.bbox.astype(int)  # [left, top, right, bottom]
+                kps = getattr(face, "kps", None)
+                if not self.is_valid_face_geometry(bbox, kps):
+                    continue
+                left, top, right, bottom = int(bbox[0]), int(bbox[1]), int(bbox[2]), int(bbox[3])
+                kps_arr = None
+                if kps is not None:
+                    kps_arr = np.asarray(kps, dtype=np.float32)
+                    if kps_arr.shape != (5, 2):
+                        kps_arr = None
+                results.append(((top, right, bottom, left), kps_arr))
+        except Exception as e:
+            logger.warning(f"detect_faces_with_kps exception on {self.active_device}: {e}")
+            return []
+        return results
+
     def create_embeddings(
         self, image: Any, face_locations: list[tuple[int, int, int, int]] | None = None
     ) -> list[np.ndarray]:

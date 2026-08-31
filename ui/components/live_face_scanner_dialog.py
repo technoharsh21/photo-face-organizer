@@ -29,7 +29,9 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from domain.auto_capture_controller import AutoCaptureController
 from domain.face_engine import FaceEngine
+from domain.pose_classifier import POSE_BUCKETS, classify_pose
 from services.profile_service import ProfileService
 
 logger = logging.getLogger(__name__)
@@ -108,6 +110,11 @@ class LiveFaceScannerDialog(QDialog):
         self.current_frame_rgb: np.ndarray | None = None
         self.last_detected_bbox: tuple[int, int, int, int] | None = None
         self.created_profile_id: str | None = None
+
+        # Hands-free auto-capture mode state
+        self.auto_mode = False
+        self.auto_controller: AutoCaptureController | None = None
+        self._bucket_to_step = {"frontal": 0, "left": 1, "right": 2, "up": 3, "smile": 4}
 
         # Auto-capture countdown timer
         self.countdown_val = 0
@@ -324,6 +331,17 @@ class LiveFaceScannerDialog(QDialog):
         self.btn_auto.clicked.connect(self._start_countdown)
         bottom_bar.addWidget(self.btn_auto)
 
+        self.btn_auto_scan = QPushButton("⚡ Auto Scan: OFF")
+        self.btn_auto_scan.setProperty("class", "SecondaryButton")
+        self.btn_auto_scan.setFixedHeight(36)
+        self.btn_auto_scan.setCursor(Qt.PointingHandCursor)
+        self.btn_auto_scan.setStyleSheet(
+            "QPushButton { background-color: #1e293b; color: #ffffff; font-weight: 700; border-radius: 8px; padding: 0 16px; font-size: 13px; border: 1px solid #3b82f6; }"
+            "QPushButton:hover { background-color: #1d4ed8; color: #ffffff; }"
+        )
+        self.btn_auto_scan.clicked.connect(self._toggle_auto_mode)
+        bottom_bar.addWidget(self.btn_auto_scan)
+
         self.btn_finish = QPushButton("✅ Finish & Enroll 360° Profile")
         self.btn_finish.setProperty("class", "PrimaryButton")
         self.btn_finish.setFixedHeight(36)
@@ -377,13 +395,33 @@ class LiveFaceScannerDialog(QDialog):
         axes = (int(w * 0.22), int(h * 0.38))
 
         pil_img = Image.fromarray(self.current_frame_rgb)
+        frame_kps = None
         try:
-            locs = self.face_engine.detect_faces(pil_img)
-            face_detected = bool(locs)
-            self.last_detected_bbox = locs[0] if locs else None
+            det = self.face_engine.detect_faces_with_kps(pil_img)
+            face_detected = bool(det)
+            if det:
+                self.last_detected_bbox, frame_kps = det[0]
+            else:
+                self.last_detected_bbox = None
         except Exception:
             face_detected = False
             self.last_detected_bbox = None
+
+        # Hands-free auto-capture decision
+        if self.auto_mode and self.auto_controller is not None and self.last_detected_bbox is not None:
+            bucket = classify_pose(frame_kps) if frame_kps is not None else None
+            try:
+                q = ProfileService.assess_reference_quality(pil_img, list(self.last_detected_bbox))
+                stars = int(q.get("stars", 0))
+            except Exception:
+                stars = 0
+            to_capture = self.auto_controller.observe(bucket, stars)
+            if to_capture is not None:
+                self.current_step_idx = self._bucket_to_step[to_capture]
+                self._capture_angle()
+                if self.auto_controller.is_complete():
+                    self.auto_mode = False
+                    self._auto_finish()
 
         guide_color = (0, 230, 115) if face_detected else (255, 180, 0)
         cv2.ellipse(overlay, (center_x, center_y), axes, 0, 0, 360, guide_color, 2, cv2.LINE_AA)
@@ -415,6 +453,21 @@ class LiveFaceScannerDialog(QDialog):
                 cv2.LINE_AA,
             )
 
+        if self.auto_mode and self.auto_controller is not None:
+            remaining = self.auto_controller.remaining()
+            prompt_map = {
+                "frontal": "Look STRAIGHT",
+                "left": "Turn LEFT",
+                "right": "Turn RIGHT",
+                "up": "Look UP",
+                "smile": "SMILE",
+            }
+            prompt = prompt_map.get(remaining[0], "Hold still") if remaining else "All angles captured!"
+            cv2.putText(
+                overlay, prompt, (30, 50), cv2.FONT_HERSHEY_SIMPLEX, 1.1,
+                (0, 230, 255), 3, cv2.LINE_AA,
+            )
+
         cv2.addWeighted(overlay, 0.95, frame, 0.05, 0, frame)
 
         rgb_disp = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
@@ -423,6 +476,39 @@ class LiveFaceScannerDialog(QDialog):
             self.lbl_camera.width(), self.lbl_camera.height(), Qt.KeepAspectRatio, Qt.SmoothTransformation
         )
         self.lbl_camera.setPixmap(pix)
+
+    def _toggle_auto_mode(self):
+        """Enable/disable hands-free auto-capture mode."""
+        self.auto_mode = not self.auto_mode
+        if self.auto_mode:
+            self.auto_controller = AutoCaptureController()
+            # Pre-mark already-captured buckets so auto mode doesn't redo them
+            step_to_bucket = {v: k for k, v in self._bucket_to_step.items()}
+            for idx in self.captured_images:
+                b = step_to_bucket.get(idx)
+                if b:
+                    self.auto_controller.filled.add(b)
+            self.btn_auto_scan.setText("⚡ Auto Scan: ON")
+            self.btn_auto_scan.setStyleSheet(
+                "QPushButton { background-color: #10b981; color: #ffffff; font-weight: 700; border-radius: 8px; padding: 0 16px; font-size: 13px; border: 1px solid #059669; }"
+                "QPushButton:hover { background-color: #059669; }"
+            )
+            self.btn_capture.setEnabled(False)
+            self.btn_auto.setEnabled(False)
+        else:
+            self.auto_controller = None
+            self.btn_auto_scan.setText("⚡ Auto Scan: OFF")
+            self.btn_auto_scan.setStyleSheet(
+                "QPushButton { background-color: #1e293b; color: #ffffff; font-weight: 700; border-radius: 8px; padding: 0 16px; font-size: 13px; border: 1px solid #3b82f6; }"
+                "QPushButton:hover { background-color: #1d4ed8; color: #ffffff; }"
+            )
+            self.btn_capture.setEnabled(True)
+            self.btn_auto.setEnabled(True)
+
+    def _auto_finish(self):
+        """After all buckets captured, briefly show success then enroll."""
+        self.btn_auto_scan.setText("✅ All angles captured!")
+        QTimer.singleShot(1500, self._finish_enrollment)
 
     def _start_countdown(self):
         """Trigger 3-second auto-capture timer."""

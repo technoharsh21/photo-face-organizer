@@ -55,6 +55,17 @@ class FaceEngine(ABC):
         crops = self.extract_faces(image, locs)
         return locs, embs, crops
 
+    def detect_faces_with_kps(
+        self, image: Any, det_thresh: float | None = None
+    ) -> list[tuple[tuple[int, int, int, int], "np.ndarray | None"]]:
+        """
+        Detect faces returning (bbox, keypoints) pairs.
+        Default implementation returns None keypoints; engines that expose
+        landmark keypoints (e.g. InsightFace SCRFD) override this.
+        bbox order: (top, right, bottom, left).
+        """
+        return [(loc, None) for loc in self.detect_faces(image, det_thresh=det_thresh)]
+
 
     @abstractmethod
     def compare_embeddings(self, embedding1: np.ndarray, embedding2: np.ndarray) -> float:
