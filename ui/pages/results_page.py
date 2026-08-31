@@ -29,6 +29,7 @@ from PySide6.QtWidgets import (
 from domain.image_loader import load_image
 from services.output_service import OutputService
 from services.profile_service import ProfileService
+from ui.components.flow_layout import FlowLayout
 from ui.components.wrong_match_dialog import WrongMatchDialog
 
 
@@ -70,7 +71,7 @@ class ResultsImageCover(QWidget):
         radius = 10
 
         if self.pixmap and not self.pixmap.isNull():
-            scaled = self.pixmap.scaled(w, h, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+            scaled = self.pixmap.scaled(w, h, Qt.KeepAspectRatioByExpanding, Qt.SmoothTransformation)
             path = QPainterPath()
             path.addRoundedRect(0, 0, w, h, radius, radius)
             painter.setClipPath(path)
@@ -80,8 +81,8 @@ class ResultsImageCover(QWidget):
             painter.setPen(Qt.NoPen)
             painter.drawRect(0, 0, w, h)
 
-            x_off = max(0, (w - scaled.width()) // 2)
-            y_off = max(0, (h - scaled.height()) // 2)
+            x_off = (w - scaled.width()) // 2
+            y_off = (h - scaled.height()) // 2
             painter.drawPixmap(x_off, y_off, scaled)
         else:
             painter.setBrush(QColor("#080c14"))
@@ -124,38 +125,43 @@ class ResultsPage(QWidget):
 
         header_l.addStretch()
 
+        # Button cluster wraps on narrow windows so text never clips
+        header_btns = FlowLayout(h_spacing=8, v_spacing=8)
+
         self.btn_skipped_details = QPushButton("ℹ️ Skipped Details")
         self.btn_skipped_details.setProperty("class", "SecondaryButton")
         self.btn_skipped_details.setCursor(Qt.PointingHandCursor)
-        self.btn_skipped_details.setFixedHeight(42)
+        self.btn_skipped_details.setFixedHeight(36)
         self.btn_skipped_details.setStyleSheet(
-            "QPushButton { background-color: #1e293b; color: #ffffff; font-weight: 700; border-radius: 8px; padding: 0 18px; font-size: 13px; min-height: 42px; max-height: 42px; border: 1px solid #3b82f6; }"
+            "QPushButton { background-color: #1e293b; color: #ffffff; font-weight: 700; border-radius: 8px; padding: 0 16px; font-size: 13px; min-height: 36px; max-height: 36px; border: 1px solid #3b82f6; }"
             "QPushButton:hover { background-color: #1d4ed8; color: #ffffff; }"
         )
         self.btn_skipped_details.clicked.connect(self._open_skipped_details_dialog)
-        header_l.addWidget(self.btn_skipped_details)
+        header_btns.addWidget(self.btn_skipped_details)
 
         self.btn_correct_match = QPushButton("🛠️ Correct Match")
         self.btn_correct_match.setProperty("class", "SecondaryButton")
         self.btn_correct_match.setCursor(Qt.PointingHandCursor)
-        self.btn_correct_match.setFixedHeight(42)
+        self.btn_correct_match.setFixedHeight(36)
         self.btn_correct_match.setStyleSheet(
-            "QPushButton { background-color: #1e293b; color: #ffffff; font-weight: 700; border-radius: 8px; padding: 0 18px; font-size: 13px; min-height: 42px; max-height: 42px; border: 1px solid #3b82f6; }"
+            "QPushButton { background-color: #1e293b; color: #ffffff; font-weight: 700; border-radius: 8px; padding: 0 16px; font-size: 13px; min-height: 36px; max-height: 36px; border: 1px solid #3b82f6; }"
             "QPushButton:hover { background-color: #1d4ed8; color: #ffffff; }"
         )
         self.btn_correct_match.clicked.connect(self._correct_wrong_match)
-        header_l.addWidget(self.btn_correct_match)
+        header_btns.addWidget(self.btn_correct_match)
 
         self.btn_open_folder = QPushButton("📂 Open Output Folder")
         self.btn_open_folder.setProperty("class", "PrimaryButton")
         self.btn_open_folder.setCursor(Qt.PointingHandCursor)
-        self.btn_open_folder.setFixedHeight(42)
+        self.btn_open_folder.setFixedHeight(36)
         self.btn_open_folder.setStyleSheet(
-            "QPushButton { background-color: #10b981; color: #ffffff; font-weight: 700; border-radius: 8px; padding: 0 20px; font-size: 13px; min-height: 42px; max-height: 42px; border: 1px solid #059669; }"
+            "QPushButton { background-color: #10b981; color: #ffffff; font-weight: 700; border-radius: 8px; padding: 0 16px; font-size: 13px; min-height: 36px; max-height: 36px; border: 1px solid #059669; }"
             "QPushButton:hover { background-color: #059669; }"
         )
         self.btn_open_folder.clicked.connect(self._open_output_folder)
-        header_l.addWidget(self.btn_open_folder)
+        header_btns.addWidget(self.btn_open_folder)
+
+        header_l.addLayout(header_btns)
 
         layout.addLayout(header_l)
 
@@ -197,7 +203,6 @@ class ResultsPage(QWidget):
         left_widget = QFrame()
         left_widget.setProperty("class", "Card")
         left_widget.setMinimumWidth(320)
-        left_widget.setMaximumWidth(460)
         left_layout = QVBoxLayout(left_widget)
         left_layout.setContentsMargins(14, 14, 14, 14)
         left_layout.setSpacing(10)
@@ -260,7 +265,8 @@ class ResultsPage(QWidget):
         preview_layout.addWidget(self.info_card)
 
         splitter.addWidget(self.preview_frame)
-        splitter.setSizes([380, 560])
+        splitter.setStretchFactor(0, 2)
+        splitter.setStretchFactor(1, 3)
 
         layout.addWidget(splitter, 1)
 

@@ -302,6 +302,7 @@ class LiveFaceScannerDialog(QDialog):
 
         self.btn_retake = QPushButton("🔄 Retake Angle")
         self.btn_retake.setProperty("class", "SecondaryButton")
+        self.btn_retake.setFixedHeight(36)
         self.btn_retake.setCursor(Qt.PointingHandCursor)
         self.btn_retake.clicked.connect(self._retake_current_angle)
         bottom_bar.addWidget(self.btn_retake)
@@ -310,20 +311,23 @@ class LiveFaceScannerDialog(QDialog):
 
         self.btn_capture = QPushButton("📸 Capture Photo")
         self.btn_capture.setProperty("class", "PrimaryButton")
-        self.btn_capture.setStyleSheet("background-color: #0284c7; padding: 10px 24px; font-size: 14px; font-weight: bold;")
+        self.btn_capture.setFixedHeight(36)
+        self.btn_capture.setStyleSheet("QPushButton { background-color: #0284c7; padding: 0 16px; font-size: 13px; font-weight: 700; border-radius: 8px; }")
         self.btn_capture.setCursor(Qt.PointingHandCursor)
         self.btn_capture.clicked.connect(self._capture_angle)
         bottom_bar.addWidget(self.btn_capture)
 
         self.btn_auto = QPushButton("⚡ Auto-Capture (3s)")
         self.btn_auto.setProperty("class", "SecondaryButton")
+        self.btn_auto.setFixedHeight(36)
         self.btn_auto.setCursor(Qt.PointingHandCursor)
         self.btn_auto.clicked.connect(self._start_countdown)
         bottom_bar.addWidget(self.btn_auto)
 
         self.btn_finish = QPushButton("✅ Finish & Enroll 360° Profile")
         self.btn_finish.setProperty("class", "PrimaryButton")
-        self.btn_finish.setStyleSheet("background-color: #10b981; padding: 10px 24px; font-size: 14px; font-weight: bold;")
+        self.btn_finish.setFixedHeight(36)
+        self.btn_finish.setStyleSheet("QPushButton { background-color: #10b981; padding: 0 16px; font-size: 13px; font-weight: 700; border-radius: 8px; }")
         self.btn_finish.setCursor(Qt.PointingHandCursor)
         self.btn_finish.clicked.connect(self._finish_enrollment)
         self.btn_finish.setEnabled(False)
@@ -475,13 +479,15 @@ class LiveFaceScannerDialog(QDialog):
         if captured_count >= len(ENROLLMENT_STEPS):
             self.btn_finish.setEnabled(True)
             self.btn_finish.setStyleSheet("""
-                background-color: #10b981;
-                color: #ffffff;
-                padding: 10px 24px;
-                font-size: 14px;
-                font-weight: bold;
-                border: 2px solid #34d399;
-                border-radius: 8px;
+                QPushButton {
+                    background-color: #10b981;
+                    color: #ffffff;
+                    padding: 0 16px;
+                    font-size: 13px;
+                    font-weight: 700;
+                    border: 2px solid #34d399;
+                    border-radius: 8px;
+                }
             """)
         elif captured_count >= 1:
             self.btn_finish.setEnabled(True)

@@ -259,7 +259,7 @@ class DashboardPage(QWidget):
             button_text="Start Standard Scan →",
             button_style=(
                 "background-color: #10b981; color: #ffffff; font-weight: 700; border-radius: 8px; "
-                "padding: 8px 14px; font-size: 13px; border: 1px solid #059669;"
+                "padding: 0 16px; font-size: 13px; border: 1px solid #059669;"
             ),
             callback=lambda: self.navigate_cb("New Scan"),
         )
@@ -273,7 +273,7 @@ class DashboardPage(QWidget):
             button_text="Start Solo Scan →",
             button_style=(
                 "background-color: #0284c7; color: #ffffff; font-weight: 700; border-radius: 8px; "
-                "padding: 8px 14px; font-size: 13px; border: 1px solid #0369a1;"
+                "padding: 0 16px; font-size: 13px; border: 1px solid #0369a1;"
             ),
             callback=lambda: self.navigate_cb("Solo Scan"),
         )
@@ -287,7 +287,7 @@ class DashboardPage(QWidget):
             button_text="Scan for Duplicates →",
             button_style=(
                 "background-color: #7c3aed; color: #ffffff; font-weight: 700; border-radius: 8px; "
-                "padding: 8px 14px; font-size: 13px; border: 1px solid #6d28d9;"
+                "padding: 0 16px; font-size: 13px; border: 1px solid #6d28d9;"
             ),
             callback=lambda: self.navigate_cb("Duplicates"),
         )
@@ -303,7 +303,7 @@ class DashboardPage(QWidget):
             button_text="Review Unknown Faces →",
             button_style=(
                 "background-color: #d97706; color: #ffffff; font-weight: 700; border-radius: 8px; "
-                "padding: 8px 14px; font-size: 13px; border: 1px solid #b45309;"
+                "padding: 0 16px; font-size: 13px; border: 1px solid #b45309;"
             ),
             callback=lambda: self.navigate_cb("Unknown Faces"),
         )
@@ -393,7 +393,7 @@ class DashboardPage(QWidget):
 
         btn_add = QPushButton("➕ Create Profile")
         btn_add.setCursor(Qt.PointingHandCursor)
-        btn_add.setFixedHeight(38)
+        btn_add.setFixedHeight(36)
         btn_add.setStyleSheet(
             "QPushButton { background-color: #1e293b; color: #ffffff; font-weight: 700; border-radius: 8px; padding: 0 16px; font-size: 13px; border: 1px solid #3b82f6; }"
             "QPushButton:hover { background-color: #1d4ed8; color: #ffffff; }"
@@ -404,7 +404,7 @@ class DashboardPage(QWidget):
         btn_view_all = QPushButton("View All Profiles →")
         btn_view_all.setCursor(Qt.PointingHandCursor)
         btn_view_all.setStyleSheet(
-            "QPushButton { background-color: transparent; color: #94a3b8; font-weight: 600; padding: 6px 10px; font-size: 12px; border: none; }"
+            "QPushButton { background-color: transparent; color: #94a3b8; font-weight: 700; padding: 0 16px; font-size: 13px; border: none; }"
             "QPushButton:hover { color: #ffffff; text-decoration: underline; }"
         )
         btn_view_all.clicked.connect(lambda: self.navigate_cb("People"))
@@ -412,13 +412,21 @@ class DashboardPage(QWidget):
 
         self.showcase_section.addLayout(hdr)
 
-        # Profiles Grid / Row Container
+        # Profiles Grid / Row Container (scroll horizontally when > 5 profiles)
         self.profiles_container = QWidget()
         self.profiles_layout = QHBoxLayout(self.profiles_container)
         self.profiles_layout.setContentsMargins(0, 0, 0, 0)
         self.profiles_layout.setSpacing(12)
 
-        self.showcase_section.addWidget(self.profiles_container)
+        profiles_scroll = QScrollArea()
+        profiles_scroll.setWidget(self.profiles_container)
+        profiles_scroll.setWidgetResizable(True)
+        profiles_scroll.setFixedHeight(170)
+        profiles_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        profiles_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        profiles_scroll.setStyleSheet("QScrollArea { background-color: transparent; border: none; }")
+
+        self.showcase_section.addWidget(profiles_scroll)
         self.content_layout.addLayout(self.showcase_section)
 
     def _build_diagnostics_hub(self):
@@ -537,7 +545,7 @@ class DashboardPage(QWidget):
             btn_create_first = QPushButton("➕ Create First Profile")
             btn_create_first.setCursor(Qt.PointingHandCursor)
             btn_create_first.setStyleSheet(
-                "QPushButton { background-color: #10b981; color: #ffffff; font-weight: 700; border-radius: 8px; padding: 10px 18px; font-size: 13px; border: 1px solid #059669; }"
+                "QPushButton { background-color: #10b981; color: #ffffff; font-weight: 700; border-radius: 8px; padding: 0 16px; font-size: 13px; border: 1px solid #059669; }"
                 "QPushButton:hover { background-color: #059669; }"
             )
             btn_create_first.clicked.connect(lambda: self.navigate_cb("People"))
@@ -546,9 +554,9 @@ class DashboardPage(QWidget):
             self.profiles_layout.addWidget(onboarding_frame)
             return
 
-        # Show up to 5 Profiles
+        # Show all profiles (scrollable)
         colors = ["#2563eb", "#059669", "#7c3aed", "#d97706", "#0891b2", "#dc2626"]
-        for idx, profile in enumerate(profiles[:5]):
+        for idx, profile in enumerate(profiles):
             p_name = profile.get("name", "Unknown")
             refs = profile.get("references", [])
             ref_count = len(refs)

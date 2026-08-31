@@ -39,6 +39,7 @@ from PySide6.QtWidgets import (
 from domain.face_engine import FaceEngine
 from services.profile_service import ProfileService
 from ui.components.face_selector import FaceSelectorDialog
+from ui.components.flow_layout import FlowLayout
 from ui.components.live_face_scanner_dialog import LiveFaceScannerDialog
 
 
@@ -131,8 +132,8 @@ class ProfileListItemWidget(QWidget):
         layout.setContentsMargins(10, 8, 10, 8)
         layout.setSpacing(12)
 
-        # Edge-to-edge Avatar Thumbnail (44x44 rounded-square)
-        self.avatar_cover = ImageCoverWidget(avatar_path, width=44, height=44, radius=10)
+        # Edge-to-edge Avatar Thumbnail (52x52 rounded-square)
+        self.avatar_cover = ImageCoverWidget(avatar_path, width=52, height=52, radius=10)
         self.avatar_cover.setCursor(Qt.PointingHandCursor)
         if not (avatar_path and Path(avatar_path).exists()):
             self.avatar_cover.set_initials(name, bg_color=bg_color)
@@ -146,9 +147,9 @@ class ProfileListItemWidget(QWidget):
         name_lbl.setStyleSheet("font-size: 14px; font-weight: 700; color: #ffffff; background: transparent; border: none;")
         name_lbl.setCursor(Qt.PointingHandCursor)
 
-        sub_text = f"📷 {ref_count} reference photo{'s' if ref_count != 1 else ''}"
+        sub_text = f"📷 {ref_count} photos"
         if is_group:
-            sub_text = f"👥 Group • {sub_text}"
+            sub_text = f"👥 {sub_text}"
 
         sub_lbl = QLabel(sub_text)
         sub_lbl.setStyleSheet("font-size: 12px; color: #94a3b8; background: transparent; border: none;")
@@ -359,8 +360,7 @@ class PeoplePage(QWidget):
         # Left Column: Profile Navigator (Larger width for person list)
         left_widget = QFrame()
         left_widget.setProperty("class", "Card")
-        left_widget.setMinimumWidth(260)
-        left_widget.setMaximumWidth(380)
+        left_widget.setMinimumWidth(280)
         left_layout = QVBoxLayout(left_widget)
         left_layout.setContentsMargins(14, 14, 14, 14)
         left_layout.setSpacing(12)
@@ -397,9 +397,9 @@ class PeoplePage(QWidget):
         btn_quick_add = QPushButton("➕ New Person")
         btn_quick_add.setProperty("class", "SecondaryButton")
         btn_quick_add.setCursor(Qt.PointingHandCursor)
-        btn_quick_add.setFixedHeight(34)
+        btn_quick_add.setFixedHeight(36)
         btn_quick_add.setStyleSheet(
-            "QPushButton { background-color: #1e293b; color: #38bdf8; font-weight: 600; border-radius: 6px; font-size: 12px; border: 1px solid #3b82f6; }"
+            "QPushButton { background-color: #1e293b; color: #38bdf8; font-weight: 700; border-radius: 8px; font-size: 13px; border: 1px solid #3b82f6; }"
             "QPushButton:hover { background-color: #1d4ed8; color: #ffffff; }"
         )
         btn_quick_add.clicked.connect(self._create_profile)
@@ -450,7 +450,7 @@ class PeoplePage(QWidget):
         btn_rename_quick.setCursor(Qt.PointingHandCursor)
         btn_rename_quick.setToolTip("Rename Profile")
         btn_rename_quick.setStyleSheet(
-            "QPushButton { background-color: #1e293b; border: 1px solid #334155; border-radius: 6px; font-size: 11px; font-weight: 600; color: #94a3b8; padding: 3px 8px; }"
+            "QPushButton { background-color: #1e293b; border: 1px solid #334155; border-radius: 8px; font-size: 13px; font-weight: 700; color: #94a3b8; padding: 0 16px; }"
             "QPushButton:hover { background-color: #334155; color: #ffffff; }"
         )
         btn_rename_quick.clicked.connect(self._rename_profile)
@@ -489,9 +489,9 @@ class PeoplePage(QWidget):
         self.btn_add_ref = QPushButton("➕ Add Reference Photo")
         self.btn_add_ref.setProperty("class", "PrimaryButton")
         self.btn_add_ref.setCursor(Qt.PointingHandCursor)
-        self.btn_add_ref.setFixedHeight(40)
+        self.btn_add_ref.setFixedHeight(36)
         self.btn_add_ref.setStyleSheet(
-            "QPushButton { background-color: #10b981; color: #ffffff; font-weight: 700; border-radius: 8px; padding: 0 20px; font-size: 13px; border: 1px solid #059669; min-height: 40px; }"
+            "QPushButton { background-color: #10b981; color: #ffffff; font-weight: 700; border-radius: 8px; padding: 0 16px; font-size: 13px; border: 1px solid #059669; min-height: 36px; }"
             "QPushButton:hover { background-color: #059669; }"
         )
         self.btn_add_ref.clicked.connect(self._add_reference_photo)
@@ -505,17 +505,15 @@ class PeoplePage(QWidget):
         sep.setStyleSheet("background-color: #1e293b; max-height: 1px; border: none;")
         hero_layout.addWidget(sep)
 
-        # Row 2: Secondary Tools Toolbar (Compact, uniform 34px height, perfect alignment)
-        tools_row = QHBoxLayout()
-        tools_row.setSpacing(10)
-        tools_row.setAlignment(Qt.AlignVCenter)
+        # Row 2: Secondary Tools Toolbar — wraps on narrow windows so text never clips
+        tools_row = FlowLayout(h_spacing=10, v_spacing=8)
 
         self.btn_batch_train = QPushButton("📁 Batch Train")
         self.btn_batch_train.setProperty("class", "SecondaryButton")
         self.btn_batch_train.setCursor(Qt.PointingHandCursor)
-        self.btn_batch_train.setFixedHeight(34)
+        self.btn_batch_train.setFixedHeight(36)
         self.btn_batch_train.setStyleSheet(
-            "QPushButton { background-color: #1e293b; color: #38bdf8; font-weight: 600; border-radius: 6px; padding: 0 12px; font-size: 12px; border: 1px solid #3b82f6; }"
+            "QPushButton { background-color: #1e293b; color: #38bdf8; font-weight: 700; border-radius: 8px; padding: 0 16px; font-size: 13px; border: 1px solid #3b82f6; }"
             "QPushButton:hover { background-color: #1d4ed8; color: #ffffff; }"
         )
         self.btn_batch_train.clicked.connect(self._batch_train_profile)
@@ -524,9 +522,9 @@ class PeoplePage(QWidget):
         self.btn_clean_outliers = QPushButton("🧹 Clean Outliers")
         self.btn_clean_outliers.setProperty("class", "SecondaryButton")
         self.btn_clean_outliers.setCursor(Qt.PointingHandCursor)
-        self.btn_clean_outliers.setFixedHeight(34)
+        self.btn_clean_outliers.setFixedHeight(36)
         self.btn_clean_outliers.setStyleSheet(
-            "QPushButton { background-color: #1e293b; color: #38bdf8; font-weight: 600; border-radius: 6px; padding: 0 12px; font-size: 12px; border: 1px solid #3b82f6; }"
+            "QPushButton { background-color: #1e293b; color: #38bdf8; font-weight: 700; border-radius: 8px; padding: 0 16px; font-size: 13px; border: 1px solid #3b82f6; }"
             "QPushButton:hover { background-color: #1d4ed8; color: #ffffff; }"
         )
         self.btn_clean_outliers.setToolTip("Scan and purge outlier photos or low-star faces.")
@@ -536,22 +534,20 @@ class PeoplePage(QWidget):
         self.btn_group_type = QPushButton("⚙️ Settings")
         self.btn_group_type.setProperty("class", "SecondaryButton")
         self.btn_group_type.setCursor(Qt.PointingHandCursor)
-        self.btn_group_type.setFixedHeight(34)
+        self.btn_group_type.setFixedHeight(36)
         self.btn_group_type.setStyleSheet(
-            "QPushButton { background-color: #1e293b; color: #38bdf8; font-weight: 600; border-radius: 6px; padding: 0 12px; font-size: 12px; border: 1px solid #3b82f6; }"
+            "QPushButton { background-color: #1e293b; color: #38bdf8; font-weight: 700; border-radius: 8px; padding: 0 16px; font-size: 13px; border: 1px solid #3b82f6; }"
             "QPushButton:hover { background-color: #1d4ed8; color: #ffffff; }"
         )
         self.btn_group_type.clicked.connect(self._edit_group_settings)
         tools_row.addWidget(self.btn_group_type)
 
-        tools_row.addStretch()
-
         self.btn_delete = QPushButton("🗑️ Delete Profile")
         self.btn_delete.setProperty("class", "DangerButton")
         self.btn_delete.setCursor(Qt.PointingHandCursor)
-        self.btn_delete.setFixedHeight(34)
+        self.btn_delete.setFixedHeight(36)
         self.btn_delete.setStyleSheet(
-            "QPushButton { background-color: #991b1b; color: #ffffff; font-weight: 600; border-radius: 6px; padding: 0 14px; font-size: 12px; border: 1px solid #dc2626; }"
+            "QPushButton { background-color: #991b1b; color: #ffffff; font-weight: 700; border-radius: 8px; padding: 0 16px; font-size: 13px; border: 1px solid #dc2626; }"
             "QPushButton:hover { background-color: #dc2626; }"
         )
         self.btn_delete.clicked.connect(self._delete_profile)
@@ -617,7 +613,8 @@ class PeoplePage(QWidget):
         detail_layout.addWidget(self.ref_scroll, 1)
 
         splitter.addWidget(self.detail_card)
-        splitter.setSizes([300, 750])
+        splitter.setStretchFactor(0, 1)
+        splitter.setStretchFactor(1, 3)
 
         root_layout.addWidget(splitter, 1)
         self.refresh()
@@ -656,7 +653,7 @@ class PeoplePage(QWidget):
 
             item = QListWidgetItem()
             item.setData(Qt.UserRole, p["id"])
-            item.setSizeHint(QSize(260, 62))
+            item.setSizeHint(QSize(260, 72))
             self.list_widget.addItem(item)
 
             bg = colors[idx % len(colors)]
@@ -1372,7 +1369,7 @@ class CreateProfileDialog(QDialog):
         btn_cancel = QPushButton("Cancel")
         btn_cancel.setProperty("class", "SecondaryButton")
         btn_cancel.setCursor(Qt.PointingHandCursor)
-        btn_cancel.setFixedHeight(38)
+        btn_cancel.setFixedHeight(36)
         btn_cancel.clicked.connect(self.reject)
         btn_layout.addWidget(btn_cancel)
 
@@ -1382,8 +1379,8 @@ class CreateProfileDialog(QDialog):
             btn_scan_cam = QPushButton("🎥 Scan with Camera")
             btn_scan_cam.setProperty("class", "SecondaryButton")
             btn_scan_cam.setCursor(Qt.PointingHandCursor)
-            btn_scan_cam.setFixedHeight(38)
-            btn_scan_cam.setStyleSheet("background-color: #1e3a8a; border: 1px solid #38bdf8; color: #38bdf8; font-weight: bold; padding: 0 16px;")
+            btn_scan_cam.setFixedHeight(36)
+            btn_scan_cam.setStyleSheet("background-color: #1e3a8a; border: 1px solid #38bdf8; color: #38bdf8; font-weight: 700; padding: 0 16px;")
             btn_scan_cam.setToolTip("Open live camera to capture 5-angle 360° face photos for this person.")
             btn_scan_cam.clicked.connect(self._on_scan_with_camera)
             btn_layout.addWidget(btn_scan_cam)
@@ -1392,8 +1389,8 @@ class CreateProfileDialog(QDialog):
         self.btn_ok = QPushButton(btn_text)
         self.btn_ok.setProperty("class", "PrimaryButton")
         self.btn_ok.setCursor(Qt.PointingHandCursor)
-        self.btn_ok.setFixedHeight(38)
-        self.btn_ok.setStyleSheet("background-color: #10b981; color: #ffffff; font-weight: bold; padding: 0 20px;")
+        self.btn_ok.setFixedHeight(36)
+        self.btn_ok.setStyleSheet("background-color: #10b981; color: #ffffff; font-weight: 700; padding: 0 16px;")
         self.btn_ok.clicked.connect(self._on_confirm)
         btn_layout.addWidget(self.btn_ok)
 

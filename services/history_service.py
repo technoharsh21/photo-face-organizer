@@ -6,6 +6,8 @@ Deleting history records removes local metadata only and NEVER deletes copied ph
 """
 
 import json
+import os
+import tempfile
 from typing import Any
 
 from config import Config
@@ -78,6 +80,18 @@ class HistoryService:
         self._save_all_scans([])
 
     def _save_all_scans(self, scans: list[dict[str, Any]]):
-        """Rewrite all scan records to JSONL file."""
-        with open(self.history_file, "w", encoding="utf-8") as f:
-            f.writelines(json.dumps(s) + "\n" for s in scans)
+        """Rewrite all scan records to JSONL file atomically."""
+        content = "".join(json.dumps(s) + "\n" for s in scans)
+        dir_path = self.history_file.parent
+        dir_path.mkdir(parents=True, exist_ok=True)
+        fd, tmp_path = tempfile.mkstemp(dir=str(dir_path), suffix=".tmp")
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                f.write(content)
+            os.replace(tmp_path, str(self.history_file))
+        except Exception:
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+            raise

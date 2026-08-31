@@ -65,14 +65,14 @@ class SettingsPage(QWidget):
         border_color: str | None = None,
         padding_h: int = 20,
     ) -> QPushButton:
-        """Create a standardized 42px action button component matching across all sections."""
+        """Create a standardized 36px action button component matching across all sections."""
         btn = QPushButton(text)
         btn.setCursor(Qt.PointingHandCursor)
-        btn.setFixedHeight(42)
-        btn.setMinimumHeight(42)
+        btn.setFixedHeight(36)
+        btn.setMinimumHeight(36)
         border_css = f"border: 1px solid {border_color};" if border_color else "border: none;"
         btn.setStyleSheet(
-            f"QPushButton {{ background-color: {bg_color}; color: {text_color}; font-weight: 700; border-radius: 8px; padding: 0 {padding_h}px; font-size: 13px; min-height: 42px; max-height: 42px; {border_css} }}"
+            f"QPushButton {{ background-color: {bg_color}; color: {text_color}; font-weight: 700; border-radius: 8px; padding: 0 16px; font-size: 13px; min-height: 36px; max-height: 36px; {border_css} }}"
             f"QPushButton:hover {{ background-color: {hover_color}; color: #ffffff; }}"
         )
         return btn

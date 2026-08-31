@@ -9,6 +9,7 @@ Pause, Resume, Cancel, State Checkpointing, and Source File Audit Reconciliation
 import json
 import logging
 import os
+import threading
 import time
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
@@ -35,7 +36,7 @@ def _process_photo_task_multiprocess(task_args: tuple[str, list[dict[str, Any]],
     file_path = Path(file_path_str)
 
     try:
-        from domain.face_engine import FaceRecognitionEngine
+        from domain.insight_engine import InsightFaceEngine as FaceRecognitionEngine
         from domain.image_loader import load_image
         from domain.matcher import FaceMatcher
 
@@ -134,6 +135,8 @@ class ScanWorker(QThread):
         self.errors_log: list[dict[str, str]] = init.get("errors_log", [])
         self.source_to_output_map: dict[str, list[str]] = init.get("source_to_output_map", {})
         self.copied_file_pairs: list[tuple[str, str]] = init.get("copied_file_pairs", [])
+
+        self._stats_lock = threading.RLock()
 
         self.matcher = FaceMatcher(face_engine=face_engine, threshold=threshold)
 
@@ -252,30 +255,37 @@ class ScanWorker(QThread):
                     except Exception as exc:
                         res = {"status": "error", "file_path": str_path, "error": str(exc)}
 
-                    self._apply_file_result(f_path, res)
-                    self.processed_count += 1
-                    self.processed_files.add(str_path)
+                    with self._stats_lock:
+                        self._apply_file_result(f_path, res)
+                        self.processed_count += 1
+                        self.processed_files.add(str_path)
+                        _snap_processed = self.processed_count
+                        _snap_matched = self.matched_count
+                        _snap_no_match = self.no_match_count
+                        _snap_unknown = self.unknown_faces_count
+                        _snap_skipped = self.skipped_count
+                        _snap_errors = self.error_count
 
-                    if self.processed_count % 5 == 0 or self.processed_count == self.total_files:
-                        self._save_checkpoint("Running", self.processed_count)
+                    if _snap_processed % 5 == 0 or _snap_processed == self.total_files:
+                        self._save_checkpoint("Running", _snap_processed)
 
                     elapsed = time.time() - start_time
-                    files_per_sec = self.processed_count / elapsed if elapsed > 0 else 0
-                    rem_count = self.total_files - self.processed_count
+                    files_per_sec = _snap_processed / elapsed if elapsed > 0 else 0
+                    rem_count = self.total_files - _snap_processed
                     eta_seconds = rem_count / files_per_sec if files_per_sec > 0 else 0
 
                     self.progress_signal.emit({
                         "scan_id": self.scan_id,
                         "current_file": f_path.name,
-                        "current_index": self.processed_count,
+                        "current_index": _snap_processed,
                         "total_files": self.total_files,
-                        "progress_percent": round((self.processed_count / self.total_files) * 100.0, 1),
-                        "processed": self.processed_count,
-                        "matched": self.matched_count,
-                        "no_match": self.no_match_count,
-                        "unknown_faces": self.unknown_faces_count,
-                        "skipped": self.skipped_count,
-                        "errors": self.error_count,
+                        "progress_percent": round((_snap_processed / self.total_files) * 100.0, 1),
+                        "processed": _snap_processed,
+                        "matched": _snap_matched,
+                        "no_match": _snap_no_match,
+                        "unknown_faces": _snap_unknown,
+                        "skipped": _snap_skipped,
+                        "errors": _snap_errors,
                         "speed_fps": round(files_per_sec, 2),
                         "eta_seconds": round(eta_seconds, 1),
                     })
@@ -288,60 +298,61 @@ class ScanWorker(QThread):
 
     def _apply_file_result(self, file_path: Path, res: dict[str, Any]):
         """Apply results from parallel process execution to thread-safe data structures."""
-        str_path = str(file_path)
-        status = res.get("status")
+        with self._stats_lock:
+            str_path = str(file_path)
+            status = res.get("status")
 
-        if status == "unreadable" or status == "error":
-            self.skipped_count += 1
-            self.error_count += 1
-            self.errors_log.append({"file": str_path, "error": res.get("error", "Unreadable image")})
-            self.source_to_output_map[str_path] = ["Skipped/Unreadable"]
-            return
+            if status == "unreadable" or status == "error":
+                self.skipped_count += 1
+                self.error_count += 1
+                self.errors_log.append({"file": str_path, "error": res.get("error", "Unreadable image")})
+                self.source_to_output_map[str_path] = ["Skipped/Unreadable"]
+                return
 
-        matched_person_names = res.get("matched_names", set())
-        face_results = res.get("face_results", [])
-        face_crops = res.get("face_crops", [])
+            matched_person_names = res.get("matched_names", set())
+            face_results = res.get("face_results", [])
+            face_crops = res.get("face_crops", [])
 
-        # Record unknown faces (skips faces belonging to any existing profile in the system)
-        for face_res, crop in zip(face_results, face_crops):
-            if not face_res.is_match or not face_res.matched_profile_name:
-                stored = self.unknown_face_service.store_unknown_face(
-                    face_crop=crop,
-                    face_encoding=face_res.face_encoding,
-                    source_photo_path=str_path,
-                    bounding_box=list(face_res.bounding_box),
-                    scan_id=self.scan_id,
-                )
-                if stored is not None:
-                    self.unknown_faces_count += 1
+            # Record unknown faces (skips faces belonging to any existing profile in the system)
+            for face_res, crop in zip(face_results, face_crops):
+                if not face_res.is_match or not face_res.matched_profile_name:
+                    stored = self.unknown_face_service.store_unknown_face(
+                        face_crop=crop,
+                        face_encoding=face_res.face_encoding,
+                        source_photo_path=str_path,
+                        bounding_box=list(face_res.bounding_box),
+                        scan_id=self.scan_id,
+                    )
+                    if stored is not None:
+                        self.unknown_faces_count += 1
 
-        # Route copies
-        if matched_person_names:
-            self.matched_count += 1
-            for p_name in matched_person_names:
-                self.results_by_person[p_name] = self.results_by_person.get(p_name, 0) + 1
-        else:
-            self.no_match_count += 1
-
-        copies = self.output_service.process_photo_output(
-            source_path=file_path,
-            output_base_dir=self.output_dir,
-            matched_profile_names=matched_person_names,
-        )
-
-        output_targets = []
-        for _, target, copy_status in copies:
-            if target is not None:
-                output_targets.append(str(target))
-                if "copied" in copy_status.lower() or "skipped" in copy_status.lower():
-                    self.copied_file_pairs.append((str_path, str(target)))
+            # Route copies
+            if matched_person_names:
+                self.matched_count += 1
+                for p_name in matched_person_names:
+                    self.results_by_person[p_name] = self.results_by_person.get(p_name, 0) + 1
             else:
-                output_targets.append(f"Output Status: {copy_status}")
-                if "error" in copy_status.lower():
-                    self.error_count += 1
-                    self.errors_log.append({"file": str_path, "error": copy_status})
+                self.no_match_count += 1
 
-        self.source_to_output_map[str_path] = output_targets
+            copies = self.output_service.process_photo_output(
+                source_path=file_path,
+                output_base_dir=self.output_dir,
+                matched_profile_names=matched_person_names,
+            )
+
+            output_targets = []
+            for _, target, copy_status in copies:
+                if target is not None:
+                    output_targets.append(str(target))
+                    if "copied" in copy_status.lower() or "skipped" in copy_status.lower():
+                        self.copied_file_pairs.append((str_path, str(target)))
+                else:
+                    output_targets.append(f"Output Status: {copy_status}")
+                    if "error" in copy_status.lower():
+                        self.error_count += 1
+                        self.errors_log.append({"file": str_path, "error": copy_status})
+
+            self.source_to_output_map[str_path] = output_targets
 
     def _save_checkpoint(self, status: str, current_index: int):
         """Write current scan progress to local checkpoint JSON file."""

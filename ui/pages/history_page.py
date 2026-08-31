@@ -72,9 +72,9 @@ class HistoryPage(QWidget):
         btn_refresh = QPushButton("🔄 Refresh Log")
         btn_refresh.setProperty("class", "SecondaryButton")
         btn_refresh.setCursor(Qt.PointingHandCursor)
-        btn_refresh.setFixedHeight(42)
+        btn_refresh.setFixedHeight(36)
         btn_refresh.setStyleSheet(
-            "QPushButton { background-color: #1e293b; color: #ffffff; font-weight: 700; border-radius: 8px; padding: 0 18px; font-size: 13px; min-height: 42px; max-height: 42px; border: 1px solid #3b82f6; }"
+            "QPushButton { background-color: #1e293b; color: #ffffff; font-weight: 700; border-radius: 8px; padding: 0 16px; font-size: 13px; border: 1px solid #3b82f6; }"
             "QPushButton:hover { background-color: #1d4ed8; color: #ffffff; }"
         )
         btn_refresh.clicked.connect(self.refresh)
@@ -83,9 +83,9 @@ class HistoryPage(QWidget):
         btn_clear = QPushButton("🗑️ Clear All History")
         btn_clear.setProperty("class", "DangerButton")
         btn_clear.setCursor(Qt.PointingHandCursor)
-        btn_clear.setFixedHeight(42)
+        btn_clear.setFixedHeight(36)
         btn_clear.setStyleSheet(
-            "QPushButton { background-color: #dc2626; color: #ffffff; border: none; border-radius: 8px; padding: 0 18px; font-size: 13px; min-height: 42px; max-height: 42px; font-weight: 700; }"
+            "QPushButton { background-color: #dc2626; color: #ffffff; border: none; border-radius: 8px; padding: 0 16px; font-size: 13px; font-weight: 700; }"
             "QPushButton:hover { background-color: #b91c1c; }"
         )
         btn_clear.clicked.connect(self._clear_history)
@@ -221,9 +221,9 @@ class HistoryPage(QWidget):
             btn_view = QPushButton("🎯 View Results")
             btn_view.setProperty("class", "SecondaryButton")
             btn_view.setCursor(Qt.PointingHandCursor)
-            btn_view.setFixedHeight(32)
+            btn_view.setFixedHeight(36)
             btn_view.setStyleSheet(
-                "QPushButton { background-color: #1e293b; color: #38bdf8; font-weight: 700; border-radius: 6px; padding: 0 14px; font-size: 12px; border: 1px solid #3b82f6; }"
+                "QPushButton { background-color: #1e293b; color: #38bdf8; font-weight: 700; border-radius: 8px; padding: 0 16px; font-size: 13px; border: 1px solid #3b82f6; }"
                 "QPushButton:hover { background-color: #1d4ed8; color: #ffffff; }"
             )
             btn_view.clicked.connect(lambda _, scan_data=s: self.on_view_results_cb(scan_data))
@@ -233,9 +233,9 @@ class HistoryPage(QWidget):
                 btn_resume = QPushButton("▶ Resume")
                 btn_resume.setProperty("class", "PrimaryButton")
                 btn_resume.setCursor(Qt.PointingHandCursor)
-                btn_resume.setFixedHeight(32)
+                btn_resume.setFixedHeight(36)
                 btn_resume.setStyleSheet(
-                    "QPushButton { background-color: #10b981; color: #ffffff; font-weight: 700; border-radius: 6px; padding: 0 14px; font-size: 12px; border: 1px solid #059669; }"
+                    "QPushButton { background-color: #10b981; color: #ffffff; font-weight: 700; border-radius: 8px; padding: 0 16px; font-size: 13px; border: 1px solid #059669; }"
                     "QPushButton:hover { background-color: #059669; }"
                 )
                 btn_resume.clicked.connect(lambda _, s_id=scan_id: self.on_resume_scan_cb(s_id))
@@ -244,10 +244,10 @@ class HistoryPage(QWidget):
             btn_del = QPushButton("🗑️ Delete")
             btn_del.setProperty("class", "DangerButton")
             btn_del.setCursor(Qt.PointingHandCursor)
-            btn_del.setFixedHeight(32)
+            btn_del.setFixedHeight(36)
             btn_del.setToolTip("Delete this scan log record")
             btn_del.setStyleSheet(
-                "QPushButton { background-color: #dc2626; color: #ffffff; border: none; border-radius: 6px; padding: 0 12px; font-size: 12px; font-weight: 700; }"
+                "QPushButton { background-color: #dc2626; color: #ffffff; border: none; border-radius: 8px; padding: 0 16px; font-size: 13px; font-weight: 700; }"
                 "QPushButton:hover { background-color: #b91c1c; }"
             )
             btn_del.clicked.connect(lambda _, s_id=scan_id: self._delete_record(s_id))

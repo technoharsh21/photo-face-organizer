@@ -29,6 +29,7 @@ from PySide6.QtWidgets import (
 )
 
 from services.unknown_face_service import UnknownFaceService
+from ui.components.flow_layout import FlowLayout
 
 
 class UnknownFaceCropCover(QWidget):
@@ -156,9 +157,9 @@ class UnknownFacesPage(QWidget):
         btn_cluster = QPushButton("✨ Auto-Group Similar Faces")
         btn_cluster.setProperty("class", "PrimaryButton")
         btn_cluster.setCursor(Qt.PointingHandCursor)
-        btn_cluster.setFixedHeight(42)
+        btn_cluster.setFixedHeight(36)
         btn_cluster.setStyleSheet(
-            "QPushButton { background-color: #10b981; color: #ffffff; font-weight: 700; border-radius: 8px; padding: 0 20px; font-size: 13px; border: 1px solid #059669; }"
+            "QPushButton { background-color: #10b981; color: #ffffff; font-weight: 700; border-radius: 8px; padding: 0 16px; font-size: 13px; border: 1px solid #059669; }"
             "QPushButton:hover { background-color: #059669; }"
         )
         btn_cluster.clicked.connect(self._run_clustering)
@@ -167,9 +168,9 @@ class UnknownFacesPage(QWidget):
         btn_clear_all = QPushButton("🧹 Clear All")
         btn_clear_all.setProperty("class", "DangerButton")
         btn_clear_all.setCursor(Qt.PointingHandCursor)
-        btn_clear_all.setFixedHeight(42)
+        btn_clear_all.setFixedHeight(36)
         btn_clear_all.setStyleSheet(
-            "QPushButton { background-color: #dc2626; color: #ffffff; border: none; border-radius: 8px; padding: 0 18px; font-size: 13px; font-weight: 700; }"
+            "QPushButton { background-color: #dc2626; color: #ffffff; border: none; border-radius: 8px; padding: 0 16px; font-size: 13px; font-weight: 700; }"
             "QPushButton:hover { background-color: #b91c1c; }"
         )
         btn_clear_all.clicked.connect(self._clear_all_unknown_faces)
@@ -204,7 +205,6 @@ class UnknownFacesPage(QWidget):
         left_w = QFrame()
         left_w.setProperty("class", "Card")
         left_w.setMinimumWidth(340)
-        left_w.setMaximumWidth(450)
         left_l = QVBoxLayout(left_w)
         left_l.setContentsMargins(14, 14, 14, 14)
         left_l.setSpacing(10)
@@ -253,15 +253,14 @@ class UnknownFacesPage(QWidget):
         self.group_title_lbl.setStyleSheet("font-size: 16px; font-weight: 800; color: #ffffff;")
         right_l.addWidget(self.group_title_lbl)
 
-        # Actions Toolbar with Standardized 42px High-Contrast Buttons
-        actions_l = QHBoxLayout()
-        actions_l.setSpacing(12)
+        # Actions Toolbar — wraps to next line on narrow windows so button text never clips
+        actions_l = FlowLayout(h_spacing=12, v_spacing=8)
 
         self.btn_convert = QPushButton("⭐ Convert to Profile")
         self.btn_convert.setCursor(Qt.PointingHandCursor)
-        self.btn_convert.setFixedHeight(42)
+        self.btn_convert.setFixedHeight(36)
         self.btn_convert.setStyleSheet(
-            "QPushButton { background-color: #10b981; color: #ffffff; font-weight: 700; border-radius: 8px; padding: 0 20px; font-size: 13px; min-height: 42px; max-height: 42px; border: 1px solid #059669; }"
+            "QPushButton { background-color: #10b981; color: #ffffff; font-weight: 700; border-radius: 8px; padding: 0 16px; font-size: 13px; border: 1px solid #059669; }"
             "QPushButton:hover { background-color: #059669; }"
         )
         self.btn_convert.clicked.connect(self._convert_group_to_profile)
@@ -269,9 +268,9 @@ class UnknownFacesPage(QWidget):
 
         self.btn_add_to_existing = QPushButton("➕ Add to Profile")
         self.btn_add_to_existing.setCursor(Qt.PointingHandCursor)
-        self.btn_add_to_existing.setFixedHeight(42)
+        self.btn_add_to_existing.setFixedHeight(36)
         self.btn_add_to_existing.setStyleSheet(
-            "QPushButton { background-color: #0284c7; color: #ffffff; font-weight: 700; border-radius: 8px; padding: 0 20px; font-size: 13px; min-height: 42px; max-height: 42px; border: 1px solid #0369a1; }"
+            "QPushButton { background-color: #0284c7; color: #ffffff; font-weight: 700; border-radius: 8px; padding: 0 16px; font-size: 13px; border: 1px solid #0369a1; }"
             "QPushButton:hover { background-color: #0369a1; }"
         )
         self.btn_add_to_existing.clicked.connect(self._add_group_to_existing_profile)
@@ -279,9 +278,9 @@ class UnknownFacesPage(QWidget):
 
         self.btn_rename_grp = QPushButton("✏️ Rename Group")
         self.btn_rename_grp.setCursor(Qt.PointingHandCursor)
-        self.btn_rename_grp.setFixedHeight(42)
+        self.btn_rename_grp.setFixedHeight(36)
         self.btn_rename_grp.setStyleSheet(
-            "QPushButton { background-color: #1e293b; color: #ffffff; font-weight: 700; border-radius: 8px; padding: 0 18px; font-size: 13px; min-height: 42px; max-height: 42px; border: 1px solid #3b82f6; }"
+            "QPushButton { background-color: #1e293b; color: #ffffff; font-weight: 700; border-radius: 8px; padding: 0 16px; font-size: 13px; border: 1px solid #3b82f6; }"
             "QPushButton:hover { background-color: #1d4ed8; color: #ffffff; }"
         )
         self.btn_rename_grp.clicked.connect(self._rename_group)
@@ -289,15 +288,13 @@ class UnknownFacesPage(QWidget):
 
         self.btn_delete_grp = QPushButton("🗑️ Delete Group")
         self.btn_delete_grp.setCursor(Qt.PointingHandCursor)
-        self.btn_delete_grp.setFixedHeight(42)
+        self.btn_delete_grp.setFixedHeight(36)
         self.btn_delete_grp.setStyleSheet(
-            "QPushButton { background-color: #dc2626; color: #ffffff; border: none; border-radius: 8px; padding: 0 20px; font-size: 13px; min-height: 42px; max-height: 42px; font-weight: 700; }"
+            "QPushButton { background-color: #dc2626; color: #ffffff; border: none; border-radius: 8px; padding: 0 16px; font-size: 13px; font-weight: 700; }"
             "QPushButton:hover { background-color: #b91c1c; }"
         )
         self.btn_delete_grp.clicked.connect(self._delete_group)
         actions_l.addWidget(self.btn_delete_grp)
-
-        actions_l.addStretch()
 
         right_l.addLayout(actions_l)
 
@@ -316,7 +313,8 @@ class UnknownFacesPage(QWidget):
         right_l.addWidget(self.scroll, 1)
 
         splitter.addWidget(right_frame)
-        splitter.setSizes([380, 780])
+        splitter.setStretchFactor(0, 1)
+        splitter.setStretchFactor(1, 2)
 
         layout.addWidget(splitter, 1)
         self.refresh()

@@ -9,6 +9,7 @@ Rules:
 - For a Group Profile (e.g. "Me & Friend"): Compulsory matching requires ALL specified persons to be present in the photo.
 """
 
+import threading
 from typing import Any
 
 import numpy as np
@@ -55,6 +56,7 @@ class FaceMatcher:
         self.threshold = threshold
         self.classifier_service = ProfileClassifierService()
         self._last_profile_count = -1
+        self._classifier_lock = threading.Lock()
 
     def match_face(
         self,
@@ -72,9 +74,10 @@ class FaceMatcher:
         highest_score: float = -1.0
 
         # Auto-train fast discriminative classifier on-device when profile set changes
-        if len(profiles) != self._last_profile_count:
-            self.classifier_service.train_classifier(profiles)
-            self._last_profile_count = len(profiles)
+        with self._classifier_lock:
+            if len(profiles) != self._last_profile_count:
+                self.classifier_service.train_classifier(profiles)
+                self._last_profile_count = len(profiles)
 
         for profile in profiles:
             # Skip Group Profiles during individual face matching (Group Profiles are evaluated holistically in evaluate_photo_matches)

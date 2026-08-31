@@ -52,3 +52,6 @@ Thumbs.db
 .idea/
 *.swp
 *.swo
+
+# Claude Code worktrees & scratch
+.claude/

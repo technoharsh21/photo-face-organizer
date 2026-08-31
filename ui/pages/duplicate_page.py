@@ -41,6 +41,7 @@ from PySide6.QtWidgets import (
 )
 
 from services.duplicate_service import DuplicateService, format_bytes
+from ui.components.flow_layout import FlowLayout
 
 
 class DuplicateImageCover(QWidget):
@@ -346,9 +347,9 @@ class DuplicatePage(QWidget):
         self.btn_rescan_hdr = QPushButton("🔄 Rescan Duplicates")
         self.btn_rescan_hdr.setProperty("class", "SecondaryButton")
         self.btn_rescan_hdr.setCursor(Qt.PointingHandCursor)
-        self.btn_rescan_hdr.setFixedHeight(42)
+        self.btn_rescan_hdr.setFixedHeight(36)
         self.btn_rescan_hdr.setStyleSheet(
-            "QPushButton { background-color: #1e293b; color: #ffffff; font-weight: 700; border-radius: 8px; padding: 0 18px; font-size: 13px; min-height: 42px; max-height: 42px; border: 1px solid #3b82f6; }"
+            "QPushButton { background-color: #1e293b; color: #ffffff; font-weight: 700; border-radius: 8px; padding: 0 16px; font-size: 13px; border: 1px solid #3b82f6; }"
             "QPushButton:hover { background-color: #1d4ed8; color: #ffffff; }"
         )
         self.btn_rescan_hdr.clicked.connect(self._run_duplicate_scan)
@@ -369,9 +370,9 @@ class DuplicatePage(QWidget):
         btn_add_folder = QPushButton("📁 Add Folder to Scan")
         btn_add_folder.setProperty("class", "SecondaryButton")
         btn_add_folder.setCursor(Qt.PointingHandCursor)
-        btn_add_folder.setFixedHeight(38)
+        btn_add_folder.setFixedHeight(36)
         btn_add_folder.setStyleSheet(
-            "QPushButton { background-color: #1e293b; color: #ffffff; font-weight: 700; border-radius: 8px; padding: 0 16px; font-size: 12px; border: 1px solid #3b82f6; }"
+            "QPushButton { background-color: #1e293b; color: #ffffff; font-weight: 700; border-radius: 8px; padding: 0 16px; font-size: 13px; border: 1px solid #3b82f6; }"
             "QPushButton:hover { background-color: #1d4ed8; color: #ffffff; }"
         )
         btn_add_folder.clicked.connect(self._add_folder)
@@ -379,9 +380,9 @@ class DuplicatePage(QWidget):
         btn_clear = QPushButton("🗑️ Clear Folders")
         btn_clear.setProperty("class", "DangerButton")
         btn_clear.setCursor(Qt.PointingHandCursor)
-        btn_clear.setFixedHeight(38)
+        btn_clear.setFixedHeight(36)
         btn_clear.setStyleSheet(
-            "QPushButton { background-color: #dc2626; color: #ffffff; border: none; border-radius: 8px; padding: 0 16px; font-size: 12px; font-weight: 700; }"
+            "QPushButton { background-color: #dc2626; color: #ffffff; border: none; border-radius: 8px; padding: 0 16px; font-size: 13px; font-weight: 700; }"
             "QPushButton:hover { background-color: #b91c1c; }"
         )
         btn_clear.clicked.connect(self._clear_folders)
@@ -394,9 +395,9 @@ class DuplicatePage(QWidget):
         self.btn_scan = QPushButton("⚡ Scan for Duplicates")
         self.btn_scan.setProperty("class", "PrimaryButton")
         self.btn_scan.setCursor(Qt.PointingHandCursor)
-        self.btn_scan.setFixedHeight(42)
+        self.btn_scan.setFixedHeight(36)
         self.btn_scan.setStyleSheet(
-            "QPushButton { background-color: #10b981; color: #ffffff; font-weight: 700; border-radius: 8px; padding: 0 20px; font-size: 13px; min-height: 42px; max-height: 42px; border: 1px solid #059669; }"
+            "QPushButton { background-color: #10b981; color: #ffffff; font-weight: 700; border-radius: 8px; padding: 0 16px; font-size: 13px; border: 1px solid #059669; }"
             "QPushButton:hover { background-color: #059669; }"
         )
         self.btn_scan.clicked.connect(self._run_duplicate_scan)
@@ -447,7 +448,6 @@ class DuplicatePage(QWidget):
         left_w = QFrame()
         left_w.setProperty("class", "Card")
         left_w.setMinimumWidth(280)
-        left_w.setMaximumWidth(380)
         left_l = QVBoxLayout(left_w)
         left_l.setContentsMargins(14, 14, 14, 14)
         left_l.setSpacing(10)
@@ -493,9 +493,8 @@ class DuplicatePage(QWidget):
         right_l.setContentsMargins(16, 16, 16, 16)
         right_l.setSpacing(12)
 
-        # Actions Toolbar
-        actions_l = QHBoxLayout()
-        actions_l.setSpacing(8)
+        # Actions Toolbar — wraps on narrow windows so button text never clips
+        actions_l = FlowLayout(h_spacing=8, v_spacing=8)
 
         lbl_rule = QLabel("<b>Rule:</b>")
         lbl_rule.setStyleSheet("color: #ffffff; font-size: 12px;")
@@ -511,20 +510,18 @@ class DuplicatePage(QWidget):
         btn_auto_select.setCursor(Qt.PointingHandCursor)
         btn_auto_select.setFixedHeight(36)
         btn_auto_select.setStyleSheet(
-            "QPushButton { background-color: #1e293b; color: #ffffff; font-weight: 700; border-radius: 6px; padding: 0 14px; font-size: 12px; border: 1px solid #3b82f6; }"
+            "QPushButton { background-color: #1e293b; color: #ffffff; font-weight: 700; border-radius: 8px; padding: 0 16px; font-size: 13px; border: 1px solid #3b82f6; }"
             "QPushButton:hover { background-color: #1d4ed8; color: #ffffff; }"
         )
         btn_auto_select.clicked.connect(self._apply_auto_select_rule)
         actions_l.addWidget(btn_auto_select)
-
-        actions_l.addStretch()
 
         self.btn_quarantine = QPushButton("📁 Quarantine Selected")
         self.btn_quarantine.setProperty("class", "SecondaryButton")
         self.btn_quarantine.setCursor(Qt.PointingHandCursor)
         self.btn_quarantine.setFixedHeight(36)
         self.btn_quarantine.setStyleSheet(
-            "QPushButton { background-color: #1e293b; color: #ffffff; font-weight: 700; border-radius: 6px; padding: 0 16px; font-size: 12px; border: 1px solid #3b82f6; }"
+            "QPushButton { background-color: #1e293b; color: #ffffff; font-weight: 700; border-radius: 8px; padding: 0 16px; font-size: 13px; border: 1px solid #3b82f6; }"
             "QPushButton:hover { background-color: #1d4ed8; color: #ffffff; }"
         )
         self.btn_quarantine.setToolTip("Move selected duplicate copies to a safe Quarantine folder.")
@@ -536,7 +533,7 @@ class DuplicatePage(QWidget):
         self.btn_delete.setCursor(Qt.PointingHandCursor)
         self.btn_delete.setFixedHeight(36)
         self.btn_delete.setStyleSheet(
-            "QPushButton { background-color: #dc2626; color: #ffffff; font-weight: 700; border-radius: 6px; padding: 0 18px; font-size: 12px; border: none; }"
+            "QPushButton { background-color: #dc2626; color: #ffffff; font-weight: 700; border-radius: 8px; padding: 0 16px; font-size: 13px; border: none; }"
             "QPushButton:hover { background-color: #b91c1c; }"
         )
         self.btn_delete.setToolTip("Safely delete selected duplicate photos to recycle bin.")
@@ -560,7 +557,8 @@ class DuplicatePage(QWidget):
         right_l.addWidget(self.scroll, 1)
 
         splitter.addWidget(right_frame)
-        splitter.setSizes([320, 700])
+        splitter.setStretchFactor(0, 1)
+        splitter.setStretchFactor(1, 2)
 
         layout.addWidget(splitter, 1)
         self.refresh()

@@ -32,6 +32,15 @@ def format_bytes(size_bytes: int) -> str:
         return f"{size_bytes / (1024 * 1024 * 1024):.2f} GB"
 
 
+def _is_relative_to_compat(child: Path, parent: Path) -> bool:
+    """Path.is_relative_to() requires Python 3.9+; use relative_to() try/except instead."""
+    try:
+        child.relative_to(parent)
+        return True
+    except ValueError:
+        return False
+
+
 class DuplicateService:
     """Service for detecting, grouping, auto-selecting, and removing duplicate image files."""
 
@@ -67,7 +76,7 @@ class DuplicateService:
         # Filter photo paths to guarantee strict path isolation within target sources
         valid_paths = [
             p for p in photo_paths
-            if any(p.resolve().is_relative_to(src) for src in resolved_sources)
+            if any(_is_relative_to_compat(p.resolve(), src) for src in resolved_sources)
         ]
         if not valid_paths:
             return []

@@ -6,6 +6,8 @@ and persists them locally in JSON.
 """
 
 import json
+import os
+import tempfile
 from typing import Any
 
 from config import Config
@@ -41,10 +43,21 @@ class SettingsService:
             self.save_settings()
 
     def save_settings(self):
-        """Save current settings to JSON file."""
+        """Save current settings to JSON file atomically."""
         self.settings_file.parent.mkdir(parents=True, exist_ok=True)
-        with open(self.settings_file, "w", encoding="utf-8") as f:
-            json.dump(self.settings, f, indent=2)
+        content = json.dumps(self.settings, indent=2)
+        dir_path = self.settings_file.parent
+        fd, tmp_path = tempfile.mkstemp(dir=str(dir_path), suffix=".tmp")
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                f.write(content)
+            os.replace(tmp_path, str(self.settings_file))
+        except Exception:
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+            raise
 
     def get(self, key: str, default: Any = None) -> Any:
         return self.settings.get(key, default)

@@ -99,9 +99,9 @@ class FaceSelectorDialog(QDialog):
         cancel_btn = QPushButton("Cancel")
         cancel_btn.setProperty("class", "SecondaryButton")
         cancel_btn.setCursor(Qt.PointingHandCursor)
-        cancel_btn.setFixedHeight(38)
+        cancel_btn.setFixedHeight(36)
         cancel_btn.setStyleSheet(
-            "QPushButton { background-color: #1e293b; color: #ffffff; font-weight: 700; border-radius: 8px; padding: 0 18px; font-size: 13px; border: 1px solid #3b82f6; }"
+            "QPushButton { background-color: #1e293b; color: #ffffff; font-weight: 700; border-radius: 8px; padding: 0 16px; font-size: 13px; border: 1px solid #3b82f6; }"
             "QPushButton:hover { background-color: #1d4ed8; color: #ffffff; }"
         )
         cancel_btn.clicked.connect(self.reject)
@@ -110,9 +110,9 @@ class FaceSelectorDialog(QDialog):
         confirm_btn = QPushButton("Use Selected Face")
         confirm_btn.setProperty("class", "PrimaryButton")
         confirm_btn.setCursor(Qt.PointingHandCursor)
-        confirm_btn.setFixedHeight(38)
+        confirm_btn.setFixedHeight(36)
         confirm_btn.setStyleSheet(
-            "QPushButton { background-color: #10b981; color: #ffffff; font-weight: 700; border-radius: 8px; padding: 0 20px; font-size: 13px; border: 1px solid #059669; }"
+            "QPushButton { background-color: #10b981; color: #ffffff; font-weight: 700; border-radius: 8px; padding: 0 16px; font-size: 13px; border: 1px solid #059669; }"
             "QPushButton:hover { background-color: #059669; }"
         )
         confirm_btn.clicked.connect(self._on_confirm)

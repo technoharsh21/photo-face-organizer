@@ -43,10 +43,10 @@ class ProcessingPage(QWidget):
     def _setup_ui(self):
         page_layout = QVBoxLayout(self)
         page_layout.setContentsMargins(20, 20, 20, 20)
-        page_layout.setAlignment(Qt.AlignHCenter | Qt.AlignTop)
+        page_layout.setAlignment(Qt.AlignHCenter)
 
         content_widget = QWidget()
-        content_widget.setMaximumWidth(880)
+        content_widget.setMaximumWidth(1100)
         layout = QVBoxLayout(content_widget)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(16)
@@ -109,9 +109,9 @@ class ProcessingPage(QWidget):
         self.btn_pause = QPushButton("⏸ Pause")
         self.btn_pause.setProperty("class", "SecondaryButton")
         self.btn_pause.setCursor(Qt.PointingHandCursor)
-        self.btn_pause.setFixedHeight(42)
+        self.btn_pause.setFixedHeight(36)
         self.btn_pause.setStyleSheet(
-            "QPushButton { background-color: #1e293b; color: #ffffff; font-weight: 700; border-radius: 8px; padding: 0 24px; font-size: 13px; min-height: 42px; max-height: 42px; border: 1px solid #3b82f6; }"
+            "QPushButton { background-color: #1e293b; color: #ffffff; font-weight: 700; border-radius: 8px; padding: 0 16px; font-size: 13px; min-height: 36px; max-height: 36px; border: 1px solid #3b82f6; }"
             "QPushButton:hover { background-color: #1d4ed8; color: #ffffff; }"
         )
         self.btn_pause.clicked.connect(self._toggle_pause)
@@ -120,9 +120,9 @@ class ProcessingPage(QWidget):
         self.btn_cancel = QPushButton("🛑 Cancel Scan")
         self.btn_cancel.setProperty("class", "DangerButton")
         self.btn_cancel.setCursor(Qt.PointingHandCursor)
-        self.btn_cancel.setFixedHeight(42)
+        self.btn_cancel.setFixedHeight(36)
         self.btn_cancel.setStyleSheet(
-            "QPushButton { background-color: #dc2626; color: #ffffff; border: none; border-radius: 8px; padding: 0 24px; font-size: 13px; min-height: 42px; max-height: 42px; font-weight: 700; }"
+            "QPushButton { background-color: #dc2626; color: #ffffff; border: none; border-radius: 8px; padding: 0 16px; font-size: 13px; min-height: 36px; max-height: 36px; font-weight: 700; }"
             "QPushButton:hover { background-color: #b91c1c; }"
         )
         self.btn_cancel.clicked.connect(self._cancel_scan)
@@ -131,7 +131,9 @@ class ProcessingPage(QWidget):
         btn_layout.addStretch()
         layout.addLayout(btn_layout)
 
+        page_layout.addStretch()
         page_layout.addWidget(content_widget)
+        page_layout.addStretch()
 
     def _create_counter(self, title: str, val: str, color: str) -> dict:
         frame = QFrame()
