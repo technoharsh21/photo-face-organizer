@@ -29,6 +29,7 @@ from services.history_service import HistoryService
 from services.profile_service import ProfileService
 from services.settings_service import SettingsService
 from services.unknown_face_service import UnknownFaceService
+from ui.components.image_cache import load_cover_pixmap
 
 
 def _create_circular_avatar(pixmap: QPixmap, size: int = 52) -> QPixmap:
@@ -478,7 +479,7 @@ class DashboardPage(QWidget):
 
     def refresh(self):
         """Refresh dashboard metric counts, people showcase gallery, and badges."""
-        profiles = self.profile_service.list_profiles()
+        profiles = self.profile_service.list_profiles_summary()
         self.card_profiles["val_lbl"].setText(str(len(profiles)))
 
         scans = self.history_service.get_all_scans()
@@ -558,8 +559,7 @@ class DashboardPage(QWidget):
         colors = ["#2563eb", "#059669", "#7c3aed", "#d97706", "#0891b2", "#dc2626"]
         for idx, profile in enumerate(profiles):
             p_name = profile.get("name", "Unknown")
-            refs = profile.get("references", [])
-            ref_count = len(refs)
+            ref_count = profile.get("ref_count", 0)
 
             p_card = QFrame()
             p_card.setProperty("class", "ProfileShowcaseCard")
@@ -577,15 +577,14 @@ class DashboardPage(QWidget):
             avatar_lbl.setAlignment(Qt.AlignCenter)
 
             avatar_pix: QPixmap | None = None
-            if refs:
-                first_ref_path = refs[0].get("stored_path")
-                if first_ref_path and Path(first_ref_path).exists():
-                    try:
-                        raw_pix = QPixmap(str(first_ref_path))
-                        if not raw_pix.isNull():
-                            avatar_pix = _create_circular_avatar(raw_pix, 52)
-                    except Exception:
-                        pass
+            first_ref_path = profile.get("first_ref_path")
+            if first_ref_path and Path(first_ref_path).exists():
+                try:
+                    raw_pix = load_cover_pixmap(first_ref_path, 52, 52)
+                    if raw_pix is not None and not raw_pix.isNull():
+                        avatar_pix = _create_circular_avatar(raw_pix, 52)
+                except Exception:
+                    pass
 
             if avatar_pix is None:
                 bg = colors[idx % len(colors)]

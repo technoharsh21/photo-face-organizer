@@ -230,10 +230,14 @@ class UnknownFaceService:
 
         return metadata
 
-    def list_unknown_faces(self) -> list[dict[str, Any]]:
+    def list_unknown_faces(self, load_embeddings: bool = False) -> list[dict[str, Any]]:
         """
         Return list of all stored unknown face metadata.
         Auto-purges orphaned unknown faces whose source photo no longer exists on disk.
+
+        By default the heavy 512-d embedding .npy is NOT loaded (display/listing
+        only needs crop path + metadata). Pass load_embeddings=True for clustering
+        (group_unknown_faces), which reads each face's embedding into meta["embedding"].
         """
         unknowns = []
         for u_dir in list(self.unknown_dir.iterdir()):
@@ -252,7 +256,8 @@ class UnknownFaceService:
                             shutil.rmtree(u_dir, ignore_errors=True)
                             continue
 
-                        meta["embedding"] = np.load(str(emb_path))
+                        if load_embeddings:
+                            meta["embedding"] = np.load(str(emb_path))
                         unknowns.append(meta)
                     except Exception:
                         pass
@@ -277,7 +282,7 @@ class UnknownFaceService:
         Enforces 100% group purity by requiring candidate faces to match ALL existing member faces in a group.
         Returns list of groups: [{'group_id': ..., 'group_name': ..., 'faces': [...]}]
         """
-        all_faces = self.list_unknown_faces()
+        all_faces = self.list_unknown_faces(load_embeddings=True)
         if not all_faces:
             return []
 

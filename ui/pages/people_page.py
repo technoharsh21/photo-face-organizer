@@ -40,6 +40,7 @@ from domain.face_engine import FaceEngine
 from services.profile_service import ProfileService
 from ui.components.face_selector import FaceSelectorDialog
 from ui.components.flow_layout import FlowLayout
+from ui.components.image_cache import load_cover_pixmap
 from ui.components.live_face_scanner_dialog import LiveFaceScannerDialog
 
 
@@ -55,11 +56,10 @@ class ImageCoverWidget(QWidget):
         parent=None,
     ):
         super().__init__(parent)
-        self.image_path = image_path
+        self.image_path = image_path if (image_path and Path(image_path).exists()) else None
         self.radius = radius
         self.initials: str | None = None
         self.bg_color: str = "#2563eb"
-        self.pixmap: QPixmap | None = None
 
         if width:
             self.setFixedSize(width, height)
@@ -67,20 +67,12 @@ class ImageCoverWidget(QWidget):
             self.setFixedHeight(height)
             self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
 
-        if image_path and Path(image_path).exists():
-            self.pixmap = QPixmap(str(image_path))
-
     def set_image_path(self, path: str | None):
-        self.image_path = path
         self.initials = None
-        if path and Path(path).exists():
-            self.pixmap = QPixmap(str(path))
-        else:
-            self.pixmap = None
+        self.image_path = path if (path and Path(path).exists()) else None
         self.update()
 
     def set_initials(self, name: str, bg_color: str = "#2563eb"):
-        self.pixmap = None
         self.image_path = None
         self.initials = "".join([part[0].upper() for part in name.strip().split()[:2]]) or "P"
         self.bg_color = bg_color
@@ -93,9 +85,9 @@ class ImageCoverWidget(QWidget):
         w = self.width()
         h = self.height()
 
-        if self.pixmap and not self.pixmap.isNull():
-            # True center crop (object-fit: cover) to eliminate any letterbox black borders
-            scaled = self.pixmap.scaled(w, h, Qt.KeepAspectRatioByExpanding, Qt.SmoothTransformation)
+        scaled = load_cover_pixmap(self.image_path, w, h) if self.image_path else None
+        if scaled is not None and not scaled.isNull():
+            # Cached cover-scaled pixmap (decoded near target size, not full-res)
             path = QPainterPath()
             path.addRoundedRect(0, 0, w, h, self.radius, self.radius)
             painter.setClipPath(path)
@@ -639,17 +631,16 @@ class PeoplePage(QWidget):
         self.list_widget.blockSignals(True)
         self.list_widget.clear()
 
-        profiles = self.profile_service.list_profiles()
+        profiles = self.profile_service.list_profiles_summary()
         self.lbl_profile_count.setText(f"{len(profiles)} Profile{'s' if len(profiles) != 1 else ''}")
         selected_item = None
 
         colors = ["#2563eb", "#059669", "#7c3aed", "#d97706", "#0891b2", "#dc2626"]
 
         for idx, p in enumerate(profiles):
-            refs = p.get("references", [])
-            ref_count = len(refs)
+            ref_count = p.get("ref_count", 0)
             is_group = bool(p.get("is_group_profile"))
-            first_ref_path = refs[0].get("stored_path") if refs else None
+            first_ref_path = p.get("first_ref_path")
 
             item = QListWidgetItem()
             item.setData(Qt.UserRole, p["id"])

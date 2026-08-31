@@ -121,6 +121,50 @@ class ProfileService:
         profiles.sort(key=lambda x: x.get("name", "").lower())
         return profiles
 
+    def list_profiles_summary(self) -> list[dict[str, Any]]:
+        """
+        Lightweight profile listing for UI list/grid views.
+        Reads only profile.json (no embedding load, no re-embedding, no centroid
+        recompute) and returns id/name/ref_count/first_ref_path/is_group_profile.
+        Much cheaper than list_profiles() for display-only screens.
+        """
+        out: list[dict[str, Any]] = []
+        for p_dir in self.profiles_dir.iterdir():
+            if not p_dir.is_dir():
+                continue
+            p_file = p_dir / "profile.json"
+            if not p_file.exists():
+                continue
+            try:
+                with open(p_file, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+            except Exception:
+                continue
+
+            refs = data.get("references", [])
+            first_ref_path = None
+            for r in refs:
+                sp = r.get("stored_path")
+                if sp and Path(sp).exists():
+                    first_ref_path = sp
+                    break
+                fname = r.get("filename")
+                if fname:
+                    cand = p_dir / "references" / fname
+                    if cand.exists():
+                        first_ref_path = str(cand)
+                        break
+
+            out.append({
+                "id": data.get("id", p_dir.name),
+                "name": data.get("name", "Unknown"),
+                "ref_count": len(refs),
+                "first_ref_path": first_ref_path,
+                "is_group_profile": bool(data.get("is_group_profile")),
+            })
+        out.sort(key=lambda x: x["name"].lower())
+        return out
+
     def get_profile(self, profile_id: str) -> dict[str, Any] | None:
         """Fetch profile by ID."""
         p_dir = self.profiles_dir / profile_id
