@@ -37,6 +37,7 @@ from services.unknown_face_service import UnknownFaceService
 from ui.components.crash_recovery_dialog import CrashRecoveryDialog
 from ui.pages.dashboard_page import DashboardPage
 from ui.pages.duplicate_page import DuplicatePage
+from ui.pages.find_photos_page import FindPhotosPage
 from ui.pages.history_page import HistoryPage
 from ui.pages.new_scan_page import NewScanPage
 from ui.pages.people_page import PeoplePage
@@ -123,6 +124,13 @@ class MainWindow(QMainWindow):
             face_engine=self.face_engine,
         )
         self.page_people = PeoplePage(self.profile_service, self.face_engine)
+        self.page_find_photos = FindPhotosPage(
+            profile_service=self.profile_service,
+            face_engine=self.face_engine,
+            settings_service=self.settings_service,
+            face_cache_service=self.face_cache_service,
+            navigate_cb=self.navigate_to,
+        )
         self.page_new_scan = NewScanPage(self.profile_service, self.scan_service, self.settings_service, self._on_scan_started)
         self.page_solo_scan = SoloScanPage(self.profile_service, self.solo_scan_service, self.settings_service, self._on_scan_started)
         self.page_processing = ProcessingPage(self.scan_service, self._on_scan_finished)
@@ -135,27 +143,29 @@ class MainWindow(QMainWindow):
         self.page_map = {
             "Dashboard": (0, self.page_dashboard),
             "People": (1, self.page_people),
-            "New Scan": (2, self.page_new_scan),
-            "Solo Scan": (3, self.page_solo_scan),
-            "Processing": (4, self.page_processing),
-            "Results": (5, self.page_results),
-            "Unknown Faces": (6, self.page_unknown_faces),
-            "History": (7, self.page_history),
-            "Settings": (8, self.page_settings),
-            "Duplicates": (9, self.page_duplicates),
+            "Find Photos": (2, self.page_find_photos),
+            "New Scan": (3, self.page_new_scan),
+            "Solo Scan": (4, self.page_solo_scan),
+            "Processing": (5, self.page_processing),
+            "Results": (6, self.page_results),
+            "Unknown Faces": (7, self.page_unknown_faces),
+            "History": (8, self.page_history),
+            "Settings": (9, self.page_settings),
+            "Duplicates": (10, self.page_duplicates),
         }
 
         for idx, page_widget in [
             (0, self.page_dashboard),
             (1, self.page_people),
-            (2, self.page_new_scan),
-            (3, self.page_solo_scan),
-            (4, self.page_processing),
-            (5, self.page_results),
-            (6, self.page_unknown_faces),
-            (7, self.page_history),
-            (8, self.page_settings),
-            (9, self.page_duplicates),
+            (2, self.page_find_photos),
+            (3, self.page_new_scan),
+            (4, self.page_solo_scan),
+            (5, self.page_processing),
+            (6, self.page_results),
+            (7, self.page_unknown_faces),
+            (8, self.page_history),
+            (9, self.page_settings),
+            (10, self.page_duplicates),
         ]:
             self.content_stack.addWidget(page_widget)
 
@@ -206,6 +216,7 @@ class MainWindow(QMainWindow):
             ("MAIN", [
                 ("Dashboard", "🏠  Dashboard"),
                 ("People", "👥  People Profiles"),
+                ("Find Photos", "🔍  Find Photos by Person"),
                 ("New Scan", "🚀  New Scan Wizard"),
                 ("Solo Scan", "🎯  Solo Scan (0% False)"),
             ]),

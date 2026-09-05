@@ -4,6 +4,7 @@ An open-source desktop application that automatically detects, recognizes, and o
 
 ## Features
 - **Automatic Face Detection & Recognition**: Scans photos to detect human faces and match them against created profiles.
+- **Find Photos by Person**: Real-time interactive discovery of any person's photos across multiple folders with Solo vs All matching and built-in Lightbox viewer.
 - **Individual & Compulsory Group Profiles**: Group folders require all compulsory members to be detected together in a single photo.
 - **File Audit Reconciliation**: Verifies that 100% of discovered photos are accounted for with zero data loss.
 - **Unknown Faces Clustering**: Groups unrecognized faces so you can create new profiles with one click.
