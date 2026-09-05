@@ -6,6 +6,7 @@ Follows 8px spacing system, strong typography hierarchy, and polished component 
 """
 
 import os as _os
+from PySide6.QtGui import QColor, QPalette
 
 _ASSETS_DIR = _os.path.join(_os.path.dirname(__file__), "assets")
 _ARROW_SVG = _os.path.join(_ASSETS_DIR, "arrow_down.svg").replace("\\", "/")
@@ -14,6 +15,64 @@ _ARROW_SVG = _os.path.join(_ASSETS_DIR, "arrow_down.svg").replace("\\", "/")
 def get_stylesheet() -> str:
     """Return the full application stylesheet with correct asset paths resolved."""
     return _STYLESHEET_TEMPLATE.replace("__ARROW_SVG__", _ARROW_SVG)
+
+
+def get_dark_palette() -> QPalette:
+    """Return a QPalette matching the dark theme.
+
+    Palette-driven internals (scroll-area viewports, item views inside file
+    dialogs, completer popups) ignore QSS and fall back to the OS system
+    palette, which renders white on a light-themed Windows desktop.
+    """
+    palette = QPalette()
+
+    window = QColor("#080c14")
+    base = QColor("#0f172a")
+    alt_base = QColor("#162238")
+    button = QColor("#1e293b")
+    text = QColor("#e2e8f0")
+    heading = QColor("#f8fafc")
+    muted = QColor("#64748b")
+    accent = QColor("#0284c7")
+    white = QColor("#ffffff")
+
+    background_roles = {
+        QPalette.ColorRole.Window: window,
+        QPalette.ColorRole.Base: base,
+        QPalette.ColorRole.AlternateBase: alt_base,
+        QPalette.ColorRole.Button: button,
+        QPalette.ColorRole.ToolTipBase: button,
+        QPalette.ColorRole.Dark: QColor("#0b0f19"),
+        QPalette.ColorRole.Mid: QColor("#334155"),
+        QPalette.ColorRole.Light: QColor("#334155"),
+        QPalette.ColorRole.Midlight: QColor("#475569"),
+    }
+    foreground_roles = {
+        QPalette.ColorRole.WindowText: heading,
+        QPalette.ColorRole.Text: text,
+        QPalette.ColorRole.ButtonText: heading,
+        QPalette.ColorRole.ToolTipText: white,
+        QPalette.ColorRole.PlaceholderText: muted,
+        QPalette.ColorRole.BrightText: white,
+        QPalette.ColorRole.Link: QColor("#38bdf8"),
+        QPalette.ColorRole.Highlight: accent,
+        QPalette.ColorRole.HighlightedText: white,
+    }
+
+    for group in (QPalette.ColorGroup.Active, QPalette.ColorGroup.Inactive):
+        for role, color in {**background_roles, **foreground_roles}.items():
+            palette.setColor(group, role, color)
+
+    for role, color in background_roles.items():
+        palette.setColor(QPalette.ColorGroup.Disabled, role, color)
+    for role, color in foreground_roles.items():
+        palette.setColor(
+            QPalette.ColorGroup.Disabled,
+            role,
+            color if role in (QPalette.ColorRole.Highlight, QPalette.ColorRole.HighlightedText) else muted,
+        )
+
+    return palette
 
 
 # Keep STYLESHEET as a module-level alias so existing imports keep working.
@@ -36,6 +95,30 @@ QWidget {
     font-size: 13px;
     selection-background-color: #0284c7;
     selection-color: #ffffff;
+}
+
+/* =========================================================================
+   1b. Scroll Areas & Generic Item Views
+   Painted explicitly so nothing falls back to the OS system palette
+   (white rectangles on light-themed Windows).
+   ========================================================================= */
+QScrollArea {
+    background-color: #080c14;
+    border: none;
+}
+
+QScrollArea > QWidget {
+    background-color: #080c14;
+}
+
+QAbstractItemView {
+    background-color: #0f172a;
+    alternate-background-color: #0f172a;
+    color: #e2e8f0;
+    selection-background-color: #0284c7;
+    selection-color: #ffffff;
+    border: 1px solid #1e293b;
+    outline: 0px;
 }
 
 /* =========================================================================

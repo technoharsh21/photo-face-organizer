@@ -74,10 +74,16 @@ class DuplicateService:
             return []
 
         # Filter photo paths to guarantee strict path isolation within target sources
-        valid_paths = [
-            p for p in photo_paths
-            if any(_is_relative_to_compat(p.resolve(), src) for src in resolved_sources)
-        ]
+        valid_paths = []
+        for p in photo_paths:
+            p_res = p.resolve()
+            if recursive:
+                if any(_is_relative_to_compat(p_res, src) for src in resolved_sources):
+                    valid_paths.append(p_res)
+            else:
+                if any(p_res.parent == src or p_res == src for src in resolved_sources):
+                    valid_paths.append(p_res)
+
         if not valid_paths:
             return []
 
@@ -193,6 +199,22 @@ class DuplicateService:
             for f in files[1:]:
                 f["is_selected_for_removal"] = True
 
+    def _get_unique_quarantine_path(self, original_filename: str) -> Path:
+        """Generate a guaranteed collision-free path in the quarantine directory."""
+        self.quarantine_dir.mkdir(parents=True, exist_ok=True)
+        dest = self.quarantine_dir / original_filename
+        if not dest.exists():
+            return dest
+
+        stem = dest.stem
+        suffix = dest.suffix
+        counter = 1
+        while True:
+            candidate = self.quarantine_dir / f"{stem}_{counter}{suffix}"
+            if not candidate.exists():
+                return candidate
+            counter += 1
+
     def remove_duplicates(
         self,
         file_paths_to_remove: list[str],
@@ -232,15 +254,11 @@ class DuplicateService:
                         import send2trash
                         send2trash.send2trash(str(p))
                     except Exception:
-                        # Fallback to quarantine move if send2trash unavailable
-                        dest = self.quarantine_dir / p.name
-                        if dest.exists():
-                            dest = self.quarantine_dir / f"{p.stem}_{int(datetime.datetime.now().timestamp())}{p.suffix}"
+                        # Fallback to quarantine move if send2trash unavailable or external drive
+                        dest = self._get_unique_quarantine_path(p.name)
                         shutil.move(str(p), str(dest))
                 elif mode == "quarantine":
-                    dest = self.quarantine_dir / p.name
-                    if dest.exists():
-                        dest = self.quarantine_dir / f"{p.stem}_{int(datetime.datetime.now().timestamp())}{p.suffix}"
+                    dest = self._get_unique_quarantine_path(p.name)
                     shutil.move(str(p), str(dest))
                 elif mode == "delete":
                     p.unlink()

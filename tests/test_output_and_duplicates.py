@@ -71,3 +71,29 @@ def test_group_photo_routing_rules():
         assert len(res2) == 1
         assert res2[0][0] == "No Match"
         assert (out_base / "No Match" / "unmatched.jpg").exists()
+
+
+def test_duplicate_detector_caching_and_clear(tmp_path):
+    detector = DuplicateDetector(tmp_path / "index.json")
+    dest_dir = tmp_path / "dest"
+    dest_dir.mkdir()
+
+    f1 = dest_dir / "pic1.jpg"
+    content = b"hashed image content"
+    f1.write_bytes(content)
+    f_hash = detector.compute_file_hash(f1)
+
+    # Initial check indexes the folder
+    assert detector.is_duplicate(f_hash, dest_dir) is True
+    assert detector.is_duplicate("non_existent_hash", dest_dir) is False
+
+    # Register new hash directly
+    detector.register_copy("new_fake_hash", dest_dir)
+    assert detector.is_duplicate("new_fake_hash", dest_dir) is True
+
+    # Clear cache
+    detector.clear()
+    assert len(detector._folder_hash_cache) == 0
+    # Re-indexes on next check
+    assert detector.is_duplicate(f_hash, dest_dir) is True
+

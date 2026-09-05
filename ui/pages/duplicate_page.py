@@ -315,8 +315,7 @@ class DuplicatePage(QWidget):
     def __init__(self, duplicate_service: DuplicateService):
         super().__init__()
         self.duplicate_service = duplicate_service
-        self.default_source: str = str(Path.home() / "Pictures" / "Organized_Photos")
-        self.sources: list[str] = [self.default_source] if Path(self.default_source).exists() else []
+        self.sources: list[str] = []
         self.duplicate_sets: list[dict[str, Any]] = []
         self.current_set_id: str | None = None
         self.worker: DuplicateScanWorker | None = None
@@ -367,7 +366,17 @@ class DuplicatePage(QWidget):
         top_btns = QHBoxLayout()
         top_btns.setSpacing(12)
 
-        btn_add_folder = QPushButton("📁 Add Folder to Scan")
+        btn_choose_folder = QPushButton("📁 Choose Folder to Scan")
+        btn_choose_folder.setProperty("class", "SecondaryButton")
+        btn_choose_folder.setCursor(Qt.PointingHandCursor)
+        btn_choose_folder.setFixedHeight(36)
+        btn_choose_folder.setStyleSheet(
+            "QPushButton { background-color: #1e293b; color: #ffffff; font-weight: 700; border-radius: 8px; padding: 0 16px; font-size: 13px; border: 1px solid #3b82f6; }"
+            "QPushButton:hover { background-color: #1d4ed8; color: #ffffff; }"
+        )
+        btn_choose_folder.clicked.connect(self._choose_folder)
+
+        btn_add_folder = QPushButton("➕ Add Another Folder")
         btn_add_folder.setProperty("class", "SecondaryButton")
         btn_add_folder.setCursor(Qt.PointingHandCursor)
         btn_add_folder.setFixedHeight(36)
@@ -377,7 +386,7 @@ class DuplicatePage(QWidget):
         )
         btn_add_folder.clicked.connect(self._add_folder)
 
-        btn_clear = QPushButton("🗑️ Clear Folders")
+        btn_clear = QPushButton("🗑️ Clear")
         btn_clear.setProperty("class", "DangerButton")
         btn_clear.setCursor(Qt.PointingHandCursor)
         btn_clear.setFixedHeight(36)
@@ -387,7 +396,7 @@ class DuplicatePage(QWidget):
         )
         btn_clear.clicked.connect(self._clear_folders)
 
-        self.chk_recursive = QCheckBox("🗂️ Scan subdirectories recursively")
+        self.chk_recursive = QCheckBox("🗂️ Include subdirectories (Recursive)")
         self.chk_recursive.setChecked(True)
         self.chk_recursive.setCursor(Qt.PointingHandCursor)
         self.chk_recursive.setStyleSheet("color: #ffffff; font-weight: 600; font-size: 13px;")
@@ -402,6 +411,7 @@ class DuplicatePage(QWidget):
         )
         self.btn_scan.clicked.connect(self._run_duplicate_scan)
 
+        top_btns.addWidget(btn_choose_folder)
         top_btns.addWidget(btn_add_folder)
         top_btns.addWidget(btn_clear)
         top_btns.addWidget(self.chk_recursive)
@@ -409,8 +419,8 @@ class DuplicatePage(QWidget):
         top_btns.addWidget(self.btn_scan)
         ctrl_l.addLayout(top_btns)
 
-        self.sources_lbl = QLabel(f"<b>Scan Targets:</b> {', '.join(self.sources) if self.sources else 'Default Output Folder (~/Pictures/Organized_Photos)'}")
-        self.sources_lbl.setStyleSheet("color: #38bdf8; font-size: 12px;")
+        self.sources_lbl = QLabel("")
+        self._update_sources_label()
         ctrl_l.addWidget(self.sources_lbl)
 
         # Loading Status Indicator Banner
@@ -563,8 +573,15 @@ class DuplicatePage(QWidget):
         layout.addWidget(splitter, 1)
         self.refresh()
 
-    def _add_folder(self):
+    def _choose_folder(self):
         folder = QFileDialog.getExistingDirectory(self, "Select Folder to Scan for Duplicates")
+        if folder:
+            p_str = str(Path(folder).resolve())
+            self.sources = [p_str]
+            self._update_sources_label()
+
+    def _add_folder(self):
+        folder = QFileDialog.getExistingDirectory(self, "Add Another Folder to Scan for Duplicates")
         if folder:
             p_str = str(Path(folder).resolve())
             if p_str not in self.sources:
@@ -577,26 +594,24 @@ class DuplicatePage(QWidget):
 
     def _update_sources_label(self):
         if not self.sources:
-            self.sources_lbl.setText("<b>Scan Targets:</b> No folder selected. Click '📁 Add Folder to Scan' to choose a directory.")
+            self.sources_lbl.setText("<b>Scan Target:</b> No folder selected. Click '📁 Choose Folder to Scan' to pick a directory.")
             self.sources_lbl.setStyleSheet("color: #f59e0b; font-size: 12px;")
+        elif len(self.sources) == 1:
+            self.sources_lbl.setText(f"<b>Scan Target:</b> {self.sources[0]}")
+            self.sources_lbl.setStyleSheet("color: #38bdf8; font-size: 12px;")
         else:
             targets_str = " | ".join(self.sources)
-            self.sources_lbl.setText(f"<b>Target Folders ({len(self.sources)}):</b> {targets_str}")
+            self.sources_lbl.setText(f"<b>Scan Targets ({len(self.sources)}):</b> {targets_str}")
             self.sources_lbl.setStyleSheet("color: #38bdf8; font-size: 12px;")
 
     def _run_duplicate_scan(self):
         if not self.sources:
-            default_p = str(Path.home() / "Pictures" / "Organized_Photos")
-            if Path(default_p).exists():
-                self.sources = [default_p]
+            folder = QFileDialog.getExistingDirectory(self, "Select Folder to Scan for Duplicates")
+            if folder:
+                self.sources = [str(Path(folder).resolve())]
                 self._update_sources_label()
             else:
-                folder = QFileDialog.getExistingDirectory(self, "Select Folder to Scan for Duplicates")
-                if folder:
-                    self.sources.append(str(Path(folder).resolve()))
-                    self._update_sources_label()
-                else:
-                    return
+                return
 
         scan_targets = list(self.sources)
 
@@ -921,9 +936,8 @@ class DuplicatePage(QWidget):
 
         def on_finish(success: int, err: int, freed: int):
             prog_dlg.close()
-            rem_set = set(to_remove[:success])
             for dset in self.duplicate_sets:
-                dset["files"] = [f for f in dset.get("files", []) if f["path"] not in rem_set]
+                dset["files"] = [f for f in dset.get("files", []) if Path(f["path"]).exists()]
             self.duplicate_sets = [s for s in self.duplicate_sets if len(s.get("files", [])) >= 2]
             self.refresh()
             QMessageBox.information(

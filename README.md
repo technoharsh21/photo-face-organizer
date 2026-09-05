@@ -27,5 +27,8 @@ pip install -r requirements.txt || pip install PySide6 face_recognition Pillow
 python app.py
 ```
 
+## Future Roadmap 🚀
+For upcoming features, technical specifications, and milestones, check out the [Future Feature Roadmap](file:///home/web-lp-044/Documents/Image%20%20Analyser/ROADMAP.md).
+
 ## License
 MIT License

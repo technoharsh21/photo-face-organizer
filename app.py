@@ -39,6 +39,7 @@ def _clean_pycache():
 if not getattr(sys, "frozen", False):
     _clean_pycache()
 
+from PySide6.QtCore import Qt
 from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QApplication, QMessageBox
 
@@ -53,6 +54,7 @@ from services.scan_service import ScanService
 from services.settings_service import SettingsService
 from services.unknown_face_service import UnknownFaceService
 from ui.main_window import MainWindow
+from ui.styles import get_dark_palette, get_stylesheet
 
 
 class AutoFlushFileHandler(logging.FileHandler):
@@ -130,6 +132,14 @@ def main():
     app = QApplication(sys.argv)
     app.setApplicationName("Photo Face Organizer")
     app.setDesktopFileName("photofaceorganizer")
+
+    # Theme the whole application, not just MainWindow: parentless dialogs
+    # (crash box, file pickers) must not fall back to the white system
+    # palette on Windows. AA_DontUseNativeDialogs makes QFileDialog a Qt
+    # widget so the dark QSS applies to it.
+    app.setAttribute(Qt.ApplicationAttribute.AA_DontUseNativeDialogs, True)
+    app.setStyleSheet(get_stylesheet())
+    app.setPalette(get_dark_palette())
 
     # Set application icon (PNG / ICO fallback)
     root_dir = Path(__file__).resolve().parent
