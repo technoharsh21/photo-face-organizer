@@ -8,24 +8,16 @@ A 4-Step wizard and real-time photo discovery gallery:
 4. Find Photos (Live streaming photo gallery with real-time match rendering, Lightbox inspection, and batch saving)
 """
 
-import datetime
-import os
-import subprocess
-import sys
-import time
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from PySide6.QtCore import QPoint, QRectF, QSize, Qt, QThread, Signal
-from PySide6.QtGui import QColor, QFont, QIcon, QPainter, QPainterPath, QPixmap
+from PySide6.QtCore import QRectF, QSize, Qt
+from PySide6.QtGui import QColor, QPainter, QPainterPath, QPixmap
 from PySide6.QtWidgets import (
-    QButtonGroup,
     QCheckBox,
-    QComboBox,
     QFileDialog,
     QFrame,
-    QGridLayout,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -37,21 +29,19 @@ from PySide6.QtWidgets import (
     QPushButton,
     QRadioButton,
     QScrollArea,
-    QSizePolicy,
-    QSplitter,
     QStackedWidget,
     QVBoxLayout,
     QWidget,
 )
 
-from config import Config
 from domain.face_engine import FaceEngine
-from domain.scanner import discover_photos
 from services.face_cache_service import FaceCacheService
 from services.find_photos_service import FindPhotosService, FindPhotosWorker
 from services.profile_service import ProfileService
 from services.settings_service import SettingsService
 from ui.components.flow_layout import FlowLayout
+from ui.components.icons import get_icon
+from ui.components.image_cache import load_cover_pixmap
 from ui.components.photo_viewer_dialog import PhotoViewerDialog
 
 
@@ -312,9 +302,9 @@ class PhotoResultCard(QFrame):
         self.lbl_thumb.setAlignment(Qt.AlignCenter)
 
         path_str = self.match_info.get("path", "")
-        if path_str and Path(path_str).exists():
-            pix = QPixmap(path_str)
-            if not pix.isNull():
+        if path_str:
+            pix = load_cover_pixmap(path_str, 169, 140)
+            if pix is not None and not pix.isNull():
                 scaled = pix.scaled(169, 140, Qt.KeepAspectRatioByExpanding, Qt.SmoothTransformation)
                 cropped = QPixmap(169, 140)
                 cropped.fill(Qt.transparent)
@@ -369,21 +359,25 @@ class PhotoResultCard(QFrame):
         btn_row = QHBoxLayout()
         btn_row.setSpacing(4)
 
-        btn_view = QPushButton("🔍 View")
+        btn_view = QPushButton(" View")
+        btn_view.setIcon(get_icon("search", color="#38bdf8", size=14))
+        btn_view.setIconSize(QSize(12, 12))
         btn_view.setCursor(Qt.PointingHandCursor)
         btn_view.setFixedHeight(24)
         btn_view.setStyleSheet(
-            "QPushButton { background-color: #1e293b; color: #38bdf8; border: 1px solid #3b82f6; border-radius: 4px; font-size: 10px; font-weight: 600; padding: 0 4px; }"
+            "QPushButton { background-color: #1e293b; color: #38bdf8; border: 1px solid #3b82f6; border-radius: 4px; font-size: 10px; font-weight: 600; padding: 0 6px; }"
             "QPushButton:hover { background-color: #1d4ed8; color: #ffffff; }"
         )
         btn_view.clicked.connect(lambda: self.on_view_photo(self.match_info))
         btn_row.addWidget(btn_view)
 
-        btn_save = QPushButton("💾 Save")
+        btn_save = QPushButton(" Save")
+        btn_save.setIcon(get_icon("download", color="#ffffff", size=14))
+        btn_save.setIconSize(QSize(12, 12))
         btn_save.setCursor(Qt.PointingHandCursor)
         btn_save.setFixedHeight(24)
         btn_save.setStyleSheet(
-            "QPushButton { background-color: #10b981; color: #ffffff; border: none; border-radius: 4px; font-size: 10px; font-weight: 700; padding: 0 4px; }"
+            "QPushButton { background-color: #10b981; color: #ffffff; border: none; border-radius: 4px; font-size: 10px; font-weight: 700; padding: 0 6px; }"
             "QPushButton:hover { background-color: #059669; }"
         )
         btn_save.clicked.connect(lambda: self.on_save_photo(self.match_info))
@@ -469,7 +463,9 @@ class FindPhotosPage(QWidget):
         header_row.addLayout(title_box)
         header_row.addStretch()
 
-        self.btn_header_new_search = QPushButton("🔄 New Search")
+        self.btn_header_new_search = QPushButton(" New Search")
+        self.btn_header_new_search.setIcon(get_icon("refresh", color="#38bdf8", size=16))
+        self.btn_header_new_search.setIconSize(QSize(14, 14))
         self.btn_header_new_search.setProperty("class", "SecondaryButton")
         self.btn_header_new_search.setCursor(Qt.PointingHandCursor)
         self.btn_header_new_search.setFixedHeight(36)
@@ -641,7 +637,9 @@ class FindPhotosPage(QWidget):
         top_btns = QHBoxLayout()
         top_btns.setSpacing(12)
 
-        btn_choose = QPushButton("📁 Choose Folder")
+        btn_choose = QPushButton(" Choose Folder")
+        btn_choose.setIcon(get_icon("folder_open", color="#ffffff", size=16))
+        btn_choose.setIconSize(QSize(14, 14))
         btn_choose.setProperty("class", "SecondaryButton")
         btn_choose.setCursor(Qt.PointingHandCursor)
         btn_choose.setFixedHeight(36)
@@ -651,7 +649,9 @@ class FindPhotosPage(QWidget):
         )
         btn_choose.clicked.connect(self._choose_folder)
 
-        btn_add = QPushButton("➕ Add Another Folder")
+        btn_add = QPushButton(" Add Another Folder")
+        btn_add.setIcon(get_icon("plus", color="#ffffff", size=16))
+        btn_add.setIconSize(QSize(14, 14))
         btn_add.setProperty("class", "SecondaryButton")
         btn_add.setCursor(Qt.PointingHandCursor)
         btn_add.setFixedHeight(36)
@@ -661,7 +661,9 @@ class FindPhotosPage(QWidget):
         )
         btn_add.clicked.connect(self._add_folder)
 
-        btn_clear = QPushButton("🗑️ Clear All")
+        btn_clear = QPushButton(" Clear All")
+        btn_clear.setIcon(get_icon("trash", color="#ffffff", size=16))
+        btn_clear.setIconSize(QSize(14, 14))
         btn_clear.setProperty("class", "DangerButton")
         btn_clear.setCursor(Qt.PointingHandCursor)
         btn_clear.setFixedHeight(36)
@@ -852,14 +854,18 @@ class FindPhotosPage(QWidget):
 
         top_status_row.addStretch()
 
-        self.btn_pause = QPushButton("⏸️ Pause")
+        self.btn_pause = QPushButton(" Pause")
+        self.btn_pause.setIcon(get_icon("pause", color="#fbbf24", size=16))
+        self.btn_pause.setIconSize(QSize(14, 14))
         self.btn_pause.setCursor(Qt.PointingHandCursor)
         self.btn_pause.setFixedHeight(30)
         self.btn_pause.setStyleSheet("background-color: #1e293b; color: #fbbf24; border: 1px solid #f59e0b; border-radius: 6px; padding: 0 12px; font-weight: 600; font-size: 12px;")
         self.btn_pause.clicked.connect(self._toggle_pause)
         top_status_row.addWidget(self.btn_pause)
 
-        self.btn_cancel_scan = QPushButton("🛑 Stop Search")
+        self.btn_cancel_scan = QPushButton(" Stop Search")
+        self.btn_cancel_scan.setIcon(get_icon("stop_circle", color="#ffffff", size=16))
+        self.btn_cancel_scan.setIconSize(QSize(14, 14))
         self.btn_cancel_scan.setCursor(Qt.PointingHandCursor)
         self.btn_cancel_scan.setFixedHeight(30)
         self.btn_cancel_scan.setStyleSheet("background-color: #dc2626; color: #ffffff; border: none; border-radius: 6px; padding: 0 12px; font-weight: 700; font-size: 12px;")
@@ -911,14 +917,18 @@ class FindPhotosPage(QWidget):
         toolbar_l.setContentsMargins(14, 10, 14, 10)
         toolbar_l.setSpacing(10)
 
-        btn_select_all = QPushButton("☑️ Select All")
+        btn_select_all = QPushButton(" Select All")
+        btn_select_all.setIcon(get_icon("check_square", color="#ffffff", size=16))
+        btn_select_all.setIconSize(QSize(14, 14))
         btn_select_all.setCursor(Qt.PointingHandCursor)
         btn_select_all.setFixedHeight(32)
         btn_select_all.setStyleSheet("background-color: #1e293b; color: #ffffff; border-radius: 6px; padding: 0 12px; font-size: 12px; font-weight: 600;")
         btn_select_all.clicked.connect(self._select_all_photos)
         toolbar_l.addWidget(btn_select_all)
 
-        btn_deselect_all = QPushButton("◻️ Deselect All")
+        btn_deselect_all = QPushButton(" Deselect All")
+        btn_deselect_all.setIcon(get_icon("square", color="#94a3b8", size=16))
+        btn_deselect_all.setIconSize(QSize(14, 14))
         btn_deselect_all.setCursor(Qt.PointingHandCursor)
         btn_deselect_all.setFixedHeight(32)
         btn_deselect_all.setStyleSheet("background-color: #1e293b; color: #ffffff; border-radius: 6px; padding: 0 12px; font-size: 12px; font-weight: 600;")
@@ -931,7 +941,9 @@ class FindPhotosPage(QWidget):
 
         toolbar_l.addStretch()
 
-        self.btn_save_selected = QPushButton("💾 Save Selected (0)")
+        self.btn_save_selected = QPushButton(" Save Selected (0)")
+        self.btn_save_selected.setIcon(get_icon("download", color="#ffffff", disabled_color="#64748b", size=16))
+        self.btn_save_selected.setIconSize(QSize(14, 14))
         self.btn_save_selected.setProperty("class", "SecondaryButton")
         self.btn_save_selected.setCursor(Qt.PointingHandCursor)
         self.btn_save_selected.setEnabled(False)
@@ -944,7 +956,9 @@ class FindPhotosPage(QWidget):
         self.btn_save_selected.clicked.connect(self._save_selected_photos)
         toolbar_l.addWidget(self.btn_save_selected)
 
-        self.btn_save_all = QPushButton("📦 Save All Matches (0)")
+        self.btn_save_all = QPushButton(" Save All Matches (0)")
+        self.btn_save_all.setIcon(get_icon("download", color="#ffffff", disabled_color="#64748b", size=16))
+        self.btn_save_all.setIconSize(QSize(14, 14))
         self.btn_save_all.setProperty("class", "PrimaryButton")
         self.btn_save_all.setCursor(Qt.PointingHandCursor)
         self.btn_save_all.setEnabled(False)
@@ -1143,13 +1157,14 @@ class FindPhotosPage(QWidget):
         # Reset UI stats
         self.lbl_scan_status_title.setText("⏳ Finding Photos in Progress...")
         self.lbl_scan_status_title.setStyleSheet("font-size: 15px; font-weight: 800; color: #ffffff;")
-        self.btn_pause.setText("⏸️ Pause")
+        self.btn_pause.setText(" Pause")
+        self.btn_pause.setIcon(get_icon("pause", color="#fbbf24", size=16))
         self.btn_pause.setEnabled(True)
         self.btn_cancel_scan.setEnabled(True)
         self.btn_save_selected.setEnabled(False)
         self.btn_save_all.setEnabled(False)
-        self.btn_save_selected.setText("💾 Save Selected (0)")
-        self.btn_save_all.setText("📦 Save All Matches (0)")
+        self.btn_save_selected.setText(" Save Selected (0)")
+        self.btn_save_all.setText(" Save All Matches (0)")
         self.lbl_selected_count.setText("0 selected")
         self.scan_progress_bar.setValue(0)
 
@@ -1186,7 +1201,7 @@ class FindPhotosPage(QWidget):
         # Update counter buttons
         m_count = len(self.matched_photos)
         self.lbl_stat_matches.setText(f"✨ Matches Found: {m_count}")
-        self.btn_save_all.setText(f"📦 Save All Matches ({m_count})")
+        self.btn_save_all.setText(f" Save All Matches ({m_count})")
         self.btn_save_all.setEnabled(True)
 
     def _on_scan_progress(self, current: int, total: int, filename: str):
@@ -1214,7 +1229,7 @@ class FindPhotosPage(QWidget):
             self.lbl_scan_status_title.setText(f"🎉 Search Complete! Found {matches_count} photos of {name} ({elapsed_sec:.1f}s)")
             self.lbl_scan_status_title.setStyleSheet("font-size: 15px; font-weight: 800; color: #34d399;")
             self.btn_save_all.setEnabled(True)
-            self.btn_save_all.setText(f"📦 Save All Matches ({matches_count})")
+            self.btn_save_all.setText(f" Save All Matches ({matches_count})")
         else:
             self.lbl_scan_status_title.setText(f"Scan finished. No matching photos of {name} found.")
             self.lbl_scan_status_title.setStyleSheet("font-size: 15px; font-weight: 800; color: #fbbf24;")
@@ -1247,10 +1262,12 @@ class FindPhotosPage(QWidget):
             return
         if self.worker.is_paused():
             self.worker.resume()
-            self.btn_pause.setText("⏸️ Pause")
+            self.btn_pause.setText(" Pause")
+            self.btn_pause.setIcon(get_icon("pause", color="#fbbf24", size=16))
         else:
             self.worker.pause()
-            self.btn_pause.setText("▶️ Resume")
+            self.btn_pause.setText(" Resume")
+            self.btn_pause.setIcon(get_icon("play", color="#fbbf24", size=16))
 
     def _cancel_scan(self):
         if self.worker:
@@ -1266,7 +1283,8 @@ class FindPhotosPage(QWidget):
         selected = [p for p in self.matched_photos if p.get("is_selected")]
         cnt = len(selected)
         self.lbl_selected_count.setText(f"{cnt} selected")
-        self.btn_save_selected.setText(f"💾 Save Selected ({cnt})")
+        self.btn_save_selected.setText(f" Save Selected ({cnt})")
+        self.btn_save_selected.setEnabled(cnt > 0)
         self.btn_save_selected.setEnabled(cnt > 0)
 
     def _select_all_photos(self):
@@ -1367,7 +1385,7 @@ class FindPhotosPage(QWidget):
         def is_cancelled() -> bool:
             return prog_dlg.wasCanceled()
 
-        success, err, saved_paths = self.find_service.save_multiple_photos(
+        success, err, _saved_paths = self.find_service.save_multiple_photos(
             paths,
             dest_folder,
             progress_cb=on_prog,

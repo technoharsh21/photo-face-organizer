@@ -3,10 +3,6 @@ Unit tests for Find Photos by Person functionality.
 Tests FindPhotosService, FindPhotosWorker, real-time match streaming, solo vs all matching, and safe file operations.
 """
 
-import tempfile
-import time
-from pathlib import Path
-from unittest.mock import MagicMock
 
 import numpy as np
 from PIL import Image
@@ -17,7 +13,6 @@ from services.profile_service import ProfileService
 from services.settings_service import SettingsService
 from ui.components.photo_viewer_dialog import PhotoViewerDialog
 from ui.pages.find_photos_page import FindPhotosPage
-
 
 
 class MockFaceEngine:
@@ -70,7 +65,7 @@ def test_find_photos_service_save_single_and_multiple(tmp_path):
     img2.write_bytes(b"image 2 bytes")
 
     # Test single save
-    succ, dest_p, msg = service.save_single_photo(str(img1), dest_dir)
+    succ, dest_p, _msg = service.save_single_photo(str(img1), dest_dir)
     assert succ is True
     assert dest_p is not None
     assert dest_p.exists()
@@ -213,6 +208,7 @@ def test_find_photos_worker_cancellation(tmp_path):
 
 
 import sys
+
 import pytest
 from PySide6.QtWidgets import QApplication
 
@@ -258,6 +254,24 @@ def test_photo_viewer_dialog_navigation(qapp, tmp_path):
     dialog._rotate()
     dialog._rotate_left()
     dialog._rotate_right()
+
+    # Verify buttons have valid vector icons
+    assert not dialog.btn_prev.icon().isNull()
+    assert not dialog.btn_next.icon().isNull()
+
+    # Close and ensure thread cleanup
+    dialog.close()
+
+
+def test_vector_svg_icons_generation(qapp):
+    from ui.components.icons import SVG_TEMPLATES, get_icon, get_pixmap
+    for name in SVG_TEMPLATES:
+        icon = get_icon(name, color="#ffffff", size=24)
+        assert not icon.isNull(), f"Icon {name} is null"
+        pix = get_pixmap(name, color="#38bdf8", size=20)
+        assert not pix.isNull(), f"Pixmap {name} is null"
+        assert pix.width() == 20
+        assert pix.height() == 20
 
 
 def test_find_photos_page_step_transitions(qapp, tmp_path):

@@ -41,4 +41,40 @@ describe("Contact API Route Handler", () => {
     const json = await res.json();
     expect(json.error).toBe("We couldn't send your message right now. Please try again later.");
   });
+
+  test("successfully sends email and confirmation receipt when SMTP credentials are provided", async () => {
+    process.env.SMTP_USER = "support@gmail.com";
+    process.env.SMTP_PASSWORD = "secret-app-password";
+
+    const req = new Request("http://localhost:3000/api/contact", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name: "Alice",
+        email: "alice@example.com",
+        subject: "Feature Request",
+        message: "Can we add cloud sync?",
+        honeypot: "",
+      }),
+    });
+
+    // Mock nodemailer createTransport
+    const nodemailer = require("nodemailer");
+    const sendMailMock = jest.fn().mockResolvedValue({ messageId: "123" });
+    jest.spyOn(nodemailer, "createTransport").mockReturnValue({
+      sendMail: sendMailMock,
+    } as any);
+
+    const res = await POST(req);
+    expect(res.status).toBe(200);
+
+    const json = await res.json();
+    expect(json.success).toBe(true);
+
+    // Verify both admin message and receipt confirmation were sent
+    expect(sendMailMock).toHaveBeenCalledTimes(2);
+
+    delete process.env.SMTP_USER;
+    delete process.env.SMTP_PASSWORD;
+  });
 });

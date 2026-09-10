@@ -20,7 +20,10 @@ from typing import Any
 
 
 import numpy as np
-import onnxruntime
+try:
+    import onnxruntime
+except ImportError:
+    onnxruntime = None
 from PIL import Image
 
 # Guarantee sys.stdout/stderr are never None (PyInstaller --windowed on Windows)
@@ -29,8 +32,12 @@ if sys.stdout is None:
 if sys.stderr is None:
     sys.stderr = open(os.devnull, "w")
 
-import insightface
-from insightface.app import FaceAnalysis
+try:
+    import insightface
+    from insightface.app import FaceAnalysis
+except ImportError:
+    insightface = None
+    FaceAnalysis = None
 
 logger = logging.getLogger(__name__)
 
