@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { CommandBlock } from "@/components/CommandBlock";
 
 export const metadata = {
@@ -16,17 +17,31 @@ export default function MacOSInstallationPage() {
           macOS Installation Guide
         </h1>
         <p className="text-sm text-slate-500">
-          Setup guide for macOS (Apple Silicon M1/M2/M3 &amp; Intel Macs).
+          Setup guide for macOS (Apple Silicon M1/M2/M3/M4 &amp; Intel Macs).
         </p>
       </div>
 
       <div className="space-y-6 text-sm leading-relaxed">
-        <div className="p-4 rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900 text-amber-800 dark:text-amber-200 text-xs">
-          <strong>macOS Status Note:</strong> Standalone macOS <code>.dmg</code> build pipeline is currently in development. macOS users can install and run the full desktop application via Python pip/pipx.
+        <div className="p-4 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-900 text-emerald-800 dark:text-emerald-200 text-xs">
+          <strong>macOS Status Note:</strong> Native macOS builds are published with every release &mdash; a <code>.dmg</code> disk image and a standalone <code>.zip</code> bundle, both accelerated by the Apple Neural Engine (CoreML). A command-line install via pip/pipx is also available.
         </div>
 
         <h2 className="text-xl font-bold text-slate-900 dark:text-white">
-          Installing via Command Line (Pip / Pipx)
+          Option 1: Disk Image (.dmg)
+        </h2>
+        <p>
+          Download the <code>.dmg</code> from the <Link href="/download">Download page</Link>, open it, and drag <strong>PhotoFaceOrganizer.app</strong> into your <strong>Applications</strong> folder.
+        </p>
+        <p>
+          If macOS blocks the first launch with an &ldquo;unidentified developer&rdquo; warning &mdash; as it does for any build that has not been notarized &mdash; right-click the app and choose <strong>Open</strong>, then confirm. macOS remembers the choice for future launches.
+        </p>
+        <p className="text-xs text-slate-600 dark:text-slate-400">
+          Prefer the command line? Remove the quarantine attribute instead:
+        </p>
+        <CommandBlock command="xattr -dr com.apple.quarantine /Applications/PhotoFaceOrganizer.app" language="bash" />
+
+        <h2 className="text-xl font-bold text-slate-900 dark:text-white pt-4">
+          Option 2: Command Line (Pip / Pipx)
         </h2>
 
         <p className="font-semibold text-slate-900 dark:text-white">1. Ensure Python 3.10+ is installed:</p>

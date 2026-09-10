@@ -22,6 +22,10 @@ import {
   Star,
   Copy,
   Layers,
+  Search,
+  Camera,
+  History,
+  Database,
 } from "lucide-react";
 
 export default function HomePage() {
@@ -49,7 +53,7 @@ export default function HomePage() {
 
             {/* Subtitle */}
             <p className="text-lg sm:text-xl text-slate-600 dark:text-slate-300 leading-relaxed">
-              Photo Face Organizer uses local AI face recognition and universal GPU acceleration to automatically scan your photos, isolate solo portraits, find duplicate images, and organize memories safely without cloud uploads.
+              Photo Face Organizer uses local AI face recognition and universal GPU acceleration to automatically scan your photos, find every picture of any person on demand, isolate solo portraits, find duplicate images, and organize memories safely without cloud uploads.
             </p>
 
             {/* Hero CTAs */}
@@ -150,6 +154,26 @@ export default function HomePage() {
               title: "5-Point Landmark Geometry",
               desc: "Validates anatomical eye-to-nose geometry to guarantee 0% false detections from t-shirts, patterns, or statues.",
             },
+            {
+              icon: <Search className="w-6 h-6 text-sky-500" />,
+              title: "Find Photos by Person",
+              desc: "Instantly search any folder for every photo of one person with live match streaming and Solo vs All matching — no output folders created.",
+            },
+            {
+              icon: <Camera className="w-6 h-6 text-rose-500" />,
+              title: "360° Live Face Enrollment",
+              desc: "Train a profile straight from your webcam across 5 head angles, with hands-free auto-capture gated on 4-star face quality.",
+            },
+            {
+              icon: <History className="w-6 h-6 text-cyan-500" />,
+              title: "Resumable Scans",
+              desc: "Continuous checkpointing lets a crashed or cancelled scan resume exactly where it stopped instead of starting over.",
+            },
+            {
+              icon: <Database className="w-6 h-6 text-orange-500" />,
+              title: "Face Embedding Cache",
+              desc: "Detected faces and 512-d vectors are cached by content hash, so rescanning a known library skips the neural network entirely.",
+            },
           ].map((benefit, idx) => (
             <div
               key={idx}
@@ -241,6 +265,10 @@ export default function HomePage() {
 
         <div className="mt-8 p-4 rounded-xl bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-900 text-blue-800 dark:text-blue-200 text-sm text-center">
           💡 <strong>Multi-Person Copy Rule:</strong> If a photo contains both Alice and Bob, it is automatically copied into <code>Output/Alice/</code>, <code>Output/Bob/</code>, AND <code>Output/Alice &amp; Bob/</code> without deleting or moving the original file.
+        </div>
+
+        <div className="mt-4 p-4 rounded-xl bg-sky-50 dark:bg-sky-950/40 border border-sky-200 dark:border-sky-900 text-sky-800 dark:text-sky-200 text-sm text-center">
+          🔍 <strong>Just looking, not organizing?</strong> Steps 4&ndash;6 are optional. <Link href="/docs/find-photos" className="underline font-semibold hover:text-sky-900 dark:hover:text-white">Find Photos by Person</Link> runs the same recognition engine as a read-only search &mdash; pick someone, pick folders, and watch their photos arrive live without a single file being copied.
         </div>
       </section>
 
@@ -347,6 +375,60 @@ export default function HomePage() {
               </li>
             </ul>
           </div>
+
+          {/* Card 5 */}
+          <div className="p-8 rounded-3xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 space-y-4">
+            <div className="p-3 rounded-2xl bg-sky-50 dark:bg-sky-950/60 text-sky-600 w-fit">
+              <Search className="w-6 h-6" />
+            </div>
+            <h3 className="text-xl font-bold text-slate-900 dark:text-white">
+              Find Photos by Person
+            </h3>
+            <p className="text-sm text-slate-600 dark:text-slate-400 leading-relaxed">
+              A read-only search instead of an organizing job. Choose a person, stack several source folders, and matches stream into a live gallery as they are found — each labelled with its similarity score. Nothing is written to disk until you choose what to save.
+            </p>
+            <ul className="space-y-2 text-xs text-slate-700 dark:text-slate-300">
+              <li className="flex items-center gap-2">
+                <CheckCircle2 className="w-4 h-4 text-emerald-500" />
+                <span>Solo Photos Only mode excludes any photo with 2 or more faces</span>
+              </li>
+              <li className="flex items-center gap-2">
+                <CheckCircle2 className="w-4 h-4 text-emerald-500" />
+                <span>Pause to inspect mid-run, stop early and keep the matches found</span>
+              </li>
+              <li className="flex items-center gap-2">
+                <CheckCircle2 className="w-4 h-4 text-emerald-500" />
+                <span>Built-in lightbox plus batch &quot;Save Selected&quot; / &quot;Save All Matches&quot;</span>
+              </li>
+            </ul>
+          </div>
+
+          {/* Card 6 */}
+          <div className="p-8 rounded-3xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 space-y-4">
+            <div className="p-3 rounded-2xl bg-cyan-50 dark:bg-cyan-950/60 text-cyan-600 w-fit">
+              <History className="w-6 h-6" />
+            </div>
+            <h3 className="text-xl font-bold text-slate-900 dark:text-white">
+              Crash Recovery &amp; Audit Reconciliation
+            </h3>
+            <p className="text-sm text-slate-600 dark:text-slate-400 leading-relaxed">
+              Progress is checkpointed continuously, so an interrupted run offers Resume, Restart, or Discard on the next launch. Every completed scan ends with a reconciliation line proving every discovered photo is accounted for — and flags the missed count if it is not.
+            </p>
+            <ul className="space-y-2 text-xs text-slate-700 dark:text-slate-300">
+              <li className="flex items-center gap-2">
+                <CheckCircle2 className="w-4 h-4 text-emerald-500" />
+                <span>Exportable skipped-file audit log (.txt and .json)</span>
+              </li>
+              <li className="flex items-center gap-2">
+                <CheckCircle2 className="w-4 h-4 text-emerald-500" />
+                <span>1-click &quot;Correct Match&quot; for any misfiled photo</span>
+              </li>
+              <li className="flex items-center gap-2">
+                <CheckCircle2 className="w-4 h-4 text-emerald-500" />
+                <span>Move Mode deletes originals only after 100% copy verification</span>
+              </li>
+            </ul>
+          </div>
         </div>
       </section>
 
@@ -374,7 +456,7 @@ export default function HomePage() {
               </div>
             </div>
             <p className="text-sm text-slate-600 dark:text-slate-400">
-              Debian/Ubuntu <code>.deb</code> package, Standalone ZIP bundle, and PyPI <code>pip install</code>.
+              Debian/Ubuntu <code>.deb</code> package, Standalone ZIP bundle, and <code>pip</code> install from source.
             </p>
             <div className="space-y-2 pt-2">
               <Link
@@ -430,18 +512,24 @@ export default function HomePage() {
               </div>
               <div>
                 <h3 className="text-xl font-bold text-slate-900 dark:text-white">macOS</h3>
-                <p className="text-xs text-amber-600 dark:text-amber-400 font-medium">Run from Source / Pip</p>
+                <p className="text-xs text-emerald-600 dark:text-emerald-400 font-medium">Fully Supported</p>
               </div>
             </div>
             <p className="text-sm text-slate-600 dark:text-slate-400">
-              macOS standalone <code>.dmg</code> build with Apple Neural Engine CoreML acceleration.
+              Disk image <code>.dmg</code> and standalone ZIP bundle with Apple Neural Engine CoreML acceleration, plus <code>pip</code> install from source.
             </p>
             <div className="space-y-2 pt-2">
               <Link
-                href="/docs/installation/macos"
-                className="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-white text-sm font-medium hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors"
+                href="/download"
+                className="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium transition-colors"
               >
-                <span>macOS Setup Guide</span>
+                <span>Download macOS Assets</span>
+              </Link>
+              <Link
+                href="/docs/installation/macos"
+                className="w-full inline-flex items-center justify-center gap-2 px-4 py-2 text-xs font-medium text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
+              >
+                <span>macOS Setup Guide &rarr;</span>
               </Link>
             </div>
           </div>

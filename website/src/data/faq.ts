@@ -37,6 +37,54 @@ export const FAQ_DATA: FAQItem[] = [
     answer: "The Duplicate Finder uses a 3-tier CPU cryptographic pipeline: (1) 0 ms file-size metadata filter, (2) hardware-accelerated SHA-256 hashing at multi-GB/s speed, and (3) smart auto-selection rules (keep oldest/newest/shortest path). Duplicates can be safely moved to your OS Recycle Bin or quarantine folder."
   },
   {
+    id: "find-photos",
+    category: "Features",
+    question: "Can I search for photos of one person without running an organizing scan?",
+    answer: "Yes. 'Find Photos by Person' is a read-only search: pick a person, add one or more folders, choose 'All Photos (Solo + Group Photos)' or 'Solo Photos Only', and matches stream onto the screen in real time with a per-photo similarity score. No output folder is created and nothing is written to disk unless you explicitly save the results. You can pause to inspect matches found so far, or stop early and keep them."
+  },
+  {
+    id: "live-enrollment",
+    category: "Features",
+    question: "Do I need to find reference photos, or can I enroll someone from a webcam?",
+    answer: "Both work. The 360° Live Face Scanner opens your webcam and guides the person through 5 angles (Look Straight, Turn Left, Turn Right, Tilt Up, Smile) to capture the multi-angle 512-d embeddings that make matching robust. Its hands-free 'Auto Scan' mode fires each shot itself once the head has held one pose stable for 12 consecutive frames and the frame passes the same 4-star quality gate used for reference photos, then completes enrollment on its own."
+  },
+  {
+    id: "photo-viewer",
+    category: "Features",
+    question: "Can I review matched photos inside the app?",
+    answer: "Yes. Any matched photo opens in a built-in lightbox showing the filename, its match percentage, and its position in the result set. Browse with the arrow keys, zoom with +/- or the scroll wheel, fit with F, show actual size with 1, rotate with R/L, and press Esc to close. It also reports each file's full path, pixel size, and modification date, and offers 'Open Location' and 'Save Photo' — both read-only against your library."
+  },
+  {
+    id: "resume-scan",
+    category: "Features",
+    question: "What happens if a long scan is interrupted, crashes, or I cancel it?",
+    answer: "Scan progress is checkpointed continuously. On the next launch the app detects the unfinished run and offers 'Resume Scan', 'Restart', or 'Discard Recovery'. Resuming re-reads the source folders and skips every file already recorded as processed, so a 40,000-photo job continues rather than starting over. Interrupted runs can also be resumed later from the Scan History table, which lists each run's date, status, file counts, matched and no-match totals, and duration."
+  },
+  {
+    id: "face-cache",
+    category: "Features",
+    question: "Why is rescanning the same folders so much faster?",
+    answer: "The optional Face Processing Disk Cache stores each photo's detected face locations and 512-d embeddings in a local SQLite database keyed by the file's SHA-256 content hash. Repeat scans read those numbers from disk instead of re-running the neural network (about 0.0005 s per photo). Because the key is a content hash, a modified or replaced photo is automatically re-processed. 'Clear Cache' reports how many entries and megabytes it frees and never touches your photos."
+  },
+  {
+    id: "move-mode",
+    category: "Privacy & Safety",
+    question: "Is there a Move mode that actually relocates photos?",
+    answer: "Yes, and it is gated. Move Mode first copies every photo to the output directory exactly as Copy Mode does, then re-reads each copy to verify it is present and readable on disk. Only if the whole run verifies does the app ask whether to delete the originals — and that dialog defaults to 'No'. If any copy fails verification, it warns you and deletes nothing. Photos are never removed silently."
+  },
+  {
+    id: "scan-boundary",
+    category: "Privacy & Safety",
+    question: "Can a scan wander outside the folders I selected?",
+    answer: "No. Photo discovery is boundary-isolated: only the folders you add (plus their subfolders when recursive is on) are walked, symbolic links are not followed, and every resolved path is checked to confirm it still lies inside the selected folder before it is queued. A stray symlink pointing at another drive or your home directory cannot pull a scan outside the boundary you chose."
+  },
+  {
+    id: "diagnostic-logs",
+    category: "Installation & Hardware",
+    question: "How do I check which accelerator is in use, or report a performance problem?",
+    answer: "The Settings page shows the live binding (for example 'Active AI Hardware: NVIDIA CUDA GPU (GPU Accelerated)') and the loaded model, and 'View Diagnostic Logs' opens the local photo_face_organizer.log — which records provider selection and any inference fallback — with buttons to copy it to the clipboard or open the file. The sidebar footer also carries a persistent 'GPU:' or 'CPU:' badge. All logs stay on your disk."
+  },
+  {
     id: "quality-ratings",
     category: "Features",
     question: "What are the 4 and 5-star quality rating requirements?",
@@ -58,7 +106,7 @@ export const FAQ_DATA: FAQItem[] = [
     id: "format-support",
     category: "Features",
     question: "Which photo file formats are supported?",
-    answer: "Photo Face Organizer supports JPEG, JPG, PNG, WebP, TIFF, BMP, Apple HEIC/HEIF photos, and professional camera RAW formats (Canon CR2/CR3, Nikon NEF, Sony ARW, DNG, Fujifilm RAF, Olympus ORF) with automatic EXIF orientation correction."
+    answer: "Photo Face Organizer supports JPEG/JPG, PNG, WebP, BMP, TIFF/TIF, Apple HEIC/HEIF, and professional camera RAW formats — Canon CR2, Nikon NEF, Sony ARW, Adobe DNG, Olympus ORF, Panasonic RW2, Pentax PEF, and Fujifilm RAF — with automatic EXIF orientation correction."
   },
   {
     id: "gpu-support",
