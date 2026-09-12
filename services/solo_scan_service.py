@@ -75,10 +75,7 @@ class SoloScanService:
         except Exception as e:
             logger.warning(f"Could not pre-create solo output dir {output_dir}: {e}")
 
-        # 1. Discover photo files
-        discovered_paths = discover_photos(sources, recursive=recursive)
-
-        # 2. Fetch selected profiles
+        # 1. Fetch selected profiles
         selected_profiles = []
         for p_id in profile_ids:
             p_data = self.profile_service.get_profile(p_id)
@@ -101,7 +98,7 @@ class SoloScanService:
             "threshold": threshold,
             "allow_distant_photobombers": allow_distant_photobombers,
             "min_sharpness": min_sharpness,
-            "total_files": len(discovered_paths),
+            "total_files": 0,
         }
 
         # Save scan.json
@@ -112,10 +109,12 @@ class SoloScanService:
 
         all_sys_profiles = self.profile_service.list_profiles()
 
-        # Create Worker Thread
+        # Create Worker Thread with background discovery
         worker = SoloScanWorker(
             scan_id=scan_id,
-            files=discovered_paths,
+            files=[],
+            sources=sources,
+            recursive=recursive,
             profiles=selected_profiles,
             output_dir=Path(output_dir),
             checkpoint_file=checkpoint_file,

@@ -58,10 +58,14 @@ class SoloScanWorker(QThread):
         all_system_profiles: list[dict[str, Any]] | None = None,
         allow_distant_photobombers: bool = False,
         min_sharpness: float = 0.0,
+        sources: list[str] | None = None,
+        recursive: bool = True,
     ):
         super().__init__()
         self.scan_id = scan_id
-        self.files = files
+        self.files = files or []
+        self.sources = sources or []
+        self.recursive = recursive
         self.profiles = profiles
         self.all_system_profiles = all_system_profiles or profiles
         self.allow_distant_photobombers = allow_distant_photobombers
@@ -82,7 +86,7 @@ class SoloScanWorker(QThread):
 
         # Statistics & Audit Tracking
         init = initial_stats or {}
-        self.total_files = len(files)
+        self.total_files = len(self.files)
         self.processed_count = init.get("processed_count", 0)
         self.matched_count = init.get("matched_count", 0)
         self.no_match_count = init.get("no_match_count", 0)
@@ -117,6 +121,13 @@ class SoloScanWorker(QThread):
     def run(self):
         import os  # Explicit local import: safety guard for PyInstaller --windowed bundled exe
         start_time = time.time()
+
+        # Discover photos on background thread if not already populated
+        if not self.files and self.sources:
+            from domain.scanner import discover_photos
+            self.files = discover_photos(self.sources, recursive=self.recursive)
+            self.total_files = len(self.files)
+
         logger.info(f"Starting deep solo scan worker {self.scan_id} on {self.total_files} files (mode={self.operation_mode}).")
 
         from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -148,6 +159,8 @@ class SoloScanWorker(QThread):
                 future_to_file = {executor.submit(self._process_file, f, 0): f for f in batch}
 
                 for future in as_completed(future_to_file):
+                    if self._is_cancelled:
+                        break
                     f_path = future_to_file[future]
                     str_path = str(f_path)
                     try:

@@ -77,6 +77,9 @@ class FindPhotosWorker(QThread):
     def is_paused(self) -> bool:
         return self._is_paused
 
+    def is_cancelled(self) -> bool:
+        return self._is_cancelled
+
     def _prepare_target_embeddings(self) -> list[np.ndarray]:
         """Extract and normalize target profile embeddings."""
         embs = self.target_profile.get("embeddings", [])
@@ -96,8 +99,11 @@ class FindPhotosWorker(QThread):
 
         scores = []
         for ref_emb in target_embeddings:
-            score = self.face_engine.calculate_match_score(face_encoding, ref_emb)
-            scores.append(score)
+            try:
+                score = self.face_engine.calculate_match_score(face_encoding, ref_emb)
+                scores.append(score)
+            except Exception as e:
+                logger.warning(f"Error calculating match score: {e}")
 
         if not scores:
             return 0.0
@@ -112,15 +118,20 @@ class FindPhotosWorker(QThread):
 
         # Centroid comparison
         if centroid_arr is not None and centroid_arr.size > 0:
-            centroid_score = self.face_engine.calculate_match_score(face_encoding, centroid_arr)
-            if centroid_score > best_score:
-                best_score = centroid_score
+            try:
+                centroid_score = self.face_engine.calculate_match_score(face_encoding, centroid_arr)
+                if centroid_score > best_score:
+                    best_score = centroid_score
+            except Exception:
+                pass
 
         return best_score
 
     def run(self):
         start_time = time.time()
         self.matches.clear()
+        scanned_count = 0
+        matches_found = 0
 
         if not self.folders or not self.target_profile or self.face_engine is None:
             self.status_signal.emit("Invalid search configuration.")
@@ -130,134 +141,181 @@ class FindPhotosWorker(QThread):
         target_name = self.target_profile.get("name", "Person")
         self.status_signal.emit(f"Discovering photos across {len(self.folders)} folder(s)...")
 
-        # Step 1: Discover all photos
-        photo_paths = discover_photos(self.folders, recursive=self.recursive)
-        total_photos = len(photo_paths)
+        try:
+            # Step 1: Discover all photos
+            photo_paths = discover_photos(self.folders, recursive=self.recursive)
+            total_photos = len(photo_paths)
 
-        if total_photos == 0:
-            self.status_signal.emit("No supported photo files found in selected folders.")
-            self.finished_signal.emit(0, 0, time.time() - start_time, [])
-            return
+            if total_photos == 0:
+                self.status_signal.emit("No supported photo files found in selected folders.")
+                return
 
-        target_embeddings = self._prepare_target_embeddings()
-        centroid_embedding = self.target_profile.get("centroid_embedding")
-        centroid_arr = np.asarray(centroid_embedding, dtype=np.float64) if centroid_embedding else None
+            target_embeddings = self._prepare_target_embeddings()
+            centroid_embedding = self.target_profile.get("centroid_embedding")
+            centroid_arr = np.asarray(centroid_embedding, dtype=np.float64) if centroid_embedding else None
 
-        if not target_embeddings and centroid_arr is None:
-            self.status_signal.emit(f"Profile '{target_name}' has no reference face photos.")
-            self.finished_signal.emit(total_photos, 0, time.time() - start_time, [])
-            return
+            if not target_embeddings and centroid_arr is None:
+                self.status_signal.emit(f"Profile '{target_name}' has no reference face photos.")
+                return
 
-        self.status_signal.emit(f"Searching {total_photos} photos for {target_name} ({self.match_type.title()} Mode)...")
+            self.status_signal.emit(f"Searching {total_photos} photos for {target_name} ({self.match_type.title()} Mode)...")
 
-        scanned_count = 0
-        matches_found = 0
+            last_progress_time = 0.0
 
-        for photo_path in photo_paths:
-            if self._is_cancelled:
-                break
+            for photo_path in photo_paths:
+                if self._is_cancelled:
+                    break
 
-            while self._is_paused and not self._is_cancelled:
-                time.sleep(0.1)
+                while self._is_paused and not self._is_cancelled:
+                    time.sleep(0.05)
 
-            scanned_count += 1
-            self.progress_signal.emit(scanned_count, total_photos, photo_path.name)
+                if self._is_cancelled:
+                    break
 
-            # Step 2: Retrieve or compute face encodings & locations
-            face_locations: list[tuple[int, int, int, int]] = []
-            face_encodings: list[np.ndarray] = []
+                scanned_count += 1
+                now = time.time()
+                if now - last_progress_time >= 0.05 or scanned_count == total_photos or scanned_count == 1:
+                    self.progress_signal.emit(scanned_count, total_photos, photo_path.name)
+                    last_progress_time = now
 
-            # Check cache first
-            if self.face_cache_service is not None:
-                cached = self.face_cache_service.get_cached_faces(photo_path)
-                if cached is not None:
-                    face_locations, face_encodings = cached
-
-            # Compute if not in cache
-            if not face_locations and not face_encodings:
                 try:
-                    pil_img, err = load_image(photo_path)
-                    if pil_img is None:
+                    # Step 2: Retrieve or compute face encodings & locations
+                    face_locations: list[tuple[int, int, int, int]] = []
+                    face_encodings: list[np.ndarray] = []
+
+                    # Check cache first
+                    if self.face_cache_service is not None:
+                        cached = self.face_cache_service.get_cached_faces(photo_path)
+                        if cached is not None:
+                            face_locations, face_encodings = cached
+
+                    # Compute if not in cache
+                    if not face_locations and not face_encodings:
+                        if self._is_cancelled:
+                            break
+                        pil_img, err = load_image(photo_path)
+                        if pil_img is None:
+                            continue
+
+                        locs, encs, _ = self.face_engine.detect_and_embed_faces(pil_img)
+                        face_locations = locs
+                        face_encodings = encs
+
+                        # Cache newly computed encodings
+                        if self.face_cache_service is not None and encs:
+                            try:
+                                self.face_cache_service.set_cached_faces(photo_path, locs, encs)
+                            except Exception:
+                                pass
+
+                    if self._is_cancelled:
+                        break
+
+                    # If no faces detected, skip
+                    if not face_encodings:
                         continue
 
-                    locs, encs, _ = self.face_engine.detect_and_embed_faces(pil_img)
-                    face_locations = locs
-                    face_encodings = encs
+                    # Step 3: Evaluate Match Criteria
+                    is_match = False
+                    best_match_score = 0.0
+                    best_bbox = (0, 0, 0, 0)
 
-                    # Cache newly computed encodings
-                    if self.face_cache_service is not None and encs:
+                    if self.match_type == "solo":
+                        # Solo Photos Mode: exactly 1 face must be detected in the entire photo
+                        if len(face_encodings) == 1:
+                            score = self._evaluate_face_match(face_encodings[0], target_embeddings, centroid_arr)
+                            if score >= self.threshold:
+                                is_match = True
+                                best_match_score = score
+                                if face_locations:
+                                    best_bbox = face_locations[0]
+                    else:
+                        # All Photos Mode: at least one detected face must match the target profile
+                        for idx, enc in enumerate(face_encodings):
+                            score = self._evaluate_face_match(enc, target_embeddings, centroid_arr)
+                            if score >= self.threshold and score > best_match_score:
+                                is_match = True
+                                best_match_score = score
+                                if idx < len(face_locations):
+                                    best_bbox = face_locations[idx]
+
+                    # Step 4: Stream Real-Time Match
+                    if is_match and not self._is_cancelled:
+                        matches_found += 1
                         try:
-                            self.face_cache_service.set_cached_faces(photo_path, locs, encs)
+                            st = photo_path.stat()
+                            file_size = st.st_size
+                            file_mtime = st.st_mtime
+                            mtime_str = datetime.datetime.fromtimestamp(file_mtime).strftime("%Y-%m-%d %H:%M:%S")
                         except Exception:
-                            pass
-                except Exception as e:
-                    logger.warning(f"Failed to process {photo_path}: {e}")
+                            file_size = 0
+                            file_mtime = 0
+                            mtime_str = "Unknown"
+
+                        match_record = {
+                            "id": str(uuid.uuid4()),
+                            "path": str(photo_path),
+                            "filename": photo_path.name,
+                            "folder": str(photo_path.parent),
+                            "size": file_size,
+                            "mtime": file_mtime,
+                            "formatted_mtime": mtime_str,
+                            "match_score": round(best_match_score, 1),
+                            "face_count": len(face_encodings),
+                            "bbox": list(best_bbox),
+                            "person_name": target_name,
+                            "person_id": self.target_profile.get("id"),
+                            "match_type": self.match_type,
+                            "is_selected": False,
+                        }
+                        self.matches.append(match_record)
+                        self.match_found_signal.emit(match_record)
+                except Exception as photo_err:
+                    logger.warning(f"Error processing {photo_path}: {photo_err}")
                     continue
+        except Exception as scan_err:
+            logger.error(f"Fatal error during FindPhotos scan: {scan_err}", exc_info=True)
+            self.status_signal.emit(f"Error during search: {scan_err}")
+        finally:
+            elapsed_time = time.time() - start_time
+            status_msg = "Search canceled." if self._is_cancelled else f"Scan complete! Found {matches_found} matching photos in {elapsed_time:.1f}s."
+            self.status_signal.emit(status_msg)
+            self.finished_signal.emit(scanned_count, matches_found, elapsed_time, self.matches)
 
-            # If no faces detected, skip
-            if not face_encodings:
-                continue
 
-            # Step 3: Evaluate Match Criteria
-            is_match = False
-            best_match_score = 0.0
-            best_bbox = (0, 0, 0, 0)
+class FindPhotosSaveWorker(QThread):
+    """
+    Dedicated background worker thread for safely copying matched photos to a destination folder.
+    Ensures that saving hundreds of photos never causes 'Not Responding' on the main GUI thread.
+    """
 
-            if self.match_type == "solo":
-                # Solo Photos Mode: exactly 1 face must be detected in the entire photo
-                if len(face_encodings) == 1:
-                    score = self._evaluate_face_match(face_encodings[0], target_embeddings, centroid_arr)
-                    if score >= self.threshold:
-                        is_match = True
-                        best_match_score = score
-                        if face_locations:
-                            best_bbox = face_locations[0]
-            else:
-                # All Photos Mode: at least one detected face must match the target profile
-                for idx, enc in enumerate(face_encodings):
-                    score = self._evaluate_face_match(enc, target_embeddings, centroid_arr)
-                    if score >= self.threshold and score > best_match_score:
-                        is_match = True
-                        best_match_score = score
-                        if idx < len(face_locations):
-                            best_bbox = face_locations[idx]
+    progress_signal = Signal(int, int, str)
+    finished_signal = Signal(int, int, list)  # success_count, error_count, saved_paths
 
-            # Step 4: Stream Real-Time Match
-            if is_match:
-                matches_found += 1
-                try:
-                    st = photo_path.stat()
-                    file_size = st.st_size
-                    file_mtime = st.st_mtime
-                    mtime_str = datetime.datetime.fromtimestamp(file_mtime).strftime("%Y-%m-%d %H:%M:%S")
-                except Exception:
-                    file_size = 0
-                    file_mtime = 0
-                    mtime_str = "Unknown"
+    def __init__(self, find_service: "FindPhotosService", source_paths: list[str], destination_folder: str | Path):
+        super().__init__()
+        self.find_service = find_service
+        self.source_paths = source_paths
+        self.destination_folder = destination_folder
+        self._is_cancelled = False
 
-                match_record = {
-                    "id": str(uuid.uuid4()),
-                    "path": str(photo_path),
-                    "filename": photo_path.name,
-                    "folder": str(photo_path.parent),
-                    "size": file_size,
-                    "mtime": file_mtime,
-                    "formatted_mtime": mtime_str,
-                    "match_score": round(best_match_score, 1),
-                    "face_count": len(face_encodings),
-                    "bbox": list(best_bbox),
-                    "person_name": target_name,
-                    "person_id": self.target_profile.get("id"),
-                    "match_type": self.match_type,
-                    "is_selected": False,
-                }
-                self.matches.append(match_record)
-                self.match_found_signal.emit(match_record)
+    def cancel(self):
+        self._is_cancelled = True
 
-        elapsed_time = time.time() - start_time
-        status_msg = "Search canceled." if self._is_cancelled else f"Scan complete! Found {matches_found} matching photos in {elapsed_time:.1f}s."
-        self.status_signal.emit(status_msg)
-        self.finished_signal.emit(scanned_count, matches_found, elapsed_time, self.matches)
+    def run(self):
+        def is_cancelled() -> bool:
+            return self._is_cancelled
+
+        def on_prog(cur: int, tot: int, fname: str):
+            self.progress_signal.emit(cur, tot, fname)
+
+        success, err, saved_paths = self.find_service.save_multiple_photos(
+            self.source_paths,
+            self.destination_folder,
+            progress_cb=on_prog,
+            cancel_check=is_cancelled,
+        )
+        self.finished_signal.emit(success, err, [str(p) for p in saved_paths])
 
 
 class FindPhotosService:

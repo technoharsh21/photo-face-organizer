@@ -248,6 +248,8 @@ class ScanWorker(QThread):
                 future_to_file = {executor.submit(self._process_single_photo, f): f for f in batch}
 
                 for future in as_completed(future_to_file):
+                    if self._is_cancelled:
+                        break
                     f_path = future_to_file[future]
                     str_path = str(f_path)
                     try:

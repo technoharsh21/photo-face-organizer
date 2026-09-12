@@ -110,6 +110,9 @@ class LiveFaceScannerDialog(QDialog):
         self.current_frame_rgb: np.ndarray | None = None
         self.last_detected_bbox: tuple[int, int, int, int] | None = None
         self.created_profile_id: str | None = None
+        self._frame_counter = 0
+        self._last_face_detected = False
+        self._last_frame_kps = None
 
         # Hands-free auto-capture mode state
         self.auto_mode = False
@@ -395,17 +398,48 @@ class LiveFaceScannerDialog(QDialog):
         axes = (int(w * 0.22), int(h * 0.38))
 
         pil_img = Image.fromarray(self.current_frame_rgb)
-        frame_kps = None
-        try:
-            det = self.face_engine.detect_faces_with_kps(pil_img)
-            face_detected = bool(det)
-            if det:
-                self.last_detected_bbox, frame_kps = det[0]
-            else:
+        frame_kps = self._last_frame_kps
+        self._frame_counter += 1
+
+        # Run face detection every 3 frames and on a downscaled image for fluid 30 FPS without CPU lag
+        if self._frame_counter % 3 == 0 or self.last_detected_bbox is None:
+            try:
+                scale = 1.0
+                if w > 640:
+                    scale = 640.0 / w
+                    small_h = int(h * scale)
+                    small_rgb = cv2.resize(self.current_frame_rgb, (640, small_h))
+                    det_pil = Image.fromarray(small_rgb)
+                else:
+                    det_pil = pil_img
+
+                det = self.face_engine.detect_faces_with_kps(det_pil)
+                if det:
+                    raw_bbox, raw_kps = det[0]
+                    if scale != 1.0:
+                        top, right, bottom, left = raw_bbox
+                        self.last_detected_bbox = (
+                            int(top / scale),
+                            int(right / scale),
+                            int(bottom / scale),
+                            int(left / scale),
+                        )
+                        frame_kps = raw_kps / scale if raw_kps is not None else None
+                    else:
+                        self.last_detected_bbox = raw_bbox
+                        frame_kps = raw_kps
+                    self._last_face_detected = True
+                    self._last_frame_kps = frame_kps
+                else:
+                    self.last_detected_bbox = None
+                    self._last_face_detected = False
+                    self._last_frame_kps = None
+            except Exception:
                 self.last_detected_bbox = None
-        except Exception:
-            face_detected = False
-            self.last_detected_bbox = None
+                self._last_face_detected = False
+                self._last_frame_kps = None
+
+        face_detected = self._last_face_detected
 
         # Hands-free auto-capture decision
         if self.auto_mode and self.auto_controller is not None and self.last_detected_bbox is not None:

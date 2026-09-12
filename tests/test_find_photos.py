@@ -317,3 +317,84 @@ def test_find_photos_page_step_transitions(qapp, tmp_path):
     page._select_match_mode("all")
     assert page.match_mode == "all"
 
+
+def test_find_photos_save_worker(qapp, tmp_path):
+    from services.find_photos_service import FindPhotosSaveWorker
+    src_dir = tmp_path / "src"
+    dest_dir = tmp_path / "dest"
+    src_dir.mkdir()
+    dest_dir.mkdir()
+
+    img1 = src_dir / "save1.jpg"
+    img2 = src_dir / "save2.jpg"
+    Image.new("RGB", (50, 50), color="yellow").save(img1)
+    Image.new("RGB", (50, 50), color="cyan").save(img2)
+
+    svc = FindPhotosService()
+    worker = FindPhotosSaveWorker(svc, [str(img1), str(img2)], str(dest_dir))
+
+    progress_events = []
+    worker.progress_signal.connect(lambda cur, tot, fname: progress_events.append((cur, tot, fname)))
+
+    finished_events = []
+    worker.finished_signal.connect(lambda s, e, p: finished_events.append((s, e, p)))
+
+    worker.run()
+
+    assert len(progress_events) == 2
+    assert len(finished_events) == 1
+    succ, err, paths = finished_events[0]
+    assert succ == 2
+    assert err == 0
+    assert len(paths) == 2
+
+
+def test_async_thumbnail_loader_and_cache(qapp, tmp_path):
+    from ui.components.image_cache import decode_cover_qimage, get_async_thumbnail_loader, load_cover_pixmap
+    img_p = tmp_path / "thumb_test.jpg"
+    Image.new("RGB", (300, 200), color="purple").save(img_p)
+
+    # Test decode_cover_qimage
+    qimg = decode_cover_qimage(str(img_p), 100, 100, radius=8)
+    assert qimg is not None
+    assert not qimg.isNull()
+    assert qimg.width() == 100
+    assert qimg.height() == 100
+
+    # Test load_cover_pixmap
+    pix = load_cover_pixmap(str(img_p), 100, 100, radius=8)
+    assert pix is not None
+    assert not pix.isNull()
+    assert pix.width() == 100
+    assert pix.height() == 100
+
+    # Test AsyncThumbnailLoader cache hit
+    loader = get_async_thumbnail_loader()
+    received = []
+    hit = loader.load_thumbnail_async(str(img_p), 100, 100, callback=lambda p: received.append(p), radius=8)
+    assert hit is True
+    assert len(received) == 1
+
+
+def test_async_photo_loader_run(qapp, tmp_path):
+    from ui.components.photo_viewer_dialog import AsyncPhotoLoader
+    img_p = tmp_path / "view_test.png"
+    Image.new("RGB", (640, 480), color="blue").save(img_p)
+
+    loader = AsyncPhotoLoader(str(img_p))
+    loaded_events = []
+    failed_events = []
+    loader.loaded.connect(lambda path, qimg, dims: loaded_events.append((path, qimg, dims)))
+    loader.failed.connect(lambda path, err: failed_events.append((path, err)))
+
+    loader.run()
+
+    assert len(failed_events) == 0
+    assert len(loaded_events) == 1
+    p, qimg, dims = loaded_events[0]
+    assert p == str(img_p)
+    assert not qimg.isNull()
+    assert "640" in dims and "480" in dims
+
+
+

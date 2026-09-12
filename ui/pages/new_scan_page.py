@@ -40,30 +40,18 @@ from domain.scanner import discover_photos
 from services.profile_service import ProfileService
 from services.scan_service import ScanService
 from services.settings_service import SettingsService
+from ui.components.image_cache import load_cover_pixmap
 
 
 def _create_mini_avatar(pixmap_path: str | None, name: str, size: int = 38, radius: int = 8, bg_color: str = "#2563eb") -> QPixmap:
     """Render a crisp rounded-square mini thumbnail for profile selection."""
+    if pixmap_path and Path(pixmap_path).exists():
+        pix = load_cover_pixmap(pixmap_path, size, size, radius=radius)
+        if pix is not None and not pix.isNull():
+            return pix
+
     target = QPixmap(size, size)
     target.fill(Qt.transparent)
-
-    if pixmap_path and Path(pixmap_path).exists():
-        raw_pix = QPixmap(str(pixmap_path))
-        if not raw_pix.isNull():
-            scaled = raw_pix.scaled(size, size, Qt.KeepAspectRatioByExpanding, Qt.SmoothTransformation)
-            painter = QPainter(target)
-            painter.setRenderHint(QPainter.Antialiasing)
-            painter.setRenderHint(QPainter.SmoothPixmapTransform)
-            path = QPainterPath()
-            path.addRoundedRect(0, 0, size, size, radius, radius)
-            painter.setClipPath(path)
-            x_off = max(0, (scaled.width() - size) // 2)
-            y_off = max(0, (scaled.height() - size) // 2)
-            painter.drawPixmap(-x_off, -y_off, scaled)
-            painter.end()
-            return target
-
-    # Fallback to initials
     painter = QPainter(target)
     painter.setRenderHint(QPainter.Antialiasing)
     painter.setBrush(QColor(bg_color))
@@ -937,15 +925,9 @@ class NewScanPage(QWidget):
             self.lbl_sources_summary.setText("📊 No sources added yet. Click '📁 Add Folder' or '🖼️ Add Image Files' above.")
             return
 
-        try:
-            discovered = discover_photos(self.sources, recursive=self.chk_recursive.isChecked())
-            count = len(discovered)
-        except Exception:
-            count = 0
-
+        rec_str = "Yes" if self.chk_recursive.isChecked() else "No"
         self.lbl_sources_summary.setText(
-            f"📊 <b>{len(self.sources)} source path{'s' if len(self.sources) != 1 else ''}</b> added • "
-            f"<b>~{count} photo{'s' if count != 1 else ''}</b> discovered ready to scan."
+            f"📊 <b>{len(self.sources)} source path{'s' if len(self.sources) != 1 else ''}</b> added (Recursive: {rec_str}) • Ready to scan."
         )
 
     def _select_output_dir(self):
@@ -1012,14 +994,9 @@ class NewScanPage(QWidget):
 
     def _populate_review(self):
         # 1. Sources Card
-        try:
-            discovered = discover_photos(self.sources, recursive=self.chk_recursive.isChecked())
-            photo_count = len(discovered)
-        except Exception:
-            photo_count = 0
-
+        rec_str = "Yes" if self.chk_recursive.isChecked() else "No"
         self.lbl_rev_sources_val.setText(f"{len(self.sources)} Source Path{'s' if len(self.sources) != 1 else ''}")
-        self.lbl_rev_photos_val.setText(f"~{photo_count} photos discovered (Recursive: {'Yes' if self.chk_recursive.isChecked() else 'No'})")
+        self.lbl_rev_photos_val.setText(f"Target directories configured (Recursive: {rec_str})")
 
         # 2. People Profiles Card
         all_profiles = {p["id"]: p.get("name", "Unknown") for p in self.profile_service.list_profiles()}

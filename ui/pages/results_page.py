@@ -30,6 +30,7 @@ from domain.image_loader import load_image
 from services.output_service import OutputService
 from services.profile_service import ProfileService
 from ui.components.flow_layout import FlowLayout
+from ui.components.image_cache import get_async_thumbnail_loader, load_cover_pixmap
 from ui.components.wrong_match_dialog import WrongMatchDialog
 
 
@@ -50,17 +51,17 @@ class ResultsImageCover(QWidget):
         self.image_path = image_path
         self.pixmap = None
         if image_path and Path(image_path).exists():
-            try:
-                pil_img, _ = load_image(Path(image_path))
-                if pil_img:
-                    rgb_img = pil_img.convert("RGB")
-                    data = rgb_img.tobytes("raw", "RGB")
-                    from PySide6.QtGui import QImage
-                    qimg = QImage(data, rgb_img.width, rgb_img.height, rgb_img.width * 3, QImage.Format_RGB888)
-                    self.pixmap = QPixmap.fromImage(qimg)
-            except Exception:
-                self.pixmap = None
+            w = max(400, self.width())
+            h = max(300, self.height())
+            get_async_thumbnail_loader().load_thumbnail_async(
+                image_path, w, h, callback=self._on_pixmap_loaded, radius=10
+            )
         self.update()
+
+    def _on_pixmap_loaded(self, pix: QPixmap):
+        if pix is not None and not pix.isNull():
+            self.pixmap = pix
+            self.update()
 
     def paintEvent(self, event):
         painter = QPainter(self)
@@ -71,19 +72,17 @@ class ResultsImageCover(QWidget):
         radius = 10
 
         if self.pixmap and not self.pixmap.isNull():
-            scaled = self.pixmap.scaled(w, h, Qt.KeepAspectRatioByExpanding, Qt.SmoothTransformation)
             path = QPainterPath()
             path.addRoundedRect(0, 0, w, h, radius, radius)
             painter.setClipPath(path)
 
-            # Dark sleek background
             painter.setBrush(QColor("#080c14"))
             painter.setPen(Qt.NoPen)
             painter.drawRect(0, 0, w, h)
 
-            x_off = (w - scaled.width()) // 2
-            y_off = (h - scaled.height()) // 2
-            painter.drawPixmap(x_off, y_off, scaled)
+            x_off = (w - self.pixmap.width()) // 2
+            y_off = (h - self.pixmap.height()) // 2
+            painter.drawPixmap(x_off, y_off, self.pixmap)
         else:
             painter.setBrush(QColor("#080c14"))
             painter.setPen(Qt.NoPen)

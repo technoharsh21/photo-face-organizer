@@ -36,12 +36,12 @@ from PySide6.QtWidgets import (
 
 from domain.face_engine import FaceEngine
 from services.face_cache_service import FaceCacheService
-from services.find_photos_service import FindPhotosService, FindPhotosWorker
+from services.find_photos_service import FindPhotosSaveWorker, FindPhotosService, FindPhotosWorker
 from services.profile_service import ProfileService
 from services.settings_service import SettingsService
 from ui.components.flow_layout import FlowLayout
 from ui.components.icons import get_icon
-from ui.components.image_cache import load_cover_pixmap
+from ui.components.image_cache import get_async_thumbnail_loader, load_cover_pixmap
 from ui.components.photo_viewer_dialog import PhotoViewerDialog
 
 
@@ -53,29 +53,14 @@ def _render_avatar(
     bg_color: str = "#2563eb",
 ) -> QPixmap:
     """Render a crisp circular or rounded profile avatar with smooth anti-aliasing."""
+    rad = radius if radius is not None else size // 2
+    if pixmap_path and Path(pixmap_path).exists():
+        pix = load_cover_pixmap(pixmap_path, size, size, radius=rad)
+        if pix is not None and not pix.isNull():
+            return pix
+
     target = QPixmap(size, size)
     target.fill(Qt.transparent)
-
-    if pixmap_path and Path(pixmap_path).exists():
-        raw_pix = QPixmap(str(pixmap_path))
-        if not raw_pix.isNull():
-            scaled = raw_pix.scaled(size, size, Qt.KeepAspectRatioByExpanding, Qt.SmoothTransformation)
-            painter = QPainter(target)
-            painter.setRenderHint(QPainter.Antialiasing)
-            painter.setRenderHint(QPainter.SmoothPixmapTransform)
-            path = QPainterPath()
-            if radius is not None:
-                path.addRoundedRect(0, 0, size, size, radius, radius)
-            else:
-                path.addEllipse(0, 0, size, size)
-            painter.setClipPath(path)
-            x_off = max(0, (scaled.width() - size) // 2)
-            y_off = max(0, (scaled.height() - size) // 2)
-            painter.drawPixmap(-x_off, -y_off, scaled)
-            painter.end()
-            return target
-
-    # Fallback to initials
     painter = QPainter(target)
     painter.setRenderHint(QPainter.Antialiasing)
     painter.setBrush(QColor(bg_color))
@@ -298,29 +283,15 @@ class PhotoResultCard(QFrame):
 
         self.lbl_thumb = QLabel()
         self.lbl_thumb.setFixedSize(169, 140)
-        self.lbl_thumb.setStyleSheet("background-color: #080c14; border-radius: 8px;")
+        self.lbl_thumb.setStyleSheet("background-color: #080c14; border-radius: 8px; color: #64748b; font-size: 11px;")
         self.lbl_thumb.setAlignment(Qt.AlignCenter)
+        self.lbl_thumb.setText("📷 Loading...")
 
         path_str = self.match_info.get("path", "")
         if path_str:
-            pix = load_cover_pixmap(path_str, 169, 140)
-            if pix is not None and not pix.isNull():
-                scaled = pix.scaled(169, 140, Qt.KeepAspectRatioByExpanding, Qt.SmoothTransformation)
-                cropped = QPixmap(169, 140)
-                cropped.fill(Qt.transparent)
-                painter = QPainter(cropped)
-                painter.setRenderHint(QPainter.Antialiasing)
-                painter.setRenderHint(QPainter.SmoothPixmapTransform)
-                path = QPainterPath()
-                path.addRoundedRect(0, 0, 169, 140, 8, 8)
-                painter.setClipPath(path)
-                x_off = max(0, (scaled.width() - 169) // 2)
-                y_off = max(0, (scaled.height() - 140) // 2)
-                painter.drawPixmap(-x_off, -y_off, scaled)
-                painter.end()
-                self.lbl_thumb.setPixmap(cropped)
-            else:
-                self.lbl_thumb.setText("📷 Photo")
+            get_async_thumbnail_loader().load_thumbnail_async(
+                path_str, 169, 140, callback=self._set_thumbnail, radius=8
+            )
         else:
             self.lbl_thumb.setText("📷 Photo")
 
@@ -384,6 +355,11 @@ class PhotoResultCard(QFrame):
         btn_row.addWidget(btn_save)
 
         layout.addLayout(btn_row)
+
+    def _set_thumbnail(self, pix: QPixmap):
+        if pix is not None and not pix.isNull():
+            self.lbl_thumb.setPixmap(pix)
+            self.lbl_thumb.setText("")
 
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton:
@@ -1036,7 +1012,13 @@ class FindPhotosPage(QWidget):
     def _reset_to_step1(self):
         if self.worker and self.worker.isRunning():
             self.worker.cancel()
-            self.worker.wait(1000)
+            try:
+                self.worker.match_found_signal.disconnect()
+                self.worker.progress_signal.disconnect()
+                self.worker.status_signal.disconnect()
+                self.worker.finished_signal.disconnect()
+            except Exception:
+                pass
         self._goto_step1()
 
     # -------------------------------------------------------------------------
@@ -1209,7 +1191,10 @@ class FindPhotosPage(QWidget):
             pct = int((current / total) * 100)
             self.scan_progress_bar.setValue(pct)
             self.lbl_stat_scanned.setText(f"📂 Scanned: {current} / {total}")
-        self.lbl_current_file.setText(f"Scanning: {filename}")
+        if current < total:
+            self.lbl_current_file.setText(f"Scanning: {filename}")
+        else:
+            self.lbl_current_file.setText(f"Finalizing search results...")
 
     def _on_scan_status(self, status: str):
         self.lbl_current_file.setText(status)
@@ -1221,12 +1206,12 @@ class FindPhotosPage(QWidget):
         self.lbl_stat_scanned.setText(f"📂 Scanned: {scanned_count} / {scanned_count}")
         self.lbl_stat_matches.setText(f"✨ Matches Found: {matches_count}")
         self.lbl_stat_time.setText(f"⏱️ Total Time: {elapsed_sec:.1f}s")
-        self.lbl_current_file.setText("")
+        self.lbl_current_file.setText(f"Completed • Processed {scanned_count} photo{'s' if scanned_count != 1 else ''}")
 
         name = self.selected_profile_data.get("name", "Person") if self.selected_profile_data else "Person"
 
         if matches_count > 0:
-            self.lbl_scan_status_title.setText(f"🎉 Search Complete! Found {matches_count} photos of {name} ({elapsed_sec:.1f}s)")
+            self.lbl_scan_status_title.setText(f"🎉 Search Complete! Found {matches_count} photo{'s' if matches_count != 1 else ''} of {name} ({elapsed_sec:.1f}s)")
             self.lbl_scan_status_title.setStyleSheet("font-size: 15px; font-weight: 800; color: #34d399;")
             self.btn_save_all.setEnabled(True)
             self.btn_save_all.setText(f" Save All Matches ({matches_count})")
@@ -1378,28 +1363,26 @@ class FindPhotosPage(QWidget):
             "QProgressBar::chunk { background-color: #10b981; border-radius: 5px; }"
         )
 
+        worker = FindPhotosSaveWorker(self.find_service, paths, dest_folder)
+        self._batch_save_worker = worker
+
         def on_prog(cur: int, tot: int, fname: str):
             prog_dlg.setValue(cur)
             prog_dlg.setLabelText(f"Saving ({cur}/{tot}): {fname}")
 
-        def is_cancelled() -> bool:
-            return prog_dlg.wasCanceled()
+        def on_finished(success: int, err: int, saved_paths: list):
+            prog_dlg.close()
+            QMessageBox.information(
+                self,
+                "Save Complete",
+                f"✨ Successfully saved {success} photo(s) to:\n\n📁 {dest_folder}"
+                + (f"\n\n⚠️ {err} photo(s) could not be saved." if err > 0 else ""),
+            )
 
-        success, err, _saved_paths = self.find_service.save_multiple_photos(
-            paths,
-            dest_folder,
-            progress_cb=on_prog,
-            cancel_check=is_cancelled,
-        )
-
-        prog_dlg.close()
-
-        QMessageBox.information(
-            self,
-            "Save Complete",
-            f"✨ Successfully saved {success} photo(s) to:\n\n📁 {dest_folder}"
-            + (f"\n\n⚠️ {err} photo(s) could not be saved." if err > 0 else ""),
-        )
+        prog_dlg.canceled.connect(worker.cancel)
+        worker.progress_signal.connect(on_prog)
+        worker.finished_signal.connect(on_finished)
+        worker.start()
 
     def showEvent(self, event):
         super().showEvent(event)

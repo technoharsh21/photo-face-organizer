@@ -30,6 +30,7 @@ from PySide6.QtWidgets import (
 
 from services.unknown_face_service import UnknownFaceService
 from ui.components.flow_layout import FlowLayout
+from ui.components.image_cache import get_async_thumbnail_loader, load_cover_pixmap
 
 
 class UnknownFaceCropCover(QWidget):
@@ -43,10 +44,14 @@ class UnknownFaceCropCover(QWidget):
         self.pixmap: QPixmap | None = None
 
         if image_path and Path(image_path).exists():
-            try:
-                self.pixmap = QPixmap(str(image_path))
-            except Exception:
-                self.pixmap = None
+            get_async_thumbnail_loader().load_thumbnail_async(
+                image_path, size, size, callback=self._on_pixmap_loaded, radius=radius
+            )
+
+    def _on_pixmap_loaded(self, pix: QPixmap):
+        if pix is not None and not pix.isNull():
+            self.pixmap = pix
+            self.update()
 
     def paintEvent(self, event):
         painter = QPainter(self)
@@ -56,13 +61,10 @@ class UnknownFaceCropCover(QWidget):
         h = self.height()
 
         if self.pixmap and not self.pixmap.isNull():
-            scaled = self.pixmap.scaled(w, h, Qt.KeepAspectRatioByExpanding, Qt.SmoothTransformation)
             path = QPainterPath()
             path.addRoundedRect(0, 0, w, h, self.radius, self.radius)
             painter.setClipPath(path)
-            x_off = max(0, (scaled.width() - w) // 2)
-            y_off = max(0, (scaled.height() - h) // 2)
-            painter.drawPixmap(-x_off, -y_off, scaled)
+            painter.drawPixmap(0, 0, self.pixmap)
         else:
             painter.setBrush(QColor("#080c14"))
             painter.setPen(Qt.NoPen)

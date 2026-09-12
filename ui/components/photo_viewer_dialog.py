@@ -89,7 +89,7 @@ class AsyncPhotoLoader(QThread):
                 qimg = QImage()
                 qimg.loadFromData(buf.getvalue())
                 if not qimg.isNull() and not self._is_cancelled:
-                    dims = f"{pil_img.width} × {pil_img.height()} px"
+                    dims = f"{pil_img.width} × {pil_img.height} px"
                     self.loaded.emit(self.photo_path, qimg, dims)
                     return
             if not self._is_cancelled:
