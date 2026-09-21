@@ -321,6 +321,7 @@ class DuplicatePage(QWidget):
         self.duplicate_sets: list[dict[str, Any]] = []
         self.current_set_id: str | None = None
         self.worker: DuplicateScanWorker | None = None
+        self._needs_refresh = True  # Track if page needs refresh on next visit
 
         self._setup_ui()
 
@@ -729,6 +730,8 @@ class DuplicatePage(QWidget):
             ef_layout.addWidget(lbl_empty)
             ef_layout.addWidget(lbl_sub_empty)
             self.files_layout.addWidget(empty_frame)
+
+        self._needs_refresh = False
 
     def _filter_sets_list(self, query: str):
         q = query.strip().lower()

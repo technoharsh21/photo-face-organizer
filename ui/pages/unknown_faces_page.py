@@ -132,6 +132,7 @@ class UnknownFacesPage(QWidget):
         self.groups: list[dict[str, Any]] = []
         self.current_group_id: str | None = None
         self.current_faces: list[dict[str, Any]] = []
+        self._needs_refresh = True  # Track if page needs refresh on next visit
 
         self._setup_ui()
 
@@ -385,6 +386,8 @@ class UnknownFacesPage(QWidget):
                 self.current_group_id = None
                 self.group_title_lbl.setText("No unknown faces stored.")
                 self._clear_faces_grid()
+
+            self._needs_refresh = False
 
         self.cluster_worker.finished_signal.connect(on_clustered)
         self.cluster_worker.start()

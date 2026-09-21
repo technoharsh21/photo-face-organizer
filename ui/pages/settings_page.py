@@ -53,6 +53,7 @@ class SettingsPage(QWidget):
         self.settings_service = settings_service
         self.face_engine = face_engine
         self.face_cache_service = face_cache_service
+        self._needs_refresh = True  # Track if page needs refresh on next visit
 
         self._setup_ui()
 
@@ -388,6 +389,7 @@ class SettingsPage(QWidget):
                 self.lbl_hw_status.setStyleSheet("font-size: 15px; font-weight: 800; color: #60a5fa;")
 
             self.lbl_model_info.setText(f"AI Vision Model: {info.get('model_used', 'InsightFace SCRFD + ArcFace 512-d')}")
+        self._needs_refresh = False
 
     def _save(self):
         sel_text = self.combo_device.currentText()

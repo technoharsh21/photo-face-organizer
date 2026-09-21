@@ -134,7 +134,8 @@ class SoloScanWorker(QThread):
 
         cpu_count = os.cpu_count() or 4
         if self.performance_mode == "Maximum Performance":
-            max_workers = max(4, min(cpu_count * 2, 16))
+            # Scale workers with CPU cores — no artificial cap
+            max_workers = max(4, cpu_count * 2)
         elif self.performance_mode == "Balanced":
             max_workers = max(2, cpu_count)
         else:

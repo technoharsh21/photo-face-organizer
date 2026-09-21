@@ -289,19 +289,37 @@ class InsightFaceEngine:
             _orig_stdout = sys.stdout
             _orig_stderr = sys.stderr
             try:
+                cpu_cores = os.cpu_count() or 4
+
+                # --- Maximize CPU parallelism across all backends ---
                 try:
                     import cv2
-                    cpu_cores = os.cpu_count() or 4
                     cv2.setNumThreads(cpu_cores)
                 except Exception:
                     pass
 
-                logger.info(f"Initializing InsightFace models with providers: {self.providers}...")
+                # OpenCV / NumPy OpenMP parallelism — use all physical cores
+                os.environ.setdefault("OMP_NUM_THREADS", str(cpu_cores))
+                os.environ.setdefault("OMP_PROC_BIND", "close")
+                os.environ.setdefault("OMP_PLACES", "threads")
+                os.environ.setdefault("MKL_NUM_THREADS", str(cpu_cores))
+                os.environ.setdefault("OPENBLAS_NUM_THREADS", str(cpu_cores))
+
+                # --- Build ONNX Runtime SessionOptions for maximum multi-core throughput ---
+                sess_opts = onnxruntime.SessionOptions()
+                sess_opts.intra_op_num_threads = cpu_cores          # threads within one op (BLAS, GEMM, Conv)
+                sess_opts.inter_op_num_threads = 1                  # keep operators sequential to preserve accuracy
+                sess_opts.execution_mode = onnxruntime.ExecutionMode.ORT_SEQUENTIAL
+                sess_opts.graph_optimization_level = onnxruntime.GraphOptimizationLevel.ORT_ENABLE_ALL
+
+                logger.info(f"Initializing InsightFace models (CPU cores: {cpu_cores}, ONNX intra_op_threads: {cpu_cores})...")
 
                 # 1. Attempt primary configured provider list
                 try:
                     self.app = FaceAnalysis(name="buffalo_sc", providers=self.providers)
                     self.app.prepare(ctx_id=0, det_size=(640, 640), det_thresh=0.35)
+                    # --- Patch ONNX session thread counts post-init (InsightFace creates the session internally) ---
+                    self._patch_session_threads(sess_opts.intra_op_num_threads)
                     self._is_initialized = True
                     logger.info(f"InsightFace engine initialized successfully on {self.active_device}.")
                     return
@@ -316,6 +334,7 @@ class InsightFaceEngine:
                         dml_providers = ["DmlExecutionProvider", "CPUExecutionProvider"]
                         self.app = FaceAnalysis(name="buffalo_sc", providers=dml_providers)
                         self.app.prepare(ctx_id=0, det_size=(640, 640), det_thresh=0.35)
+                        self._patch_session_threads(cpu_cores)
                         self.providers = dml_providers
                         gpu_name = self.get_system_gpu_name()
                         self.active_device = f"DirectX 12 GPU ({gpu_name})"
@@ -334,12 +353,31 @@ class InsightFaceEngine:
                 self.gpu_available = False
                 self.app = FaceAnalysis(name="buffalo_sc", providers=self.providers)
                 self.app.prepare(ctx_id=0, det_size=(640, 640), det_thresh=0.35)
+                self._patch_session_threads(cpu_cores)
                 self._is_initialized = True
                 logger.info(f"InsightFace engine initialized on Multi-Core CPU ({cpu_name}).")
 
             except Exception as cpu_err:
                 logger.error(f"Failed to initialize InsightFace engine: {cpu_err}", exc_info=True)
 
+
+    def _patch_session_threads(self, num_threads: int):
+        """
+        Patch ONNX Runtime session thread counts after FaceAnalysis creates its internal sessions.
+        InsightFace wraps ONNX models inside AnalysisSession objects; each model has an underlying
+        InferenceSession accessible via .session. Setting intra_op_num_threads on each session
+        allows NumPy/BLAS ops to run across all CPU cores during inference.
+        """
+        try:
+            if self.app is None or not hasattr(self.app, "models"):
+                return
+            for model_name, model in self.app.models.items():
+                sess = getattr(model, "session", None)
+                if sess is not None and hasattr(sess, "options") and hasattr(sess.options, "intra_op_num_threads"):
+                    sess.options.intra_op_num_threads = num_threads
+                    logger.debug(f"Patched ONNX session '{model_name}' intra_op_num_threads -> {num_threads}")
+        except Exception as e:
+            logger.debug(f"Could not patch ONNX session threads: {e}")
 
     def _detect_system_gpu(self) -> bool:
         """Detect system GPU hardware presence (NVIDIA, AMD, Intel)."""
