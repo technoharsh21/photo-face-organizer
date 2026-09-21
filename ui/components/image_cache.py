@@ -11,8 +11,9 @@ import logging
 import os
 from pathlib import Path
 
-from PySide6.QtCore import QObject, QRunnable, QSize, Qt, QThreadPool, Signal
+from PySide6.QtCore import QObject, QRectF, QRunnable, QSize, Qt, QThreadPool, Signal
 from PySide6.QtGui import QColor, QImage, QImageReader, QPainter, QPainterPath, QPixmap, QPixmapCache
+from PySide6.QtWidgets import QSizePolicy, QWidget
 
 logger = logging.getLogger(__name__)
 
@@ -209,3 +210,103 @@ def get_async_thumbnail_loader() -> AsyncThumbnailLoader:
     if _GLOBAL_ASYNC_LOADER is None:
         _GLOBAL_ASYNC_LOADER = AsyncThumbnailLoader()
     return _GLOBAL_ASYNC_LOADER
+
+
+class AsyncImageCoverWidget(QWidget):
+    """
+    Async-aware image cover widget that loads images in background threads.
+    Shows initials/placeholder immediately, then updates with loaded image.
+    """
+
+    def __init__(
+        self,
+        image_path: str | None = None,
+        width: int | None = None,
+        height: int = 120,
+        radius: int = 8,
+        bg_color: str = "#2563eb",
+        initials: str | None = None,
+        parent=None,
+    ):
+        super().__init__(parent)
+        self.image_path = image_path
+        self.radius = radius
+        self.bg_color = bg_color
+        self._initials = initials
+        self._current_cache_key: str | None = None
+        self._is_loading = False
+
+        if width:
+            self.setFixedSize(width, height)
+        else:
+            self.setFixedHeight(height)
+            self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+
+        self._load_async()
+
+    def _load_async(self):
+        """Load image asynchronously using the global async loader."""
+        if not self.image_path or not Path(self.image_path).exists():
+            self.update()
+            return
+
+        self._is_loading = True
+        loader = get_async_thumbnail_loader()
+
+        def on_loaded(pixmap: QPixmap):
+            self._is_loading = False
+            self.update()
+
+        loader.load_thumbnail_async(self.image_path, self.width(), self.height(), on_loaded, radius=self.radius)
+
+    def set_image_path(self, path: str | None):
+        self._initials = None
+        self.image_path = path if (path and Path(path).exists()) else None
+        self._load_async()
+
+    def set_initials(self, name: str, bg_color: str = "#2563eb"):
+        self.image_path = None
+        self._initials = "".join([part[0].upper() for part in name.strip().split()[:2]]) or "P"
+        self.bg_color = bg_color
+        self._is_loading = False
+        self.update()
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+        painter.setRenderHint(QPainter.SmoothPixmapTransform)
+        w = self.width()
+        h = self.height()
+
+        # Try cache first for synchronous paint
+        scaled = None
+        if self.image_path:
+            scaled = load_cover_pixmap(self.image_path, w, h, radius=self.radius)
+            if scaled is not None and not scaled.isNull():
+                path_obj = QPainterPath()
+                path_obj.addRoundedRect(0, 0, w, h, self.radius, self.radius)
+                painter.setClipPath(path_obj)
+                x_off = max(0, (scaled.width() - w) // 2)
+                y_off = max(0, (scaled.height() - h) // 2)
+                painter.drawPixmap(-x_off, -y_off, scaled)
+                painter.end()
+                return
+
+        # Fallback to initials/placeholder
+        if self._initials:
+            painter.setBrush(QColor(self.bg_color))
+            painter.setPen(Qt.NoPen)
+            painter.drawRoundedRect(0, 0, w, h, self.radius, self.radius)
+            painter.setPen(QColor("#ffffff"))
+            font = painter.font()
+            font.setPointSize(max(12, h // 3))
+            font.setBold(True)
+            painter.setFont(font)
+            painter.drawText(QRectF(0, 0, w, h), Qt.AlignCenter, self._initials)
+        else:
+            painter.setBrush(QColor("#080c14"))
+            painter.setPen(Qt.NoPen)
+            painter.drawRoundedRect(0, 0, w, h, self.radius, self.radius)
+            painter.setPen(QColor("#64748b"))
+            painter.drawText(QRectF(0, 0, w, h), Qt.AlignCenter, "📷")
+        painter.end()

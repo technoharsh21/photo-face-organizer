@@ -45,6 +45,7 @@ class HistoryPage(QWidget):
         self.on_view_results_cb = on_view_results_cb
         self.on_resume_scan_cb = on_resume_scan_cb
         self.all_scans: list[dict[str, Any]] = []
+        self._needs_refresh = True  # Track if page needs refresh on next visit
 
         self._setup_ui()
 
@@ -260,6 +261,7 @@ class HistoryPage(QWidget):
         self.lbl_sum_total.setText(f"📊 Total Scans: {total_scans}")
         self.lbl_sum_completed.setText(f"🟢 Completed: {completed_scans}")
         self.lbl_sum_photos.setText(f"📸 Photos Processed: {total_photos}")
+        self._needs_refresh = False
 
     def _filter_history_table(self, query: str):
         q = query.strip().lower()

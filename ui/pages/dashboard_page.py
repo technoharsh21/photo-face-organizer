@@ -29,7 +29,7 @@ from services.history_service import HistoryService
 from services.profile_service import ProfileService
 from services.settings_service import SettingsService
 from services.unknown_face_service import UnknownFaceService
-from ui.components.image_cache import load_cover_pixmap
+from ui.components.image_cache import AsyncImageCoverWidget
 
 
 def _create_circular_avatar(pixmap: QPixmap, size: int = 52) -> QPixmap:
@@ -97,6 +97,7 @@ class DashboardPage(QWidget):
         self.navigate_cb = navigate_cb
         self.settings_service = settings_service
         self.face_engine = face_engine
+        self._needs_refresh = True  # Track if page needs refresh on next visit
 
         self._setup_ui()
 
@@ -506,6 +507,7 @@ class DashboardPage(QWidget):
 
         # Refresh Profiles Showcase Container
         self._refresh_people_showcase(profiles)
+        self._needs_refresh = False
 
     def _refresh_people_showcase(self, profiles: list[dict[str, Any]]):
         """Rebuild the people showcase cards dynamically."""
@@ -571,27 +573,18 @@ class DashboardPage(QWidget):
             p_layout.setSpacing(8)
             p_layout.setAlignment(Qt.AlignCenter)
 
-            # Avatar
-            avatar_lbl = QLabel()
-            avatar_lbl.setFixedSize(52, 52)
-            avatar_lbl.setAlignment(Qt.AlignCenter)
-
-            avatar_pix: QPixmap | None = None
+            # Avatar (async loading - shows initials immediately, then updates)
+            bg = colors[idx % len(colors)]
             first_ref_path = profile.get("first_ref_path")
-            if first_ref_path and Path(first_ref_path).exists():
-                try:
-                    raw_pix = load_cover_pixmap(first_ref_path, 52, 52)
-                    if raw_pix is not None and not raw_pix.isNull():
-                        avatar_pix = _create_circular_avatar(raw_pix, 52)
-                except Exception:
-                    pass
-
-            if avatar_pix is None:
-                bg = colors[idx % len(colors)]
-                avatar_pix = _create_initials_avatar(p_name, 52, bg)
-
-            avatar_lbl.setPixmap(avatar_pix)
-            p_layout.addWidget(avatar_lbl, 0, Qt.AlignCenter)
+            avatar_widget = AsyncImageCoverWidget(
+                image_path=first_ref_path if (first_ref_path and Path(first_ref_path).exists()) else None,
+                width=52,
+                height=52,
+                radius=26,  # Fully rounded for circular avatar
+                bg_color=bg,
+                initials=p_name if not (first_ref_path and Path(first_ref_path).exists()) else None,
+            )
+            p_layout.addWidget(avatar_widget, 0, Qt.AlignCenter)
 
             # Name
             name_lbl = QLabel(p_name)

@@ -327,7 +327,7 @@ class MainWindow(QMainWindow):
             self.lbl_sys_status.setText("● System Ready")
             self.lbl_sys_status.setStyleSheet("color: #10b981; font-weight: bold; font-size: 11px;")
 
-    def navigate_to(self, page_name: str):
+    def navigate_to(self, page_name: str, force_refresh: bool = False):
         # Prevent tab switching during active scan unless navigating to Processing
         if self.is_scanning_active and page_name != "Processing" and page_name != "Results":
             return
@@ -341,8 +341,12 @@ class MainWindow(QMainWindow):
 
             self.lbl_topbar_title.setText(f"{page_name}")
 
+            # Only refresh if forced or page is marked dirty
             if hasattr(widget, "refresh"):
-                widget.refresh()
+                if force_refresh or getattr(widget, "_needs_refresh", True):
+                    widget.refresh()
+                    if hasattr(widget, "_needs_refresh"):
+                        widget._needs_refresh = False
 
     def _check_interrupted_scans(self):
         """Startup check for interrupted scans."""
@@ -369,6 +373,12 @@ class MainWindow(QMainWindow):
 
     def _on_scan_finished(self, summary: dict[str, Any]):
         self._set_navigation_enabled(True)
+
+        # Mark Dashboard and History as dirty since scan results changed
+        if hasattr(self.page_dashboard, "_needs_refresh"):
+            self.page_dashboard._needs_refresh = True
+        if hasattr(self.page_history, "_needs_refresh"):
+            self.page_history._needs_refresh = True
 
         # Handle Move Mode (Copy -> Verify 100% -> Confirm Delete Original Source Files)
         op_mode = summary.get("operation_mode")
@@ -403,18 +413,6 @@ class MainWindow(QMainWindow):
 
         self.page_results.load_results(summary)
         self.navigate_to("Results")
-
-    def _on_view_history_results(self, scan_data: dict[str, Any]):
-        self.page_results.load_results(scan_data)
-        self.navigate_to("Results")
-
-    def _on_resume_history_scan(self, scan_id: str):
-        res = self.scan_service.resume_scan(scan_id)
-        if res:
-            worker, scan_meta = res
-            self._set_navigation_enabled(False)
-            self.navigate_to("Processing")
-            self.page_processing.start_monitoring(worker)
 
     def _on_view_history_results(self, scan_data: dict[str, Any]):
         self.page_results.load_results(scan_data)

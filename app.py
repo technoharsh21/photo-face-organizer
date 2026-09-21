@@ -25,6 +25,15 @@ if sys.stderr is None:
 sys.dont_write_bytecode = True
 os.environ["PYTHONDONTWRITEBYTECODE"] = "1"
 
+# Show the OS-native file / folder selection dialog on Linux. Without a platform
+# theme, Qt falls back to its own built-in (non-native) QFileDialog. The gtk3 and
+# xdgdesktopportal theme plugins ship inside the PySide6 wheel; the env var must be
+# set before QApplication is created.
+if sys.platform.startswith("linux") and not os.environ.get("QT_QPA_PLATFORMTHEME"):
+    os.environ["QT_QPA_PLATFORMTHEME"] = (
+        "xdgdesktopportal" if "KDE" in os.environ.get("XDG_CURRENT_DESKTOP", "").upper() else "gtk3"
+    )
+
 
 def _clean_pycache():
     """Remove cached __pycache__ folders and .pyc files on launch."""
@@ -133,11 +142,6 @@ def main():
     app.setApplicationName("Photo Face Organizer")
     app.setDesktopFileName("photofaceorganizer")
 
-    # Theme the whole application, not just MainWindow: parentless dialogs
-    # (crash box, file pickers) must not fall back to the white system
-    # palette on Windows. AA_DontUseNativeDialogs makes QFileDialog a Qt
-    # widget so the dark QSS applies to it.
-    app.setAttribute(Qt.ApplicationAttribute.AA_DontUseNativeDialogs, True)
     app.setStyleSheet(get_stylesheet())
     app.setPalette(get_dark_palette())
 

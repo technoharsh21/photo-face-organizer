@@ -40,7 +40,7 @@ from domain.face_engine import FaceEngine
 from services.profile_service import ProfileService
 from ui.components.face_selector import FaceSelectorDialog
 from ui.components.flow_layout import FlowLayout
-from ui.components.image_cache import load_cover_pixmap
+from ui.components.image_cache import load_cover_pixmap, AsyncImageCoverWidget
 from ui.components.live_face_scanner_dialog import LiveFaceScannerDialog
 
 
@@ -124,11 +124,16 @@ class ProfileListItemWidget(QWidget):
         layout.setContentsMargins(10, 8, 10, 8)
         layout.setSpacing(12)
 
-        # Edge-to-edge Avatar Thumbnail (52x52 rounded-square)
-        self.avatar_cover = ImageCoverWidget(avatar_path, width=52, height=52, radius=10)
+        # Edge-to-edge Avatar Thumbnail (52x52 rounded-square) - async loading
+        self.avatar_cover = AsyncImageCoverWidget(
+            image_path=avatar_path if (avatar_path and Path(avatar_path).exists()) else None,
+            width=52,
+            height=52,
+            radius=10,
+            bg_color=bg_color,
+            initials=name if not (avatar_path and Path(avatar_path).exists()) else None,
+        )
         self.avatar_cover.setCursor(Qt.PointingHandCursor)
-        if not (avatar_path and Path(avatar_path).exists()):
-            self.avatar_cover.set_initials(name, bg_color=bg_color)
         layout.addWidget(self.avatar_cover)
 
         # Info Box with prominent, clear typography
@@ -180,9 +185,13 @@ class ReferencePhotoCard(QFrame):
         layout.setContentsMargins(6, 6, 6, 6)
         layout.setSpacing(5)
 
-        # Full-size Edge-to-Edge Image Cover (Zero black letterbox side bars)
+        # Full-size Edge-to-Edge Image Cover (Zero black letterbox side bars) - async loading
         stored_path = ref.get("stored_path")
-        self.img_cover = ImageCoverWidget(stored_path, height=120, radius=8)
+        self.img_cover = AsyncImageCoverWidget(
+            image_path=stored_path if (stored_path and Path(stored_path).exists()) else None,
+            height=120,
+            radius=8,
+        )
         self.img_cover.setCursor(Qt.PointingHandCursor)
 
         # Overlay Checkbox pinned to top-left of image
@@ -309,6 +318,7 @@ class PeoplePage(QWidget):
         self.current_profile_id: str | None = None
         self.selected_ref_ids: set[str] = set()
         self.worker: ProfileBatchTrainWorker | None = None
+        self._needs_refresh = True  # Track if page needs refresh on next visit
 
         self._setup_ui()
 
@@ -420,8 +430,8 @@ class PeoplePage(QWidget):
         identity_row.setSpacing(16)
         identity_row.setAlignment(Qt.AlignVCenter)
 
-        # Modern Edge-to-Edge Rounded-Square Avatar (92x92)
-        self.hero_avatar = ImageCoverWidget(None, width=92, height=92, radius=12)
+        # Modern Edge-to-Edge Rounded-Square Avatar (92x92) - async loading
+        self.hero_avatar = AsyncImageCoverWidget(width=92, height=92, radius=12)
         self.hero_avatar.setStyleSheet("border: 2px solid #38bdf8; border-radius: 12px;")
         identity_row.addWidget(self.hero_avatar)
 
@@ -678,6 +688,8 @@ class PeoplePage(QWidget):
             self.pill_type.setText("👤 None")
             self.lbl_recommendation.setText("👋 Click '➕ Create Profile' above to enroll your first person.")
             self.grid_widget.clear()
+
+        self._needs_refresh = False
 
     def _on_profile_selected(self, current: QListWidgetItem, previous: QListWidgetItem):
         if current:
@@ -1022,14 +1034,27 @@ class PeoplePage(QWidget):
             else:
                 return
 
-        success, msg = self.profile_service.add_reference_photo(
-            self.current_profile_id, p_path, selected_face_index=selected_idx, use_fallback_if_no_face=True
+        # Show processing indicator
+        self.btn_add_ref.setEnabled(False)
+        self.btn_add_ref.setText("⏳ Processing...")
+
+        def on_ref_added(success: bool, msg: str, _idx: int):
+            self.btn_add_ref.setEnabled(True)
+            self.btn_add_ref.setText("➕ Add Reference Photo")
+            if success:
+                QMessageBox.information(self, "Success", "Reference photo added successfully.")
+                self.refresh(select_profile_id=self.current_profile_id)
+            else:
+                QMessageBox.warning(self, "Error", f"Failed to add reference photo: {msg}")
+
+        self._add_ref_worker = ProfileAddRefWorker(
+            self.profile_service,
+            self.current_profile_id,
+            p_path,
+            selected_face_index=selected_idx,
         )
-        if success:
-            QMessageBox.information(self, "Success", "Reference photo added successfully.")
-            self.refresh(select_profile_id=self.current_profile_id)
-        else:
-            QMessageBox.warning(self, "Error", f"Failed to add reference photo: {msg}")
+        self._add_ref_worker.finished_signal.connect(on_ref_added)
+        self._add_ref_worker.start()
 
     def _open_live_face_scanner(self, profile_id: str | None = None):
         """Open interactive 360° live webcam face scanner dialog."""
@@ -1183,6 +1208,36 @@ class ProfileDeleteRefsWorker(QThread):
             self.finished_signal.emit(removed, "")
         except Exception as e:
             self.finished_signal.emit(0, str(e))
+
+
+class ProfileAddRefWorker(QThread):
+    """Background worker for adding reference photos without blocking UI."""
+    finished_signal = Signal(bool, str, int)  # success, message, selected_face_index
+
+    def __init__(
+        self,
+        profile_service: ProfileService,
+        profile_id: str,
+        image_path: Path,
+        selected_face_index: int = 0,
+    ):
+        super().__init__()
+        self.profile_service = profile_service
+        self.profile_id = profile_id
+        self.image_path = image_path
+        self.selected_face_index = selected_face_index
+
+    def run(self):
+        try:
+            success, msg = self.profile_service.add_reference_photo(
+                self.profile_id,
+                self.image_path,
+                selected_face_index=self.selected_face_index,
+                use_fallback_if_no_face=True,
+            )
+            self.finished_signal.emit(success, msg, self.selected_face_index)
+        except Exception as e:
+            self.finished_signal.emit(False, str(e), self.selected_face_index)
 
 
 class ProfileBatchTrainWorker(QThread):

@@ -11,7 +11,7 @@ import logging
 import os
 import threading
 import time
-from concurrent.futures import ProcessPoolExecutor, as_completed
+from concurrent.futures import as_completed
 from pathlib import Path
 from typing import Any
 
@@ -147,8 +147,8 @@ class ScanWorker(QThread):
         elif performance_mode == "Balanced":
             self.max_workers = max(2, cpu_count)
         else:
-            # Maximum Performance: keeps GPU/CPU compute fully saturated with parallel I/O & decode
-            self.max_workers = max(4, min(cpu_count * 2, 16))
+            # Maximum Performance: scale workers with CPU cores — no artificial cap
+            self.max_workers = max(4, cpu_count * 2)
 
     def pause(self):
         self._is_paused = True
