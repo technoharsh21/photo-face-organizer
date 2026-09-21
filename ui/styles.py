@@ -10,11 +10,30 @@ from PySide6.QtGui import QColor, QPalette
 
 _ASSETS_DIR = _os.path.join(_os.path.dirname(__file__), "assets")
 _ARROW_SVG = _os.path.join(_ASSETS_DIR, "arrow_down.svg").replace("\\", "/")
+_CHECK_16 = _os.path.join(_ASSETS_DIR, "check_white_16.svg").replace("\\", "/")
+_CHECK_18 = _os.path.join(_ASSETS_DIR, "check_white_18.svg").replace("\\", "/")
+_CHECK_20 = _os.path.join(_ASSETS_DIR, "check_white_20.svg").replace("\\", "/")
+_RADIO_18 = _os.path.join(_ASSETS_DIR, "radio_dot_18.svg").replace("\\", "/")
+
+
+def check_asset_url(size: int) -> str:
+    """Absolute path to the white checkmark asset for an indicator of `size` px.
+
+    QSS renders indicator images at their intrinsic size (no scaling), so a
+    per-size asset is required — pick the one matching the indicator box.
+    """
+    return {16: _CHECK_16, 18: _CHECK_18, 20: _CHECK_20}.get(size, _CHECK_18)
 
 
 def get_stylesheet() -> str:
     """Return the full application stylesheet with correct asset paths resolved."""
-    return _STYLESHEET_TEMPLATE.replace("__ARROW_SVG__", _ARROW_SVG)
+    return (
+        _STYLESHEET_TEMPLATE.replace("__ARROW_SVG__", _ARROW_SVG)
+        .replace("__CHECK_16__", _CHECK_16)
+        .replace("__CHECK_18__", _CHECK_18)
+        .replace("__CHECK_20__", _CHECK_20)
+        .replace("__RADIO_18__", _RADIO_18)
+    )
 
 
 def get_dark_palette() -> QPalette:
@@ -86,12 +105,12 @@ _STYLESHEET_TEMPLATE = """
 QMainWindow, QDialog, QMessageBox, QInputDialog, QFileDialog {
     background-color: #080c14;
     color: #f8fafc;
-    font-family: 'Segoe UI', Roboto, -apple-system, BlinkMacSystemFont, Arial, sans-serif;
+    font-family: 'Inter', 'Segoe UI', Roboto, -apple-system, BlinkMacSystemFont, Arial, sans-serif;
 }
 
 QWidget {
     color: #e2e8f0;
-    font-family: 'Segoe UI', Roboto, -apple-system, BlinkMacSystemFont, Arial, sans-serif;
+    font-family: 'Inter', 'Segoe UI', Roboto, -apple-system, BlinkMacSystemFont, Arial, sans-serif;
     font-size: 13px;
     selection-background-color: #0284c7;
     selection-color: #ffffff;
@@ -124,11 +143,10 @@ QAbstractItemView {
 /* =========================================================================
    2. Sidebar Navigation
    ========================================================================= */
+/* Width constraints are managed in Python (QPropertyAnimation needs to own them) */
 QFrame#Sidebar {
     background-color: #0b0f19;
     border-right: 1px solid #1e293b;
-    min-width: 235px;
-    max-width: 235px;
 }
 
 QLabel#AppTitle {
@@ -139,10 +157,36 @@ QLabel#AppTitle {
     letter-spacing: 0.5px;
 }
 
+QPushButton#SidebarToggle {
+    background-color: transparent;
+    border: 1px solid #1e293b;
+    border-radius: 6px;
+    padding: 4px;
+    min-width: 24px;
+    max-width: 24px;
+    min-height: 24px;
+    max-height: 24px;
+}
+
+QPushButton#SidebarToggle:hover {
+    background-color: #1e293b;
+    border-color: #38bdf8;
+}
+
+QLabel#SectionLabel {
+    color: #64748b;
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 1.2px;
+    margin-top: 10px;
+    margin-left: 10px;
+}
+
 QPushButton[class="NavButton"], QPushButton.NavButton {
     background-color: transparent;
     color: #94a3b8;
     border: none;
+    border-left: 3px solid transparent;
     border-radius: 8px;
     padding: 10px 14px;
     margin: 2px 8px;
@@ -154,14 +198,15 @@ QPushButton[class="NavButton"], QPushButton.NavButton {
 QPushButton[class="NavButton"]:hover, QPushButton.NavButton:hover {
     background-color: #1e293b;
     color: #f8fafc;
+    border-left: 3px solid #334155;
 }
 
 QPushButton[class="NavButton"]:checked, QPushButton.NavButton:checked,
 QPushButton[class="NavButton"].active, QPushButton.NavButton.active {
-    background-color: #1d4ed8;
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #16294d, stop:1 #101c33);
     color: #ffffff;
     font-weight: 700;
-    border-left: 4px solid #38bdf8;
+    border-left: 3px solid #38bdf8;
 }
 
 /* =========================================================================
@@ -609,12 +654,14 @@ QRadioButton::indicator:hover, QCheckBox::indicator:hover {
 
 QRadioButton::indicator:checked {
     border-color: #10b981;
-    background-color: #10b981;
+    background-color: #0f172a;
+    image: url("__RADIO_18__");
 }
 
 QCheckBox::indicator:checked {
     border-color: #38bdf8;
     background-color: #38bdf8;
+    image: url("__CHECK_18__");
 }
 
 /* =========================================================================
@@ -724,12 +771,236 @@ QSplitter::handle:hover {
    11. ToolTips
    ========================================================================= */
 QToolTip {
-    background-color: #1e293b;
-    color: #ffffff;
+    background-color: #171f31;
+    color: #f1f5f9;
     border: 1px solid #38bdf8;
-    border-radius: 6px;
-    padding: 6px 10px;
+    border-radius: 8px;
+    padding: 7px 11px;
     font-size: 12px;
+}
+
+/* =========================================================================
+   12. New UI components (toasts, drop zone, metric cards, hero, tour)
+   ========================================================================= */
+
+/* --- Toast notifications --- */
+QFrame#Toast {
+    background-color: #111827;
+    border: 1px solid #334155;
+    border-left: 4px solid #38bdf8;
+    border-radius: 10px;
+}
+
+QFrame#Toast[toastType="success"] { border-left-color: #10b981; }
+QFrame#Toast[toastType="error"]   { border-left-color: #ef4444; }
+QFrame#Toast[toastType="warning"] { border-left-color: #f59e0b; }
+QFrame#Toast[toastType="info"]    { border-left-color: #38bdf8; }
+
+QLabel#ToastTitle {
+    color: #f8fafc;
+    font-size: 13px;
+    font-weight: 700;
+    background: transparent;
+}
+
+QLabel#ToastBody {
+    color: #94a3b8;
+    font-size: 11px;
+    background: transparent;
+}
+
+QPushButton#ToastClose {
+    background: transparent;
+    border: none;
+    color: #64748b;
+    font-size: 14px;
+    font-weight: 700;
+    padding: 2px 6px;
+    border-radius: 4px;
+}
+
+QPushButton#ToastClose:hover {
+    color: #f8fafc;
+    background-color: #1e293b;
+}
+
+/* --- Drop zone (drag & drop folders) --- */
+QFrame#DropZone {
+    background-color: rgba(30, 41, 59, 0.45);
+    border: 2px dashed #334155;
+    border-radius: 14px;
+}
+
+QFrame#DropZone[dragHover="true"] {
+    background-color: rgba(2, 132, 199, 0.15);
+    border-color: #38bdf8;
+}
+
+QLabel#DropZoneTitle {
+    color: #cbd5e1;
+    font-size: 15px;
+    font-weight: 700;
+    background: transparent;
+}
+
+QLabel#DropZoneHint {
+    color: #64748b;
+    font-size: 11px;
+    background: transparent;
+}
+
+/* --- Hero banner (dashboard) --- */
+QFrame#HeroBanner {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
+        stop:0 #0c2f4e, stop:0.55 #123a5e, stop:1 #134e4a);
+    border: 1px solid #164e63;
+    border-radius: 16px;
+}
+
+QLabel#HeroTitle {
+    color: #ffffff;
+    font-size: 22px;
+    font-weight: 800;
+    background: transparent;
+}
+
+QLabel#HeroSubtitle {
+    color: #a5c8e8;
+    font-size: 13px;
+    font-weight: 500;
+    background: transparent;
+}
+
+/* --- Metric cards (animated counters) --- */
+QFrame#MetricCard {
+    background-color: rgba(15, 23, 42, 0.88);
+    border: 1px solid #1e293b;
+    border-radius: 12px;
+}
+
+QFrame#MetricCard:hover {
+    border-color: #334155;
+    background-color: rgba(22, 34, 56, 0.92);
+}
+
+QLabel#MetricValue {
+    color: #f8fafc;
+    font-size: 32px;
+    font-weight: 800;
+    background: transparent;
+}
+
+QLabel#MetricLabel {
+    color: #64748b;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.8px;
+    text-transform: uppercase;
+    background: transparent;
+}
+
+/* --- Tag pill (filter chips) --- */
+QLabel#TagPill {
+    color: #94a3b8;
+    background-color: #162238;
+    border: 1px solid #1e293b;
+    border-radius: 11px;
+    padding: 3px 10px;
+    font-size: 11px;
+    font-weight: 600;
+}
+
+/* --- Ghost and icon buttons --- */
+QPushButton[class="GhostButton"] {
+    background-color: transparent;
+    color: #38bdf8;
+    border: 1px solid #1e293b;
+    border-radius: 8px;
+    padding: 8px 16px;
+    font-size: 12px;
+    font-weight: 600;
+    min-height: 22px;
+}
+
+QPushButton[class="GhostButton"]:hover {
+    background-color: rgba(56, 189, 248, 0.10);
+    border-color: #38bdf8;
+    color: #7dd3fc;
+}
+
+QPushButton[class="GhostButton"]:disabled {
+    color: #475569;
+    border-color: #162238;
+    background-color: transparent;
+}
+
+QPushButton[class="IconButton"] {
+    background-color: transparent;
+    border: none;
+    border-radius: 6px;
+    padding: 4px;
+}
+
+QPushButton[class="IconButton"]:hover {
+    background-color: #1e293b;
+}
+
+QPushButton[class="IconButton"]:pressed {
+    background-color: #334155;
+}
+
+/* --- Glass cards --- */
+QFrame#CardGlass {
+    background-color: rgba(22, 34, 56, 0.55);
+    border: 1px solid rgba(148, 163, 184, 0.14);
+    border-radius: 12px;
+}
+
+/* --- Gradient badge --- */
+QLabel#BadgeGradient {
+    color: #ffffff;
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #0ea5e9, stop:1 #8b5cf6);
+    border-radius: 10px;
+    padding: 3px 10px;
+    font-size: 11px;
+    font-weight: 700;
+}
+
+/* --- Onboarding tour overlay --- */
+QFrame#TourOverlay {
+    background-color: rgba(2, 6, 16, 0.72);
+}
+
+QFrame#TourCard {
+    background-color: #111827;
+    border: 1px solid #38bdf8;
+    border-radius: 14px;
+}
+
+QLabel#TourTitle {
+    color: #ffffff;
+    font-size: 16px;
+    font-weight: 800;
+    background: transparent;
+}
+
+QLabel#TourBody {
+    color: #94a3b8;
+    font-size: 12px;
+    background: transparent;
+}
+
+QLabel#TourStep {
+    color: #64748b;
+    font-size: 11px;
+    font-weight: 700;
+    background: transparent;
+}
+
+/* --- Skeleton shimmer base (animation done in Python) --- */
+QFrame#Skeleton {
+    background-color: #1e293b;
+    border-radius: 8px;
 }
 """
 

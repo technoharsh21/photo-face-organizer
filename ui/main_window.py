@@ -9,10 +9,11 @@ Locks navigation tabs during active scanning to prevent tab switching during pro
 from pathlib import Path
 from typing import Any
 
-from PySide6.QtCore import Qt
-from PySide6.QtGui import QIcon, QPixmap
+from PySide6.QtCore import QEasingCurve, QPropertyAnimation, QSize, Qt, QTimer
+from PySide6.QtGui import QIcon, QKeySequence, QPixmap, QShortcut
 from PySide6.QtWidgets import (
     QButtonGroup,
+    QGraphicsOpacityEffect,
     QFrame,
     QHBoxLayout,
     QLabel,
@@ -35,6 +36,9 @@ from services.settings_service import SettingsService
 from services.solo_scan_service import SoloScanService
 from services.unknown_face_service import UnknownFaceService
 from ui.components.crash_recovery_dialog import CrashRecoveryDialog
+from ui.components.icons import get_icon
+from ui.components.onboarding_tour import OnboardingTour, TourStep
+from ui.components.toast_notification import ToastManager
 from ui.pages.dashboard_page import DashboardPage
 from ui.pages.duplicate_page import DuplicatePage
 from ui.pages.find_photos_page import FindPhotosPage
@@ -102,6 +106,7 @@ class MainWindow(QMainWindow):
 
         self._setup_ui()
         self._check_interrupted_scans()
+        self.navigate_to("Dashboard")
 
     def _setup_ui(self):
         central_widget = QWidget()
@@ -179,6 +184,8 @@ class MainWindow(QMainWindow):
         header_container = QVBoxLayout()
         header_container.setSpacing(2)
 
+        # Brand row: [stretchL, icon, title+sub, stretchR] — stretch factors are
+        # flipped in _apply_sidebar_collapsed to center the brand when collapsed.
         header_top = QHBoxLayout()
         header_top.setContentsMargins(4, 4, 4, 0)
         header_top.setSpacing(10)
@@ -188,61 +195,103 @@ class MainWindow(QMainWindow):
         if not icon_path.exists():
             icon_path = root_dir / "icon.ico"
 
+        icon_lbl = QLabel()
+        icon_lbl.setFixedSize(26, 26)
         if icon_path.exists():
-            icon_lbl = QLabel()
             pix = QPixmap(str(icon_path)).scaled(26, 26, Qt.KeepAspectRatio, Qt.SmoothTransformation)
             icon_lbl.setPixmap(pix)
-            icon_lbl.setFixedSize(26, 26)
-            header_top.addWidget(icon_lbl)
 
-        app_title = QLabel("Photo Face AI")
-        app_title.setObjectName("AppTitle")
-        app_title.setStyleSheet("padding: 0px; font-size: 16px; font-weight: 800; color: #ffffff;")
-        header_top.addWidget(app_title)
-        header_top.addStretch()
+        self.app_title = QLabel("Photo Face AI")
+        self.app_title.setObjectName("AppTitle")
+        self.app_title.setStyleSheet("padding: 0px; font-size: 16px; font-weight: 800; color: #ffffff;")
+        self.app_sub = QLabel("InsightFace SCRFD + ArcFace")
+        self.app_sub.setStyleSheet("color: #38bdf8; font-size: 10px; font-weight: bold;")
 
-        app_sub = QLabel("InsightFace SCRFD + ArcFace")
-        app_sub.setStyleSheet("color: #38bdf8; font-size: 10px; font-weight: bold; margin-left: 36px; margin-bottom: 8px;")
+        title_col = QVBoxLayout()
+        title_col.setSpacing(1)
+        title_col.setContentsMargins(0, 0, 0, 0)
+        title_col.addWidget(self.app_title)
+        title_col.addWidget(self.app_sub)
+        self._brand_text = QWidget()
+        self._brand_text.setLayout(title_col)
+
+        header_top.addStretch()  # idx 0
+        header_top.addWidget(icon_lbl)  # idx 1
+        header_top.addWidget(self._brand_text)  # idx 2
+        header_top.addStretch()  # idx 3
+        self._header_top_row = header_top
+        header_top.setStretch(0, 0)
+        header_top.setStretch(3, 1)  # expanded: brand left-aligned
+
+        # Toggle lives on its own row so it never competes with the brand for
+        # width; centered when collapsed, right-aligned when expanded.
+        toggle_row = QHBoxLayout()
+        toggle_row.setContentsMargins(4, 2, 4, 0)
+        self.btn_sidebar_toggle = QPushButton()
+        self.btn_sidebar_toggle.setObjectName("SidebarToggle")
+        self.btn_sidebar_toggle.setIcon(get_icon("chevron_left", color="#94a3b8", size=16))
+        self.btn_sidebar_toggle.setIconSize(QSize(16, 16))
+        self.btn_sidebar_toggle.setCursor(Qt.PointingHandCursor)
+        self.btn_sidebar_toggle.setToolTip("Collapse sidebar")
+        self.btn_sidebar_toggle.clicked.connect(self._toggle_sidebar)
+        toggle_row.addStretch()  # idx 0
+        toggle_row.addWidget(self.btn_sidebar_toggle)  # idx 1
+        toggle_row.addStretch()  # idx 2
+        self._toggle_row = toggle_row
+        toggle_row.setStretch(0, 1)
+        toggle_row.setStretch(2, 0)  # expanded: toggle right
 
         header_container.addLayout(header_top)
-        header_container.addWidget(app_sub)
+        header_container.addLayout(toggle_row)
         sidebar_layout.addLayout(header_container)
 
         self.nav_button_group = QButtonGroup(self)
         self.nav_buttons: dict[str, QPushButton] = {}
+        self._nav_labels: dict[str, str] = {}
+        self._nav_tooltips: dict[str, str] = {}
+        self._section_labels: list[QLabel] = []
+        self._fade_anims: dict[QWidget, QPropertyAnimation] = {}
+        self._sidebar_collapsed = False
 
-        # Categorized Sidebar Sections
+        # Categorized Sidebar Sections: (key, label, icon, shortcut)
         sidebar_sections = [
             ("MAIN", [
-                ("Dashboard", "🏠  Dashboard"),
-                ("People", "👥  People Profiles"),
-                ("Find Photos", "🔍  Find Photos by Person"),
-                ("New Scan", "🚀  New Scan Wizard"),
-                ("Solo Scan", "🎯  Solo Scan (0% False)"),
+                ("Dashboard", "Dashboard", "home", "Ctrl+D"),
+                ("People", "People Profiles", "users", "Ctrl+P"),
+                ("Find Photos", "Find Photos by Person", "search", "Ctrl+F"),
+                ("New Scan", "New Scan Wizard", "rocket", "Ctrl+N"),
+                ("Solo Scan", "Solo Scan (0% False)", "target", "Ctrl+Shift+N"),
             ]),
             ("LIBRARY & RESULTS", [
-                ("Results", "📊  Results & Folders"),
-                ("Unknown Faces", "❓  Unknown Faces"),
-                ("Duplicates", "🔍  Duplicate Finder"),
-                ("History", "📜  Scan History"),
+                ("Results", "Results & Folders", "pie_chart", "Ctrl+R"),
+                ("Unknown Faces", "Unknown Faces", "question_circle", "Ctrl+U"),
+                ("Duplicates", "Duplicate Finder", "copy", ""),
+                ("History", "Scan History", "history", "Ctrl+H"),
             ]),
             ("SYSTEM", [
-                ("Settings", "⚙️  Settings"),
+                ("Settings", "Settings", "settings", "Ctrl+,"),
             ])
         ]
 
         btn_index = 0
         for sec_title, sec_pages in sidebar_sections:
             sec_lbl = QLabel(f"<b>{sec_title}</b>")
-            sec_lbl.setStyleSheet("color: #64748b; font-size: 10px; font-weight: 800; margin-top: 10px; margin-left: 10px; letter-spacing: 1px;")
+            sec_lbl.setObjectName("SectionLabel")
             sidebar_layout.addWidget(sec_lbl)
+            self._section_labels.append(sec_lbl)
 
-            for key, title in sec_pages:
-                btn = QPushButton(title)
+            for key, label, icon_name, shortcut in sec_pages:
+                btn = QPushButton(label)
                 btn.setProperty("class", "NavButton")
+                btn.setIcon(get_icon(icon_name, color="#94a3b8", size=18))
+                btn.setIconSize(QSize(18, 18))
                 btn.setCheckable(True)
                 if btn_index == 0:
                     btn.setChecked(True)
+                tooltip = f"{label}  ({shortcut})" if shortcut else label
+                btn.setToolTip(tooltip)
+                self._nav_tooltips[key] = tooltip
+                self._nav_labels[key] = label
                 page_idx = self.page_map[key][0]
                 self.nav_button_group.addButton(btn, page_idx)
                 btn.clicked.connect(lambda _, k=key: self.navigate_to(k))
@@ -253,9 +302,9 @@ class MainWindow(QMainWindow):
         sidebar_layout.addStretch()
 
         # System Status Indicator Box at Sidebar Bottom
-        sys_status_box = QFrame()
-        sys_status_box.setStyleSheet("background-color: #0f172a; border: 1px solid #1e293b; border-radius: 8px; padding: 10px;")
-        sys_status_layout = QVBoxLayout(sys_status_box)
+        self.sys_status_box = QFrame()
+        self.sys_status_box.setStyleSheet("background-color: #0f172a; border: 1px solid #1e293b; border-radius: 8px; padding: 10px;")
+        sys_status_layout = QVBoxLayout(self.sys_status_box)
         sys_status_layout.setSpacing(4)
 
         self.lbl_sys_status = QLabel("● System Ready")
@@ -267,7 +316,12 @@ class MainWindow(QMainWindow):
 
         sys_status_layout.addWidget(self.lbl_sys_status)
         sys_status_layout.addWidget(self.lbl_hw_status)
-        sidebar_layout.addWidget(sys_status_box)
+        sidebar_layout.addWidget(self.sys_status_box)
+
+        # Sidebar width is owned by Python so it can be animated on collapse
+        self.sidebar = sidebar
+        sidebar.setMinimumWidth(235)
+        sidebar.setMaximumWidth(235)
 
         # Right Panel Container (TopBar + Content Stack)
         right_container = QWidget()
@@ -296,9 +350,16 @@ class MainWindow(QMainWindow):
 
         main_layout.addWidget(sidebar)
         main_layout.addWidget(right_container, 1)
+        self.right_container = right_container
+
+        # Toast notifications anchored bottom-right of the content area
+        self.toasts = ToastManager(right_container)
+
+        self._setup_shortcuts()
 
         # Initial refresh
         self.page_dashboard.refresh()
+        QTimer.singleShot(700, self._maybe_start_tour)
 
     def update_hardware_status_badge(self):
         """Update hardware status badge at sidebar bottom."""
@@ -313,12 +374,12 @@ class MainWindow(QMainWindow):
     def _set_navigation_enabled(self, enabled: bool):
         """Enable or disable sidebar navigation tabs during active scanning."""
         self.is_scanning_active = not enabled
-        for btn in self.nav_buttons.values():
+        for key, btn in self.nav_buttons.items():
             btn.setEnabled(enabled)
             if not enabled:
                 btn.setToolTip("Scan processing in progress. Cancel or wait for scan completion to switch tabs.")
             else:
-                btn.setToolTip("")
+                btn.setToolTip(self._nav_tooltips.get(key, ""))
 
         if not enabled:
             self.lbl_sys_status.setText("● Processing Photos")
@@ -334,12 +395,16 @@ class MainWindow(QMainWindow):
 
         if page_name in self.page_map:
             idx, widget = self.page_map[page_name]
+            changed = self.content_stack.currentIndex() != idx
             self.content_stack.setCurrentIndex(idx)
 
             for key, btn in self.nav_buttons.items():
                 btn.setChecked(key == page_name)
 
             self.lbl_topbar_title.setText(f"{page_name}")
+
+            if changed:
+                self._fade_in(widget)
 
             # Only refresh if forced or page is marked dirty
             if hasattr(widget, "refresh"):
@@ -413,6 +478,11 @@ class MainWindow(QMainWindow):
 
         self.page_results.load_results(summary)
         self.navigate_to("Results")
+        self.toasts.show(
+            "Scan complete",
+            f"{summary.get('processed', 0)} photos processed · {summary.get('matched', 0)} matched",
+            "success",
+        )
 
     def _on_view_history_results(self, scan_data: dict[str, Any]):
         self.page_results.load_results(scan_data)
@@ -425,3 +495,144 @@ class MainWindow(QMainWindow):
             self._set_navigation_enabled(False)
             self.navigate_to("Processing")
             self.page_processing.start_monitoring(worker)
+
+    # ------------------------------------------------------------------
+    # Sidebar collapse / shortcuts / transitions / onboarding
+
+    def _toggle_sidebar(self):
+        self._sidebar_collapsed = not self._sidebar_collapsed
+        self._apply_sidebar_collapsed(animate=True)
+
+    def _apply_sidebar_collapsed(self, animate: bool = True):
+        collapsed = self._sidebar_collapsed
+        target_w = 64 if collapsed else 235
+
+        for key, btn in self.nav_buttons.items():
+            btn.setText("" if collapsed else self._nav_labels[key])
+            btn.setStyleSheet("text-align: center;" if collapsed else "")
+
+        # Title col must shrink to min when collapsed so the icon has room to center.
+        # Force the col's max-size to its min when hidden; restore when shown.
+        for lbl in (self.app_title, self.app_sub):
+            lbl.setVisible(not collapsed)
+        for lbl in self._section_labels:
+            lbl.setVisible(not collapsed)
+
+        # Collapse the title widget to free horizontal space so the icon can center.
+        self._brand_text.setVisible(not collapsed)
+
+        # Center the icon in collapsed mode by making the left/right stretches equal.
+        self._header_top_row.setStretch(0, 1 if collapsed else 0)
+        self._header_top_row.setStretch(3, 1)
+        self._toggle_row.setStretch(0, 1)
+        self._toggle_row.setStretch(2, 1 if collapsed else 0)
+
+        if collapsed:
+            self.lbl_sys_status.setText("●")
+            self.lbl_hw_status.setVisible(False)
+        else:
+            self.lbl_hw_status.setVisible(True)
+            self.update_hardware_status_badge()
+            if not self.is_scanning_active:
+                self.lbl_sys_status.setText("● System Ready")
+
+        self.btn_sidebar_toggle.setIcon(
+            get_icon("chevron_right" if collapsed else "chevron_left", color="#94a3b8", size=16)
+        )
+        self.btn_sidebar_toggle.setToolTip("Expand sidebar" if collapsed else "Collapse sidebar")
+
+        sidebar = self.sidebar
+        if animate:
+            start_w = sidebar.width() or sidebar.minimumWidth()
+            self._sidebar_anims = []
+            for prop in (b"minimumWidth", b"maximumWidth"):
+                anim = QPropertyAnimation(sidebar, prop, self)
+                anim.setDuration(280)
+                anim.setStartValue(start_w)
+                anim.setEndValue(target_w)
+                anim.setEasingCurve(QEasingCurve.InOutCubic)
+                anim.start()
+                self._sidebar_anims.append(anim)
+        else:
+            sidebar.setMinimumWidth(target_w)
+            sidebar.setMaximumWidth(target_w)
+
+    def _setup_shortcuts(self):
+        bindings = [
+            ("Ctrl+D", "Dashboard"),
+            ("Ctrl+P", "People"),
+            ("Ctrl+F", "Find Photos"),
+            ("Ctrl+N", "New Scan"),
+            ("Ctrl+Shift+N", "Solo Scan"),
+            ("Ctrl+R", "Results"),
+            ("Ctrl+U", "Unknown Faces"),
+            ("Ctrl+H", "History"),
+            ("Ctrl+,", "Settings"),
+        ]
+        self._shortcuts = []
+        for seq, page_name in bindings:
+            sc = QShortcut(QKeySequence(seq), self)
+            sc.activated.connect(lambda p=page_name: self.navigate_to(p))
+            self._shortcuts.append(sc)
+
+        quit_sc = QShortcut(QKeySequence("Ctrl+Q"), self)
+        quit_sc.activated.connect(self.close)
+        esc_sc = QShortcut(QKeySequence(Qt.Key_Escape), self)
+        esc_sc.activated.connect(self._on_escape)
+        self._shortcuts.extend([quit_sc, esc_sc])
+
+    def _on_escape(self):
+        """Escape cancels an in-flight scan (opens the processing page's confirm dialog)."""
+        if self.is_scanning_active and self.content_stack.currentWidget() is self.page_processing:
+            self.page_processing.btn_cancel.click()
+
+    def _fade_in(self, widget: QWidget):
+        effect = QGraphicsOpacityEffect(widget)
+        widget.setGraphicsEffect(effect)
+        anim = QPropertyAnimation(effect, b"opacity", self)
+        anim.setDuration(180)
+        anim.setStartValue(0.0)
+        anim.setEndValue(1.0)
+        anim.setEasingCurve(QEasingCurve.OutCubic)
+
+        def _cleanup():
+            # Only clear if no newer effect replaced this one
+            if widget.graphicsEffect() is effect:
+                widget.setGraphicsEffect(None)
+
+        anim.finished.connect(_cleanup)
+        anim.start()
+        self._fade_anims[widget] = anim
+
+    def _maybe_start_tour(self):
+        if self.settings_service.get("ui.onboarding_done", False):
+            return
+        steps = [
+            TourStep(
+                "Welcome to Photo Face AI",
+                "Organize thousands of photos automatically by the people in them. "
+                "Start here — add people and reference photos, then run a scan.",
+                lambda: self.nav_buttons.get("People"),
+            ),
+            TourStep(
+                "Find Photos by Person",
+                "After a scan, find all photos of any person in seconds. "
+                "Search by name, filter by date or folder.",
+                lambda: self.nav_buttons.get("Find Photos"),
+            ),
+            TourStep(
+                "New Scan",
+                "Point a scan at any photo folder. The AI detects every face and sorts "
+                "photos into folders per person. (Ctrl+N)",
+                lambda: self.nav_buttons.get("New Scan"),
+            ),
+            TourStep(
+                "Results",
+                "Review exactly how each photo was matched, fix mistakes inline, and "
+                "reopen results any time from History.",
+                lambda: self.nav_buttons.get("Results"),
+            ),
+        ]
+        self._tour = OnboardingTour(self.centralWidget(), steps)
+        self._tour.finished.connect(lambda: self.settings_service.set("ui.onboarding_done", True))
+        self._tour.start()

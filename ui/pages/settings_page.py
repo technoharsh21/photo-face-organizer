@@ -317,6 +317,7 @@ class SettingsPage(QWidget):
             border_color="#059669",
             padding_h=30,
         )
+        btn_save.setToolTip("Write all changes to settings.json.\nSettings also auto-save as you change each control.")
         btn_save.clicked.connect(self._save)
         btn_layout.addWidget(btn_save)
 
@@ -328,6 +329,7 @@ class SettingsPage(QWidget):
             border_color="#334155",
             padding_h=24,
         )
+        btn_reset.setToolTip("Restore all settings to their factory defaults.\nYou'll be asked to confirm before anything changes.")
         btn_reset.clicked.connect(self._reset)
         btn_layout.addWidget(btn_reset)
 

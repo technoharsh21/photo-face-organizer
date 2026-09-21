@@ -14,7 +14,7 @@ POSE_BUCKETS: list[str] = ["frontal", "left", "right", "up", "smile"]
 
 _YAW_THRESH = 0.35
 _PITCH_UP_THRESH = 0.30
-_SMILE_THRESH = 1.05
+_SMILE_THRESH = 0.70
 
 
 def classify_pose(kps: Any) -> str | None:

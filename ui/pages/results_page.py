@@ -136,6 +136,7 @@ class ResultsPage(QWidget):
             "QPushButton:hover { background-color: #1d4ed8; color: #ffffff; }"
         )
         self.btn_skipped_details.clicked.connect(self._open_skipped_details_dialog)
+        self.btn_skipped_details.setToolTip("Review photos that were skipped — corrupt files, unsupported formats, or unrecognizable faces.")
         header_btns.addWidget(self.btn_skipped_details)
 
         self.btn_correct_match = QPushButton("🛠️ Correct Match")
@@ -147,6 +148,7 @@ class ResultsPage(QWidget):
             "QPushButton:hover { background-color: #1d4ed8; color: #ffffff; }"
         )
         self.btn_correct_match.clicked.connect(self._correct_wrong_match)
+        self.btn_correct_match.setToolTip("Reassign a photo to the correct person's folder when the AI made the wrong match.")
         header_btns.addWidget(self.btn_correct_match)
 
         self.btn_open_folder = QPushButton("📂 Open Output Folder")
@@ -158,6 +160,7 @@ class ResultsPage(QWidget):
             "QPushButton:hover { background-color: #059669; }"
         )
         self.btn_open_folder.clicked.connect(self._open_output_folder)
+        self.btn_open_folder.setToolTip("Open the destination folder where organized photos were saved.")
         header_btns.addWidget(self.btn_open_folder)
 
         header_l.addLayout(header_btns)

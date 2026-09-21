@@ -115,6 +115,7 @@ class ProcessingPage(QWidget):
             "QPushButton:hover { background-color: #1d4ed8; color: #ffffff; }"
         )
         self.btn_pause.clicked.connect(self._toggle_pause)
+        self.btn_pause.setToolTip("Pause the scan at the current photo.\nClick again (▶ Resume) to continue where it stopped.")
         btn_layout.addWidget(self.btn_pause)
 
         self.btn_cancel = QPushButton("🛑 Cancel Scan")
@@ -126,6 +127,7 @@ class ProcessingPage(QWidget):
             "QPushButton:hover { background-color: #b91c1c; }"
         )
         self.btn_cancel.clicked.connect(self._cancel_scan)
+        self.btn_cancel.setToolTip("Stop the scan and return to the wizard.\nPhotos already organized are kept.\nShortcut: Esc")
         btn_layout.addWidget(self.btn_cancel)
 
         btn_layout.addStretch()

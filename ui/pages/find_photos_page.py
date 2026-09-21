@@ -117,9 +117,9 @@ class PersonCardWidget(QFrame):
         top_row.addWidget(self.lbl_selected_badge)
         layout.addLayout(top_row)
 
-        # 2. Centered Circular Avatar
+        # 2. Centered Rounded-Square Avatar (matches card shape)
         first_ref = self.profile_data.get("first_ref_path")
-        pix = _render_avatar(first_ref, self.name, size=68)
+        pix = _render_avatar(first_ref, self.name, size=68, radius=16)
         self.lbl_avatar = QLabel()
         self.lbl_avatar.setPixmap(pix)
         self.lbl_avatar.setFixedSize(68, 68)

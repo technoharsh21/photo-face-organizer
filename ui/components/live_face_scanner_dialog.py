@@ -25,6 +25,8 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QProgressBar,
     QPushButton,
+    QScrollArea,
+    QSizePolicy,
     QVBoxLayout,
     QWidget,
 )
@@ -93,7 +95,14 @@ class LiveFaceScannerDialog(QDialog):
         self.default_name = default_name
 
         self.setWindowTitle("🎥 360° Live Face Scanner & Enrollment")
-        self.setMinimumSize(780, 720)
+        self.setWindowFlags(
+            Qt.Window
+            | Qt.WindowMinMaxButtonsHint
+            | Qt.WindowCloseButtonHint
+        )
+        self.setSizeGripEnabled(True)
+        self.resize(880, 740)
+        self.setMinimumSize(620, 520)
         self.setStyleSheet("""
             QDialog {
                 background-color: #0f172a;
@@ -200,7 +209,8 @@ class LiveFaceScannerDialog(QDialog):
         # Live Camera Display Label
         self.lbl_camera = QLabel("Starting camera stream...")
         self.lbl_camera.setAlignment(Qt.AlignCenter)
-        self.lbl_camera.setMinimumSize(560, 360)
+        self.lbl_camera.setMinimumSize(360, 240)
+        self.lbl_camera.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self.lbl_camera.setStyleSheet("background-color: #000000; border-radius: 8px; color: #64748b; font-size: 14px;")
         cam_vlayout.addWidget(self.lbl_camera, 1)
 
@@ -255,16 +265,28 @@ class LiveFaceScannerDialog(QDialog):
         cam_vlayout.addWidget(self.step_banner)
         main_layout.addWidget(cam_card, 1)
 
-        # Thumbnail Gallery Strip (5 Angle Slots)
+        # Thumbnail Gallery Strip (5 Angle Slots) wrapped in responsive scroll container
+        gallery_scroll = QScrollArea()
+        gallery_scroll.setWidgetResizable(True)
+        gallery_scroll.setFixedHeight(132)
+        gallery_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        gallery_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        gallery_scroll.setStyleSheet("""
+            QScrollArea {
+                background: transparent;
+                border: none;
+            }
+        """)
+
         gallery_frame = QFrame()
         gallery_frame.setStyleSheet("""
             background-color: #1e293b;
             border: 1px solid #334155;
             border-radius: 10px;
-            padding: 8px;
+            padding: 4px;
         """)
         self.gallery_layout = QHBoxLayout(gallery_frame)
-        self.gallery_layout.setContentsMargins(4, 4, 4, 4)
+        self.gallery_layout.setContentsMargins(6, 6, 6, 6)
         self.gallery_layout.setSpacing(10)
 
         self.angle_widgets: list[dict[str, Any]] = []
@@ -277,7 +299,7 @@ class LiveFaceScannerDialog(QDialog):
                 border-radius: 8px;
                 padding: 4px;
             """)
-            slot.setFixedWidth(120)
+            slot.setFixedWidth(118)
             slot_layout = QVBoxLayout(slot)
             slot_layout.setContentsMargins(4, 4, 4, 4)
             slot_layout.setSpacing(4)
@@ -304,7 +326,8 @@ class LiveFaceScannerDialog(QDialog):
                 "name": lbl_name,
             })
 
-        main_layout.addWidget(gallery_frame)
+        gallery_scroll.setWidget(gallery_frame)
+        main_layout.addWidget(gallery_scroll)
 
         # Bottom Action Controls
         bottom_bar = QHBoxLayout()
@@ -475,31 +498,63 @@ class LiveFaceScannerDialog(QDialog):
             )
 
         if self.countdown_val > 0:
-            cd_text = str(self.countdown_val)
+            cd_text = f"Capturing in {self.countdown_val}s..."
+            font_scale = 0.8
+            thickness = 2
+            (tw, th), _ = cv2.getTextSize(cd_text, cv2.FONT_HERSHEY_SIMPLEX, font_scale, thickness)
+            bx1 = max(10, (w - tw) // 2 - 16)
+            by1 = 16
+            bx2 = bx1 + tw + 32
+            by2 = by1 + th + 20
+            cv2.rectangle(overlay, (bx1, by1), (bx2, by2), (15, 23, 42), -1)
+            cv2.rectangle(overlay, (bx1, by1), (bx2, by2), (2, 132, 199), 2)
             cv2.putText(
                 overlay,
                 cd_text,
-                (center_x - 30, center_y + 40),
+                (bx1 + 16, by1 + th + 6),
                 cv2.FONT_HERSHEY_SIMPLEX,
-                4.0,
+                font_scale,
                 (255, 255, 255),
-                8,
+                thickness,
                 cv2.LINE_AA,
             )
-
-        if self.auto_mode and self.auto_controller is not None:
+        elif self.auto_mode and self.auto_controller is not None:
             remaining = self.auto_controller.remaining()
             prompt_map = {
-                "frontal": "Look STRAIGHT",
-                "left": "Turn LEFT",
-                "right": "Turn RIGHT",
-                "up": "Look UP",
-                "smile": "SMILE",
+                "frontal": "Look Straight",
+                "left": "Turn Left (~30°)",
+                "right": "Turn Right (~30°)",
+                "up": "Tilt Chin Up",
+                "smile": "Smile Naturally 😊",
             }
-            prompt = prompt_map.get(remaining[0], "Hold still") if remaining else "All angles captured!"
+            if remaining:
+                current_target = remaining[0]
+                prompt_text = f"Auto-Scan: {prompt_map.get(current_target, 'Hold Still')}"
+                badge_bg = (15, 23, 42)
+                badge_border = (0, 230, 255)
+            else:
+                prompt_text = "✅ All Angles Captured!"
+                badge_bg = (6, 78, 59)
+                badge_border = (16, 185, 129)
+
+            font_scale = 0.75
+            thickness = 2
+            (ptw, pth), _ = cv2.getTextSize(prompt_text, cv2.FONT_HERSHEY_SIMPLEX, font_scale, thickness)
+            pbx1 = max(10, (w - ptw) // 2 - 16)
+            pby1 = 16
+            pbx2 = pbx1 + ptw + 32
+            pby2 = pby1 + pth + 20
+            cv2.rectangle(overlay, (pbx1, pby1), (pbx2, pby2), badge_bg, -1)
+            cv2.rectangle(overlay, (pbx1, pby1), (pbx2, pby2), badge_border, 2)
             cv2.putText(
-                overlay, prompt, (30, 50), cv2.FONT_HERSHEY_SIMPLEX, 1.1,
-                (0, 230, 255), 3, cv2.LINE_AA,
+                overlay,
+                prompt_text,
+                (pbx1 + 16, pby1 + pth + 6),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                font_scale,
+                (255, 255, 255),
+                thickness,
+                cv2.LINE_AA,
             )
 
         cv2.addWeighted(overlay, 0.95, frame, 0.05, 0, frame)
@@ -571,8 +626,16 @@ class LiveFaceScannerDialog(QDialog):
         pil_img = Image.fromarray(self.current_frame_rgb)
         locs = self.face_engine.detect_faces(pil_img)
         if not locs:
-            QMessageBox.warning(self, "No Face Detected", "No clear human face detected in frame. Please face the camera and try again.")
-            return
+            if self.last_detected_bbox:
+                locs = [self.last_detected_bbox]
+            else:
+                if not self.auto_mode:
+                    QMessageBox.warning(
+                        self,
+                        "No Face Detected",
+                        "No clear human face detected in frame. Please face the camera and try again.",
+                    )
+                return
 
         self.captured_images[self.current_step_idx] = pil_img.copy()
 

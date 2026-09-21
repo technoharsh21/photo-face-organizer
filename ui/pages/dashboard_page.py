@@ -7,10 +7,11 @@ and responsive layout scaling.
 """
 
 from collections.abc import Callable
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from PySide6.QtCore import QRectF, Qt
+from PySide6.QtCore import QObject, QRectF, QTimer, Qt
 from PySide6.QtGui import QColor, QFont, QPainter, QPainterPath, QPixmap
 from PySide6.QtWidgets import (
     QFrame,
@@ -30,6 +31,47 @@ from services.profile_service import ProfileService
 from services.settings_service import SettingsService
 from services.unknown_face_service import UnknownFaceService
 from ui.components.image_cache import AsyncImageCoverWidget
+from ui.components.icons import get_icon
+
+
+class _CountTicker(QObject):
+    """Animates a QLabel's numeric text up (or down) to a target value."""
+
+    def __init__(self, label: QLabel, parent=None):
+        super().__init__(parent)
+        self._label = label
+        self._current = 0
+        self._target = 0
+        self._step = 1
+        self._timer = QTimer(self)
+        self._timer.setInterval(16)  # ~60 fps
+        self._timer.timeout.connect(self._tick)
+
+    def animate_to(self, target: int):
+        self._target = int(target)
+        if self._current == self._target:
+            self._render()
+            return
+        diff = abs(self._target - self._current)
+        if diff <= 1:
+            # Single-step changes don't need animating — snap immediately.
+            self._current = self._target
+            self._render()
+            return
+        self._step = max(1, diff // 30)  # settle in roughly 0.5 s
+        self._timer.start()
+
+    def _tick(self):
+        if self._current < self._target:
+            self._current = min(self._target, self._current + self._step)
+        elif self._current > self._target:
+            self._current = max(self._target, self._current - self._step)
+        if self._current == self._target:
+            self._timer.stop()
+        self._render()
+
+    def _render(self):
+        self._label.setText(f"{self._current:,}")
 
 
 def _create_circular_avatar(pixmap: QPixmap, size: int = 52) -> QPixmap:
@@ -119,20 +161,67 @@ class DashboardPage(QWidget):
         self.content_layout.setContentsMargins(24, 20, 24, 24)
         self.content_layout.setSpacing(22)
 
-        # 1. Top Metrics Cards
+        # 1. Hero banner (greeting + primary CTAs)
+        self._build_hero_banner()
+
+        # 2. Top Metrics Cards
         self._build_stats_cards()
 
-        # 2. AI Workflow Launchpads (2x2 Grid)
+        # 3. AI Workflow Launchpads (2x2 Grid)
         self._build_workflow_launchpads()
 
-        # 3. Enrolled People Profiles Showcase
+        # 4. Enrolled People Profiles Showcase
         self._build_people_showcase()
 
-        # 4. AI Engine & System Diagnostics Hub
+        # 5. Recent Activity feed
+        self._build_activity_feed()
+
+        # 6. AI Engine & System Diagnostics Hub
         self._build_diagnostics_hub()
 
         scroll_area.setWidget(scroll_content)
         root_layout.addWidget(scroll_area)
+
+    def _build_hero_banner(self):
+        """Welcome banner with time-based greeting and primary call-to-actions."""
+        hero = QFrame()
+        hero.setObjectName("HeroBanner")
+        layout = QHBoxLayout(hero)
+        layout.setContentsMargins(24, 20, 24, 20)
+        layout.setSpacing(16)
+
+        text_col = QVBoxLayout()
+        text_col.setSpacing(4)
+
+        hour = datetime.now().hour
+        if hour < 12:
+            greeting = "Good morning"
+        elif hour < 17:
+            greeting = "Good afternoon"
+        else:
+            greeting = "Good evening"
+
+        self.hero_title = QLabel(f"{greeting} — let's organize your photos")
+        self.hero_title.setObjectName("HeroTitle")
+        self.hero_subtitle = QLabel("Face-powered photo organization with InsightFace AI.")
+        self.hero_subtitle.setObjectName("HeroSubtitle")
+        text_col.addWidget(self.hero_title)
+        text_col.addWidget(self.hero_subtitle)
+        layout.addLayout(text_col, 1)
+
+        btn_scan = QPushButton("🚀  New Scan")
+        btn_scan.setProperty("class", "PrimaryButton")
+        btn_scan.setCursor(Qt.PointingHandCursor)
+        btn_scan.clicked.connect(lambda: self.navigate_cb("New Scan"))
+        layout.addWidget(btn_scan, 0, Qt.AlignVCenter)
+
+        btn_profiles = QPushButton("👥  People Profiles")
+        btn_profiles.setProperty("class", "GhostButton")
+        btn_profiles.setCursor(Qt.PointingHandCursor)
+        btn_profiles.clicked.connect(lambda: self.navigate_cb("People"))
+        layout.addWidget(btn_profiles, 0, Qt.AlignVCenter)
+
+        self.content_layout.addWidget(hero)
 
     def _build_stats_cards(self):
         """Construct the 4 key statistical metric cards."""
@@ -147,7 +236,7 @@ class DashboardPage(QWidget):
             value="0",
             accent_class="StatCardBlue",
             value_color="#38bdf8",
-            icon="👥",
+            icon="users",
         )
         self.card_processed = self._create_metric_card(
             title="SCANNED PHOTOS",
@@ -155,7 +244,7 @@ class DashboardPage(QWidget):
             value="0",
             accent_class="StatCardGreen",
             value_color="#34d399",
-            icon="📷",
+            icon="image",
         )
         self.card_matched = self._create_metric_card(
             title="MATCHED PHOTOS",
@@ -163,7 +252,7 @@ class DashboardPage(QWidget):
             value="0",
             accent_class="StatCardPurple",
             value_color="#c084fc",
-            icon="🎯",
+            icon="check_circle",
         )
         self.card_no_match = self._create_metric_card(
             title="UNMATCHED BACKLOG",
@@ -171,7 +260,7 @@ class DashboardPage(QWidget):
             value="0",
             accent_class="StatCardAmber",
             value_color="#fbbf24",
-            icon="❓",
+            icon="question_circle",
         )
 
         stats_layout.addWidget(self.card_profiles["frame"])
@@ -191,6 +280,7 @@ class DashboardPage(QWidget):
         icon: str,
     ) -> dict[str, Any]:
         frame = QFrame()
+        frame.setObjectName("MetricCard")
         frame.setProperty("class", accent_class)
         frame.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
 
@@ -202,8 +292,8 @@ class DashboardPage(QWidget):
         hdr_layout = QHBoxLayout()
         hdr_layout.setSpacing(6)
 
-        icon_lbl = QLabel(icon)
-        icon_lbl.setStyleSheet("font-size: 14px; background: transparent; border: none;")
+        icon_lbl = QLabel()
+        icon_lbl.setPixmap(get_icon(icon, color=value_color, size=18).pixmap(18, 18))
         hdr_layout.addWidget(icon_lbl)
 
         lbl_title = QLabel(title)
@@ -213,8 +303,8 @@ class DashboardPage(QWidget):
 
         # Value Label
         val_lbl = QLabel(value)
-        val_lbl.setProperty("class", "StatValue")
-        val_lbl.setStyleSheet(f"color: {value_color}; font-size: 26px; font-weight: 800;")
+        val_lbl.setObjectName("MetricValue")
+        val_lbl.setStyleSheet(f"color: {value_color};")
 
         # Subtext
         sub_lbl = QLabel(subtext)
@@ -224,7 +314,9 @@ class DashboardPage(QWidget):
         layout.addWidget(val_lbl)
         layout.addWidget(sub_lbl)
 
-        return {"frame": frame, "val_lbl": val_lbl, "sub_lbl": sub_lbl}
+        # Animated counter ticker
+        ticker = _CountTicker(val_lbl, self)
+        return {"frame": frame, "val_lbl": val_lbl, "sub_lbl": sub_lbl, "ticker": ticker}
 
     def _build_workflow_launchpads(self):
         """Construct the 2x2 AI workflow launchpad cards."""
@@ -310,10 +402,34 @@ class DashboardPage(QWidget):
             callback=lambda: self.navigate_cb("Unknown Faces"),
         )
 
+        # Card 5: People Profiles
+        card_people = self._create_workflow_card(
+            badge="Face Registry • Reference Photos",
+            badge_class="BadgeBlue",
+            title="👥 People Profiles",
+            description="Create and manage per-person face profiles. Add reference photos, retrain models, and keep every identity crisp.",
+            button_text="Manage Profiles →",
+            button_style="ghost",
+            callback=lambda: self.navigate_cb("People"),
+        )
+
+        # Card 6: Find Photos by Person
+        card_find = self._create_workflow_card(
+            badge="Instant Person Search",
+            badge_class="BadgeCyan",
+            title="🔎 Find Photos by Person",
+            description="Search any enrolled person and instantly surface every matching photo across your library without re-running scans.",
+            button_text="Find Photos →",
+            button_style="ghost",
+            callback=lambda: self.navigate_cb("Find Photos"),
+        )
+
         grid.addWidget(card_scan, 0, 0)
         grid.addWidget(card_solo, 0, 1)
-        grid.addWidget(card_dup, 1, 0)
-        grid.addWidget(card_unknown, 1, 1)
+        grid.addWidget(card_dup, 0, 2)
+        grid.addWidget(card_unknown, 1, 0)
+        grid.addWidget(card_people, 1, 1)
+        grid.addWidget(card_find, 1, 2)
 
         section_box.addLayout(grid)
         self.content_layout.addLayout(section_box)
@@ -330,7 +446,15 @@ class DashboardPage(QWidget):
     ) -> QFrame:
         badge_lbl = QLabel(badge)
         badge_lbl.setProperty("class", badge_class)
-        return self._create_workflow_card_custom_badge(badge_lbl, title, description, button_text, button_style, callback)
+        if button_style == "ghost":
+            css = (
+                "QPushButton { background-color: transparent; color: #38bdf8; font-weight: 700; border-radius: 8px; "
+                "padding: 0 16px; font-size: 13px; border: 1px solid #1e293b; }"
+                "QPushButton:hover { background-color: rgba(56, 189, 248, 0.10); border-color: #38bdf8; }"
+            )
+        else:
+            css = button_style
+        return self._create_workflow_card_custom_badge(badge_lbl, title, description, button_text, css, callback)
 
     def _create_workflow_card_custom_badge(
         self,
@@ -431,6 +555,80 @@ class DashboardPage(QWidget):
         self.showcase_section.addWidget(profiles_scroll)
         self.content_layout.addLayout(self.showcase_section)
 
+    def _build_activity_feed(self):
+        """Recent scans timeline."""
+        section = QVBoxLayout()
+        section.setSpacing(10)
+
+        hdr = QHBoxLayout()
+        title_box = QVBoxLayout()
+        title_box.setSpacing(2)
+        sec_title = QLabel("🕘 Recent Activity")
+        sec_title.setStyleSheet("font-size: 16px; font-weight: 800; color: #ffffff;")
+        sec_sub = QLabel("Your last scans at a glance.")
+        sec_sub.setStyleSheet("color: #94a3b8; font-size: 12px;")
+        title_box.addWidget(sec_title)
+        title_box.addWidget(sec_sub)
+        hdr.addLayout(title_box)
+        hdr.addStretch()
+
+        btn_history = QPushButton("View Full History →")
+        btn_history.setCursor(Qt.PointingHandCursor)
+        btn_history.setStyleSheet(
+            "QPushButton { background-color: transparent; color: #94a3b8; font-weight: 700; padding: 0 16px; font-size: 13px; border: none; }"
+            "QPushButton:hover { color: #ffffff; text-decoration: underline; }"
+        )
+        btn_history.clicked.connect(lambda: self.navigate_cb("History"))
+        hdr.addWidget(btn_history)
+
+        section.addLayout(hdr)
+
+        self.activity_list = QVBoxLayout()
+        self.activity_list.setSpacing(6)
+        section.addLayout(self.activity_list)
+        self.content_layout.addLayout(section)
+
+    def _refresh_activity_feed(self, scans: list[dict[str, Any]]):
+        """Rebuild the activity rows from the most recent scans."""
+        while self.activity_list.count():
+            item = self.activity_list.takeAt(0)
+            widget = item.widget()
+            if widget:
+                widget.deleteLater()
+
+        if not scans:
+            hint = QLabel("No scans yet — launch your first scan to see activity here.")
+            hint.setStyleSheet("color: #64748b; font-size: 12px;")
+            self.activity_list.addWidget(hint)
+            return
+
+        recent = sorted(scans, key=lambda s: s.get("start_time", ""), reverse=True)[:4]
+        for s in recent:
+            row = QFrame()
+            row.setObjectName("CardGlass")
+            rl = QHBoxLayout(row)
+            rl.setContentsMargins(12, 8, 12, 8)
+            rl.setSpacing(10)
+
+            icon_lbl = QLabel()
+            icon_lbl.setPixmap(get_icon("history", color="#38bdf8", size=16).pixmap(16, 16))
+            rl.addWidget(icon_lbl, 0, Qt.AlignVCenter)
+
+            text_col = QVBoxLayout()
+            text_col.setSpacing(1)
+            summary_lbl = QLabel(
+                f"{s.get('processed', 0):,} photos processed · {s.get('matched', 0):,} matched"
+            )
+            summary_lbl.setStyleSheet("color: #cbd5e1; font-size: 12px; font-weight: 600; background: transparent;")
+            date_str = str(s.get("start_time", "N/A"))[:16].replace("T", " ")
+            time_lbl = QLabel(date_str)
+            time_lbl.setStyleSheet("color: #64748b; font-size: 11px; background: transparent;")
+            text_col.addWidget(summary_lbl)
+            text_col.addWidget(time_lbl)
+            rl.addLayout(text_col, 1)
+
+            self.activity_list.addWidget(row)
+
     def _build_diagnostics_hub(self):
         """Construct the AI Engine & System Health diagnostics bar."""
         diag_card = QFrame()
@@ -481,16 +679,24 @@ class DashboardPage(QWidget):
     def refresh(self):
         """Refresh dashboard metric counts, people showcase gallery, and badges."""
         profiles = self.profile_service.list_profiles_summary()
-        self.card_profiles["val_lbl"].setText(str(len(profiles)))
+        self.card_profiles["ticker"].animate_to(len(profiles))
 
         scans = self.history_service.get_all_scans()
         total_proc = sum(s.get("processed", 0) for s in scans)
         total_match = sum(s.get("matched", 0) for s in scans)
         total_no_match = sum(s.get("no_match", 0) for s in scans)
 
-        self.card_processed["val_lbl"].setText(f"{total_proc:,}")
-        self.card_matched["val_lbl"].setText(f"{total_match:,}")
-        self.card_no_match["val_lbl"].setText(f"{total_no_match:,}")
+        self.card_processed["ticker"].animate_to(total_proc)
+        self.card_matched["ticker"].animate_to(total_match)
+        self.card_no_match["ticker"].animate_to(total_no_match)
+
+        # Hero subtitle mirrors the headline numbers (or welcomes first-timers)
+        if profiles:
+            self.hero_subtitle.setText(
+                f"{len(profiles)} {'profile' if len(profiles) == 1 else 'profiles'} · {total_proc:,} photos organized · {total_match:,} matched"
+            )
+        else:
+            self.hero_subtitle.setText("Create your first profile to start organizing photos by person.")
 
         # Update Unknown Faces Badge Count
         unknowns = self.unknown_face_service.list_unknown_faces()
@@ -507,6 +713,8 @@ class DashboardPage(QWidget):
 
         # Refresh Profiles Showcase Container
         self._refresh_people_showcase(profiles)
+        # Refresh Recent Activity feed
+        self._refresh_activity_feed(scans)
         self._needs_refresh = False
 
     def _refresh_people_showcase(self, profiles: list[dict[str, Any]]):
@@ -580,7 +788,7 @@ class DashboardPage(QWidget):
                 image_path=first_ref_path if (first_ref_path and Path(first_ref_path).exists()) else None,
                 width=52,
                 height=52,
-                radius=26,  # Fully rounded for circular avatar
+                radius=12,  # Rounded-square to match card shape
                 bg_color=bg,
                 initials=p_name if not (first_ref_path and Path(first_ref_path).exists()) else None,
             )
