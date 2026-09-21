@@ -42,6 +42,7 @@ from ui.components.face_selector import FaceSelectorDialog
 from ui.components.flow_layout import FlowLayout
 from ui.components.image_cache import load_cover_pixmap, AsyncImageCoverWidget
 from ui.components.live_face_scanner_dialog import LiveFaceScannerDialog
+from ui.styles import check_asset_url
 
 
 class ImageCoverWidget(QWidget):
@@ -196,15 +197,15 @@ class ReferencePhotoCard(QFrame):
 
         # Overlay Checkbox pinned to top-left of image
         self.chk = QCheckBox(self.img_cover)
-        self.chk.setFixedSize(18, 18)
+        self.chk.setFixedSize(22, 22)
         self.chk.setChecked(is_selected)
         self.chk.setCursor(Qt.PointingHandCursor)
         self.chk.setToolTip("Select for multi-delete")
         self.chk.move(6, 6)
         self.chk.setStyleSheet(
             "QCheckBox { background: transparent; border: none; padding: 0px; margin: 0px; }"
-            "QCheckBox::indicator { width: 16px; height: 16px; border-radius: 4px; border: 1px solid #38bdf8; background-color: rgba(15, 23, 42, 0.9); }"
-            "QCheckBox::indicator:checked { background-color: #ef4444; border: 1px solid #ef4444; }"
+            "QCheckBox::indicator { width: 18px; height: 18px; border-radius: 4px; border: 2px solid #64748b; background-color: rgba(15, 23, 42, 0.9); }"
+            f"QCheckBox::indicator:checked {{ background-color: #ef4444; border: 1px solid #ef4444; image: url(\"{check_asset_url(18)}\"); }}"
         )
         self.chk.toggled.connect(self._on_chk_toggled)
 
@@ -231,6 +232,7 @@ class ReferencePhotoCard(QFrame):
             "QPushButton:hover { background-color: #b91c1c; }"
         )
         btn_del.clicked.connect(lambda: self.on_delete(self.ref_id))
+        btn_del.setToolTip("Remove this reference photo from the profile.\nThe original photo file is not deleted.")
         layout.addWidget(btn_del)
 
     def _on_chk_toggled(self, checked: bool):
@@ -352,6 +354,7 @@ class PeoplePage(QWidget):
             "QPushButton:hover { background-color: #059669; }"
         )
         btn_add_person.clicked.connect(self._create_profile)
+        btn_add_person.setToolTip("Create a new people profile and add reference photos to train the face recognizer.\nShortcut: Ctrl+P")
         top_bar.addWidget(btn_add_person)
 
         root_layout.addLayout(top_bar)
@@ -497,6 +500,7 @@ class PeoplePage(QWidget):
             "QPushButton:hover { background-color: #059669; }"
         )
         self.btn_add_ref.clicked.connect(self._add_reference_photo)
+        self.btn_add_ref.setToolTip("Add a reference photo of this person to improve face matching accuracy.")
         identity_row.addWidget(self.btn_add_ref, 0, Qt.AlignVCenter)
 
         hero_layout.addLayout(identity_row)
@@ -519,6 +523,7 @@ class PeoplePage(QWidget):
             "QPushButton:hover { background-color: #1d4ed8; color: #ffffff; }"
         )
         self.btn_batch_train.clicked.connect(self._batch_train_profile)
+        self.btn_batch_train.setToolTip("Train this profile on every photo it currently owns in one pass.\nAdds all matched photos as reference embeddings.")
         tools_row.addWidget(self.btn_batch_train)
 
         self.btn_clean_outliers = QPushButton("🧹 Clean Outliers")
@@ -533,6 +538,18 @@ class PeoplePage(QWidget):
         self.btn_clean_outliers.clicked.connect(self._clean_outliers)
         tools_row.addWidget(self.btn_clean_outliers)
 
+        self.btn_360_scan = QPushButton("🎥 360° Face Scan")
+        self.btn_360_scan.setProperty("class", "SecondaryButton")
+        self.btn_360_scan.setCursor(Qt.PointingHandCursor)
+        self.btn_360_scan.setFixedHeight(36)
+        self.btn_360_scan.setStyleSheet(
+            "QPushButton { background-color: #1e293b; color: #38bdf8; font-weight: 700; border-radius: 8px; padding: 0 16px; font-size: 13px; border: 1px solid #3b82f6; }"
+            "QPushButton:hover { background-color: #1d4ed8; color: #ffffff; }"
+        )
+        self.btn_360_scan.setToolTip("Open live camera to capture 5-angle 360° face photos for this person.")
+        self.btn_360_scan.clicked.connect(self._open_360_scan)
+        tools_row.addWidget(self.btn_360_scan)
+
         self.btn_group_type = QPushButton("⚙️ Settings")
         self.btn_group_type.setProperty("class", "SecondaryButton")
         self.btn_group_type.setCursor(Qt.PointingHandCursor)
@@ -542,6 +559,7 @@ class PeoplePage(QWidget):
             "QPushButton:hover { background-color: #1d4ed8; color: #ffffff; }"
         )
         self.btn_group_type.clicked.connect(self._edit_group_settings)
+        self.btn_group_type.setToolTip("Change this profile's name, group type, or matching threshold.")
         tools_row.addWidget(self.btn_group_type)
 
         self.btn_delete = QPushButton("🗑️ Delete Profile")
@@ -553,6 +571,7 @@ class PeoplePage(QWidget):
             "QPushButton:hover { background-color: #dc2626; }"
         )
         self.btn_delete.clicked.connect(self._delete_profile)
+        self.btn_delete.setToolTip("Permanently delete this profile and all its reference embeddings.\nOrganized photos are left untouched.")
         tools_row.addWidget(self.btn_delete)
 
         hero_layout.addLayout(tools_row)
@@ -608,7 +627,10 @@ class PeoplePage(QWidget):
         # Reference Photos Scroll Area (Responsive 2D Grid)
         self.ref_scroll = QScrollArea()
         self.ref_scroll.setWidgetResizable(True)
-        self.ref_scroll.setStyleSheet("QScrollArea { background: transparent; border: none; }")
+        self.ref_scroll.setStyleSheet(
+            "QScrollArea { background: #0f172a; border: none; }"
+            "QScrollArea > QWidget > QWidget { background: transparent; }"
+        )
 
         self.grid_widget = ResponsiveReferenceGrid()
         self.ref_scroll.setWidget(self.grid_widget)
@@ -823,7 +845,41 @@ class PeoplePage(QWidget):
         batch_tile.mousePressEvent = lambda _: self._batch_train_profile()
         cards.append(batch_tile)
 
-        # 3. Interactive Reference Photo Cards with Edge-to-Edge Photo Covers (Zero Black Bars)
+        # 3. 360° Face Scan Action Tile (Fluid expanding width)
+        scan_tile = QFrame()
+        scan_tile.setProperty("class", "ActionTileCard")
+        scan_tile.setCursor(Qt.PointingHandCursor)
+        scan_tile.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        scan_tile.setMinimumWidth(130)
+        scan_tile.setMaximumWidth(260)
+        scan_tile.setFixedHeight(198)
+        st_layout = QVBoxLayout(scan_tile)
+        st_layout.setContentsMargins(8, 12, 8, 12)
+        st_layout.setSpacing(6)
+        st_layout.setAlignment(Qt.AlignCenter)
+
+        st_icon = QLabel("🎥")
+        st_icon.setStyleSheet("font-size: 26px; background: transparent; border: none;")
+        st_icon.setAlignment(Qt.AlignCenter)
+        st_icon.setCursor(Qt.PointingHandCursor)
+
+        st_lbl = QLabel("360° Scan")
+        st_lbl.setStyleSheet("font-size: 13px; font-weight: 700; color: #34d399; background: transparent; border: none;")
+        st_lbl.setAlignment(Qt.AlignCenter)
+        st_lbl.setCursor(Qt.PointingHandCursor)
+
+        st_sub = QLabel("Live Webcam")
+        st_sub.setStyleSheet("font-size: 11px; color: #64748b; background: transparent; border: none;")
+        st_sub.setAlignment(Qt.AlignCenter)
+        st_sub.setCursor(Qt.PointingHandCursor)
+
+        st_layout.addWidget(st_icon)
+        st_layout.addWidget(st_lbl)
+        st_layout.addWidget(st_sub)
+        scan_tile.mousePressEvent = lambda _: self._open_360_scan()
+        cards.append(scan_tile)
+
+        # 4. Interactive Reference Photo Cards with Edge-to-Edge Photo Covers (Zero Black Bars)
         for ref in references:
             ref_id = ref.get("id")
             card = ReferencePhotoCard(
@@ -1072,6 +1128,13 @@ class PeoplePage(QWidget):
         if dlg.exec() == QDialog.Accepted:
             selected_id = profile_id or dlg.created_profile_id
             self.refresh(select_profile_id=selected_id)
+
+    def _open_360_scan(self):
+        """Open interactive 360° live webcam face scanner for the currently selected profile."""
+        if not self.current_profile_id:
+            QMessageBox.warning(self, "No Person Selected", "Please select a person profile first.")
+            return
+        self._open_live_face_scanner(self.current_profile_id)
 
     def _batch_train_profile(self):
         if not self.current_profile_id:

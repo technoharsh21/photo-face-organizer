@@ -42,6 +42,7 @@ from services.profile_service import ProfileService
 from services.settings_service import SettingsService
 from services.solo_scan_service import SoloScanService
 from ui.components.image_cache import load_cover_pixmap
+from ui.styles import check_asset_url
 
 
 def _create_mini_avatar(pixmap_path: str | None, name: str, size: int = 44, radius: int = 10, bg_color: str = "#2563eb") -> QPixmap:
@@ -90,8 +91,8 @@ class SoloProfileSelectionItemWidget(QWidget):
         self.chk.setCursor(Qt.PointingHandCursor)
         self.chk.setStyleSheet(
             "QCheckBox { background: transparent; border: none; padding: 0px; margin: 0px; }"
-            "QCheckBox::indicator { width: 20px; height: 20px; border-radius: 5px; border: 2px solid #38bdf8; background-color: #0f172a; }"
-            "QCheckBox::indicator:checked { background-color: #10b981; border: 2px solid #10b981; }"
+            "QCheckBox::indicator { width: 18px; height: 18px; border-radius: 4px; border: 2px solid #64748b; background-color: #0f172a; }"
+            f"QCheckBox::indicator:checked {{ background-color: #10b981; border: 2px solid #10b981; image: url(\"{check_asset_url(18)}\"); }}"
         )
         self.chk.toggled.connect(self._on_check_changed)
         layout.addWidget(self.chk)
@@ -390,8 +391,8 @@ class SoloScanPage(QWidget):
         self.chk_select_all.setCursor(Qt.PointingHandCursor)
         self.chk_select_all.setStyleSheet(
             "QCheckBox { color: #ffffff; font-weight: 700; font-size: 13px; spacing: 8px; padding: 6px 12px; background-color: #0f172a; border: 1px solid #334155; border-radius: 8px; }"
-            "QCheckBox::indicator { width: 18px; height: 18px; border-radius: 4px; border: 1px solid #38bdf8; background-color: #0f172a; }"
-            "QCheckBox::indicator:checked { background-color: #10b981; border: 1px solid #10b981; }"
+            "QCheckBox::indicator { width: 18px; height: 18px; border-radius: 4px; border: 2px solid #64748b; background-color: #0f172a; }"
+            f"QCheckBox::indicator:checked {{ background-color: #10b981; border: 1px solid #10b981; image: url(\"{check_asset_url(18)}\"); }}"
         )
         self.chk_select_all.toggled.connect(self._toggle_select_all_profiles)
         top_bar.addWidget(self.chk_select_all)

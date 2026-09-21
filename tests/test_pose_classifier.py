@@ -32,9 +32,13 @@ def test_tilt_up():
 
 
 def test_smile():
-    # smiling mouth corners spread wider than the inter-eye distance
-    k = kps([40, 50], [80, 50], [60, 70], [33, 90], [87, 90])
-    assert classify_pose(k) == "smile"
+    # Natural human smile (mouth width ~75% of inter-eye distance)
+    k_natural = kps([40, 50], [80, 50], [60, 70], [45, 88], [75, 88])
+    assert classify_pose(k_natural) == "smile"
+
+    # Broad smile
+    k_broad = kps([40, 50], [80, 50], [60, 70], [33, 90], [87, 90])
+    assert classify_pose(k_broad) == "smile"
 
 
 def test_degenerate_returns_none():

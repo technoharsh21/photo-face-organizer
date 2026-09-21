@@ -10,7 +10,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from PySide6.QtCore import QRectF, QSize, Qt
+from PySide6.QtCore import QRectF, QSize, Qt, Signal
 from PySide6.QtGui import QColor, QFont, QPainter, QPainterPath, QPixmap
 from PySide6.QtWidgets import (
     QButtonGroup,
@@ -40,7 +40,9 @@ from domain.scanner import discover_photos
 from services.profile_service import ProfileService
 from services.scan_service import ScanService
 from services.settings_service import SettingsService
+from ui.components.icons import get_icon
 from ui.components.image_cache import load_cover_pixmap
+from ui.styles import check_asset_url
 
 
 def _create_mini_avatar(pixmap_path: str | None, name: str, size: int = 38, radius: int = 8, bg_color: str = "#2563eb") -> QPixmap:
@@ -89,8 +91,8 @@ class ProfileSelectionItemWidget(QWidget):
         self.chk.setCursor(Qt.PointingHandCursor)
         self.chk.setStyleSheet(
             "QCheckBox { background: transparent; border: none; padding: 0px; margin: 0px; }"
-            "QCheckBox::indicator { width: 20px; height: 20px; border-radius: 5px; border: 2px solid #38bdf8; background-color: #0f172a; }"
-            "QCheckBox::indicator:checked { background-color: #10b981; border: 2px solid #10b981; }"
+            "QCheckBox::indicator { width: 18px; height: 18px; border-radius: 4px; border: 2px solid #64748b; background-color: #0f172a; }"
+            f"QCheckBox::indicator:checked {{ background-color: #10b981; border: 2px solid #10b981; image: url(\"{check_asset_url(18)}\"); }}"
         )
         self.chk.toggled.connect(self._on_check_changed)
         layout.addWidget(self.chk)
@@ -126,6 +128,77 @@ class ProfileSelectionItemWidget(QWidget):
         if event.button() == Qt.LeftButton:
             self.chk.setChecked(not self.chk.isChecked())
         super().mousePressEvent(event)
+
+
+class FolderDropZone(QFrame):
+    """Drag & drop target for photo folders/files — click also opens the folder browser."""
+
+    paths_dropped = Signal(list)  # list[str] of dropped local paths
+
+    def __init__(self, on_browse: Callable[[], None], parent: QWidget | None = None):
+        super().__init__(parent)
+        self.on_browse = on_browse
+        self.setObjectName("DropZone")
+        self.setCursor(Qt.PointingHandCursor)
+        self.setAcceptDrops(True)
+        self.setMinimumHeight(86)
+        self.setProperty("dragHover", False)
+
+        layout = QVBoxLayout(self)
+        layout.setSpacing(4)
+
+        icon_lbl = QLabel()
+        icon_lbl.setAlignment(Qt.AlignCenter)
+        icon_lbl.setStyleSheet("background: transparent;")
+        icon_lbl.setPixmap(get_icon("upload", "#64748b", size=22).pixmap(22, 22))
+
+        title = QLabel("Drop a folder here — or click to browse")
+        title.setObjectName("DropZoneTitle")
+        title.setAlignment(Qt.AlignCenter)
+
+        hint = QLabel("Folders and photo files are accepted")
+        hint.setObjectName("DropZoneHint")
+        hint.setAlignment(Qt.AlignCenter)
+
+        layout.addWidget(icon_lbl)
+        layout.addWidget(title)
+        layout.addWidget(hint)
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            self.on_browse()
+        super().mousePressEvent(event)
+
+    def dragEnterEvent(self, event):
+        if event.mimeData().hasUrls():
+            event.acceptProposedAction()
+            self._set_hover(True)
+        else:
+            super().dragEnterEvent(event)
+
+    def dragMoveEvent(self, event):
+        if event.mimeData().hasUrls():
+            event.acceptProposedAction()
+        else:
+            super().dragMoveEvent(event)
+
+    def dragLeaveEvent(self, event):
+        self._set_hover(False)
+        super().dragLeaveEvent(event)
+
+    def dropEvent(self, event):
+        self._set_hover(False)
+        paths = [u.toLocalFile() for u in event.mimeData().urls() if u.toLocalFile()]
+        if paths:
+            event.acceptProposedAction()
+            self.paths_dropped.emit(paths)
+        else:
+            super().dropEvent(event)
+
+    def _set_hover(self, hovered: bool):
+        self.setProperty("dragHover", hovered)
+        self.style().unpolish(self)
+        self.style().polish(self)
 
 
 class NewScanPage(QWidget):
@@ -330,6 +403,11 @@ class NewScanPage(QWidget):
 
         l.addLayout(btn_layout)
 
+        # Drag & Drop Zone
+        self.drop_zone = FolderDropZone(on_browse=self._add_folder)
+        self.drop_zone.paths_dropped.connect(self._add_dropped_paths)
+        l.addWidget(self.drop_zone)
+
         # Sources List View
         self.sources_list = QListWidget()
         self.sources_list.setCursor(Qt.PointingHandCursor)
@@ -377,8 +455,8 @@ class NewScanPage(QWidget):
         self.chk_select_all.setCursor(Qt.PointingHandCursor)
         self.chk_select_all.setStyleSheet(
             "QCheckBox { color: #ffffff; font-weight: 700; font-size: 13px; spacing: 8px; padding: 6px 12px; background-color: #0f172a; border: 1px solid #334155; border-radius: 8px; }"
-            "QCheckBox::indicator { width: 18px; height: 18px; border-radius: 4px; border: 1px solid #38bdf8; background-color: #0f172a; }"
-            "QCheckBox::indicator:checked { background-color: #10b981; border: 1px solid #10b981; }"
+            "QCheckBox::indicator { width: 18px; height: 18px; border-radius: 4px; border: 2px solid #64748b; background-color: #0f172a; }"
+            f"QCheckBox::indicator:checked {{ background-color: #10b981; border: 1px solid #10b981; image: url(\"{check_asset_url(18)}\"); }}"
         )
         self.chk_select_all.toggled.connect(self._toggle_select_all_profiles)
         top_bar.addWidget(self.chk_select_all)
@@ -913,6 +991,17 @@ class NewScanPage(QWidget):
                 self.sources.append(f)
                 self.sources_list.addItem(f"🖼️  {f}")
         if files:
+            self._update_sources_summary()
+
+    def _add_dropped_paths(self, paths: list[str]):
+        added = 0
+        for p in paths:
+            if p and p not in self.sources:
+                self.sources.append(p)
+                icon = "📁" if Path(p).is_dir() else "🖼️"
+                self.sources_list.addItem(f"{icon}  {p}")
+                added += 1
+        if added:
             self._update_sources_summary()
 
     def _clear_sources(self):

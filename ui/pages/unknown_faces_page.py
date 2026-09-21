@@ -166,6 +166,7 @@ class UnknownFacesPage(QWidget):
             "QPushButton:hover { background-color: #059669; }"
         )
         btn_cluster.clicked.connect(self._run_clustering)
+        btn_cluster.setToolTip("Automatically group faces that look similar into clusters.\nThis helps identify unnamed people in your photo library.")
         header_l.addWidget(btn_cluster)
 
         btn_clear_all = QPushButton("🧹 Clear All")
@@ -177,6 +178,7 @@ class UnknownFacesPage(QWidget):
             "QPushButton:hover { background-color: #b91c1c; }"
         )
         btn_clear_all.clicked.connect(self._clear_all_unknown_faces)
+        btn_clear_all.setToolTip("Remove all unknown face entries.\nThis cannot be undone.")
         header_l.addWidget(btn_clear_all)
 
         layout.addLayout(header_l)
@@ -267,6 +269,7 @@ class UnknownFacesPage(QWidget):
             "QPushButton:hover { background-color: #059669; }"
         )
         self.btn_convert.clicked.connect(self._convert_group_to_profile)
+        self.btn_convert.setToolTip("Create a new people profile from this face group.\nReference photos will be added automatically.")
         actions_l.addWidget(self.btn_convert)
 
         self.btn_add_to_existing = QPushButton("➕ Add to Profile")
@@ -277,6 +280,7 @@ class UnknownFacesPage(QWidget):
             "QPushButton:hover { background-color: #0369a1; }"
         )
         self.btn_add_to_existing.clicked.connect(self._add_group_to_existing_profile)
+        self.btn_add_to_existing.setToolTip("Add these face photos to an existing people's profile.")
         actions_l.addWidget(self.btn_add_to_existing)
 
         self.btn_rename_grp = QPushButton("✏️ Rename Group")
@@ -287,6 +291,7 @@ class UnknownFacesPage(QWidget):
             "QPushButton:hover { background-color: #1d4ed8; color: #ffffff; }"
         )
         self.btn_rename_grp.clicked.connect(self._rename_group)
+        self.btn_rename_grp.setToolTip("Give this face group a descriptive name.")
         actions_l.addWidget(self.btn_rename_grp)
 
         self.btn_delete_grp = QPushButton("🗑️ Delete Group")
@@ -297,6 +302,7 @@ class UnknownFacesPage(QWidget):
             "QPushButton:hover { background-color: #b91c1c; }"
         )
         self.btn_delete_grp.clicked.connect(self._delete_group)
+        self.btn_delete_grp.setToolTip("Remove this group of faces.\nFaces are not deleted from disk, only from this list.")
         actions_l.addWidget(self.btn_delete_grp)
 
         right_l.addLayout(actions_l)
@@ -472,6 +478,7 @@ class UnknownFacesPage(QWidget):
             )
             f_id = f.get("id")
             btn_del.clicked.connect(lambda _, u_id=f_id, btn=btn_del: self._delete_face(u_id, btn))
+            btn_del.setToolTip("Remove this face from the review list.\nThe photo is not deleted from disk.")
             l.addWidget(btn_del)
 
             row = idx // cols
