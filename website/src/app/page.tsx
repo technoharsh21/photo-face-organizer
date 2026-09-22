@@ -421,10 +421,6 @@ export default function HomePage() {
               </li>
               <li className="flex items-center gap-2">
                 <CheckCircle2 className="w-4 h-4 text-emerald-500" />
-                <span>1-click &quot;Correct Match&quot; for any misfiled photo</span>
-              </li>
-              <li className="flex items-center gap-2">
-                <CheckCircle2 className="w-4 h-4 text-emerald-500" />
                 <span>Move Mode deletes originals only after 100% copy verification</span>
               </li>
             </ul>
