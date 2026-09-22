@@ -1,8 +1,8 @@
 import Link from "next/link";
 
 export const metadata = {
-  title: "Results, Audit & Corrections | Photo Face Organizer Docs",
-  description: "Verify the file reconciliation audit, inspect output folders, export the skipped-file log, correct wrong matches, and use safe Move mode.",
+  title: "Results, Audit & Reports | Photo Face Organizer Docs",
+  description: "Verify the file reconciliation audit, inspect output folders, export the skipped-file log, and use safe Move mode.",
 };
 
 export default function ResultsAuditDocPage() {
@@ -56,17 +56,7 @@ export default function ResultsAuditDocPage() {
         </p>
 
         <h2 className="text-xl font-bold text-slate-900 dark:text-white">
-          4. Correcting a Wrong Match
-        </h2>
-        <p>
-          No recognition engine is perfect, so corrections are part of the workflow rather than a manual file-shuffle afterwards. Select a misfiled photo and click <strong>&#128295;&#65039; Correct Match</strong> to open the <em>&ldquo;Correct Photo Match&rdquo;</em> dialog, reassign the photo, and confirm with <strong>Apply Correction</strong>.
-        </p>
-        <p>
-          If the photo actually contains several people and the app cannot tell which face drove the routing, a <em>&ldquo;&#128100; Select the Correct Person&apos;s Face&rdquo;</em> picker shows the detected faces so you can point at the right one and press <strong>Use Selected Face</strong>. Corrections also feed back into the profile, which tightens future scans. See <Link href="/docs/quality-ratings">&#129529; Clean Outliers</Link> for the bulk version of the same idea.
-        </p>
-
-        <h2 className="text-xl font-bold text-slate-900 dark:text-white">
-          5. Copy Mode vs Move Mode
+          4. Copy Mode vs Move Mode
         </h2>
         <p>
           <strong>Step 3 of the New Scan Wizard</strong> chooses the file-handling mode. <strong>Copy Mode (Safe)</strong> is the default and never touches your originals. <strong>Move Mode</strong> does relocate photos, but only through a verification gate:

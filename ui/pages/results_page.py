@@ -2,7 +2,7 @@
 Results Page Module.
 
 Displays detailed scan summary metrics, reconciliation audit, interactive person output folder tree,
-live high-resolution image preview, quick match correction, and direct folder explorer actions.
+live high-resolution image preview, and direct folder explorer actions.
 """
 
 from pathlib import Path
@@ -31,7 +31,6 @@ from services.output_service import OutputService
 from services.profile_service import ProfileService
 from ui.components.flow_layout import FlowLayout
 from ui.components.image_cache import get_async_thumbnail_loader, load_cover_pixmap
-from ui.components.wrong_match_dialog import WrongMatchDialog
 
 
 class ResultsImageCover(QWidget):
@@ -93,7 +92,7 @@ class ResultsImageCover(QWidget):
 
 
 class ResultsPage(QWidget):
-    """Scan Results Page with live image preview panel and wrong match correction."""
+    """Scan Results Page with live image preview panel."""
 
     def __init__(self, profile_service: ProfileService, output_service: OutputService):
         super().__init__()
@@ -116,7 +115,7 @@ class ResultsPage(QWidget):
         title_box.setSpacing(2)
         title_lbl = QLabel("📊 Scan Results & Output Inspector")
         title_lbl.setStyleSheet("font-size: 18px; font-weight: 800; color: #ffffff;")
-        sub_title = QLabel("Review processed photos, verify audit statistics, correct matches, and open person destination folders.")
+        sub_title = QLabel("Review processed photos, verify audit statistics, and open person destination folders.")
         sub_title.setStyleSheet("color: #94a3b8; font-size: 12px;")
         title_box.addWidget(title_lbl)
         title_box.addWidget(sub_title)
@@ -138,18 +137,6 @@ class ResultsPage(QWidget):
         self.btn_skipped_details.clicked.connect(self._open_skipped_details_dialog)
         self.btn_skipped_details.setToolTip("Review photos that were skipped — corrupt files, unsupported formats, or unrecognizable faces.")
         header_btns.addWidget(self.btn_skipped_details)
-
-        self.btn_correct_match = QPushButton("🛠️ Correct Match")
-        self.btn_correct_match.setProperty("class", "SecondaryButton")
-        self.btn_correct_match.setCursor(Qt.PointingHandCursor)
-        self.btn_correct_match.setFixedHeight(36)
-        self.btn_correct_match.setStyleSheet(
-            "QPushButton { background-color: #1e293b; color: #ffffff; font-weight: 700; border-radius: 8px; padding: 0 16px; font-size: 13px; min-height: 36px; max-height: 36px; border: 1px solid #3b82f6; }"
-            "QPushButton:hover { background-color: #1d4ed8; color: #ffffff; }"
-        )
-        self.btn_correct_match.clicked.connect(self._correct_wrong_match)
-        self.btn_correct_match.setToolTip("Reassign a photo to the correct person's folder when the AI made the wrong match.")
-        header_btns.addWidget(self.btn_correct_match)
 
         self.btn_open_folder = QPushButton("📂 Open Output Folder")
         self.btn_open_folder.setProperty("class", "PrimaryButton")
@@ -444,67 +431,3 @@ class ResultsPage(QWidget):
         except Exception as e:
             QMessageBox.warning(self, "Error Opening Folder", f"Failed to open output directory: {e}")
 
-    def _correct_wrong_match(self):
-        if not self.summary_data:
-            QMessageBox.warning(self, "No Scan Results", "No scan results available yet.")
-            return
-
-        item = self.tree.currentItem()
-        if not item or not item.parent():
-            QMessageBox.warning(
-                self,
-                "Select Photo File",
-                "Please click and select a specific photo file inside a person folder to correct.",
-            )
-            return
-
-        file_path_str = item.data(0, Qt.UserRole)
-        if not file_path_str:
-            return
-
-        file_path = Path(file_path_str)
-        if not file_path.exists():
-            QMessageBox.warning(self, "File Not Found", f"Photo file no longer exists at path:\n{file_path}")
-            return
-
-        current_folder = item.parent().text(0)
-        profiles = self.profile_service.list_profiles()
-
-        dlg = WrongMatchDialog(self, file_path, current_folder, profiles)
-        if dlg.exec() == WrongMatchDialog.Accepted:
-            dest_type = dlg.target_destination
-            target_profile_name = dlg.selected_profile_name
-
-            out_dir_str = self.summary_data.get("output_dir")
-            if not out_dir_str:
-                return
-            out_dir = Path(out_dir_str)
-
-            if dest_type == "No Match":
-                dest_folder = out_dir / "No Match"
-                folder_key = "No Match"
-            else:
-                if not target_profile_name:
-                    return
-                dest_folder = out_dir / target_profile_name
-                folder_key = target_profile_name
-
-            _success, _target_path, status = self.output_service.copy_photo_to_destination(
-                file_path, dest_folder, folder_key=folder_key
-            )
-
-            if status == "DUPLICATE_SKIPPED":
-                QMessageBox.information(
-                    self,
-                    "Duplicate Detected",
-                    f"Photo already exists in '{folder_key}' target folder.",
-                )
-
-            try:
-                if file_path.exists():
-                    file_path.unlink()
-            except Exception as e:
-                QMessageBox.warning(self, "Error Removing File", f"Failed to remove incorrect copy: {e}")
-
-            QMessageBox.information(self, "Correction Complete", "Photo match corrected successfully.")
-            self.load_results(self.summary_data)
