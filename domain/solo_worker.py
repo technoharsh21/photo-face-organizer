@@ -141,11 +141,14 @@ class SoloScanWorker(QThread):
         else:
             max_workers = max(1, cpu_count // 4)
 
-        batch_size = max(4, max_workers * 2)
         remaining_files = [f for f in self.files[self.start_index:] if str(f) not in self.processed_files]
 
+        # Submit ALL remaining files at once — no batch barrier.
+        # Keeps the CUDA stream saturated: next thread hands its image as soon as the GPU finishes.
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            for b_idx in range(0, len(remaining_files), batch_size):
+            future_to_file = {executor.submit(self._process_file, f, 0): f for f in remaining_files}
+
+            for future in as_completed(future_to_file):
                 if self._is_cancelled:
                     logger.info("Solo scan worker cancelled by user.")
                     self._save_checkpoint("Cancelled", self.processed_count)
@@ -156,47 +159,41 @@ class SoloScanWorker(QThread):
                     time.sleep(0.2)
                     self._save_checkpoint("Paused", self.processed_count)
 
-                batch = remaining_files[b_idx : b_idx + batch_size]
-                future_to_file = {executor.submit(self._process_file, f, 0): f for f in batch}
+                f_path = future_to_file[future]
+                str_path = str(f_path)
+                try:
+                    future.result()
+                except Exception as exc:
+                    self.skipped_count += 1
+                    self.error_count += 1
+                    self.errors_log.append({"file": str_path, "error": str(exc)})
 
-                for future in as_completed(future_to_file):
-                    if self._is_cancelled:
-                        break
-                    f_path = future_to_file[future]
-                    str_path = str(f_path)
-                    try:
-                        future.result()
-                    except Exception as exc:
-                        self.skipped_count += 1
-                        self.error_count += 1
-                        self.errors_log.append({"file": str_path, "error": str(exc)})
+                self.processed_count += 1
+                self.processed_files.add(str_path)
 
-                    self.processed_count += 1
-                    self.processed_files.add(str_path)
+                if self.processed_count % 5 == 0 or self.processed_count == self.total_files:
+                    self._save_checkpoint("Running", self.processed_count)
 
-                    if self.processed_count % 5 == 0 or self.processed_count == self.total_files:
-                        self._save_checkpoint("Running", self.processed_count)
+                elapsed = time.time() - start_time
+                files_per_sec = self.processed_count / elapsed if elapsed > 0 else 0
+                rem_count = self.total_files - self.processed_count
+                eta_seconds = rem_count / files_per_sec if files_per_sec > 0 else 0
 
-                    elapsed = time.time() - start_time
-                    files_per_sec = self.processed_count / elapsed if elapsed > 0 else 0
-                    rem_count = self.total_files - self.processed_count
-                    eta_seconds = rem_count / files_per_sec if files_per_sec > 0 else 0
-
-                    self.progress_signal.emit({
-                        "scan_id": self.scan_id,
-                        "current_file": f_path.name,
-                        "current_index": self.processed_count,
-                        "total_files": self.total_files,
-                        "progress_percent": round((self.processed_count / self.total_files) * 100.0, 1),
-                        "processed": self.processed_count,
-                        "matched": self.matched_count,
-                        "no_match": self.no_match_count,
-                        "unknown_faces": self.unknown_faces_count,
-                        "skipped": self.skipped_count,
-                        "errors": self.error_count,
-                        "speed_fps": round(files_per_sec, 2),
-                        "eta_seconds": round(eta_seconds, 1),
-                    })
+                self.progress_signal.emit({
+                    "scan_id": self.scan_id,
+                    "current_file": f_path.name,
+                    "current_index": self.processed_count,
+                    "total_files": self.total_files,
+                    "progress_percent": round((self.processed_count / self.total_files) * 100.0, 1),
+                    "processed": self.processed_count,
+                    "matched": self.matched_count,
+                    "no_match": self.no_match_count,
+                    "unknown_faces": self.unknown_faces_count,
+                    "skipped": self.skipped_count,
+                    "errors": self.error_count,
+                    "speed_fps": round(files_per_sec, 2),
+                    "eta_seconds": round(eta_seconds, 1),
+                })
 
         # Solo scan completed
         elapsed_total = time.time() - start_time

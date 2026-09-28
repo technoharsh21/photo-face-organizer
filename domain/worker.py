@@ -140,15 +140,23 @@ class ScanWorker(QThread):
 
         self.matcher = FaceMatcher(face_engine=face_engine, threshold=threshold)
 
-        # Resolve CPU cores for worker pool (parallel image decoding + AI pipeline)
+        # Resolve worker count: GPU VRAM-aware if available, else CPU-derived.
         cpu_count = os.cpu_count() or 4
-        if performance_mode == "Eco":
-            self.max_workers = max(1, cpu_count // 4)
-        elif performance_mode == "Balanced":
-            self.max_workers = max(2, cpu_count)
+        if hasattr(face_engine, "get_system_gpu_vram_mb") and hasattr(face_engine, "suggest_gpu_workers"):
+            vram_mb = face_engine.get_system_gpu_vram_mb()
+            self.max_workers = face_engine.suggest_gpu_workers(vram_mb, cpu_count, performance_mode)
+            logger.info(
+                f"GPU worker pool: {self.max_workers} workers "
+                f"(VRAM={vram_mb}MB, cores={cpu_count}, mode={performance_mode})"
+            )
         else:
-            # Maximum Performance: scale workers with CPU cores — no artificial cap
-            self.max_workers = max(4, cpu_count * 2)
+            # Fallback: CPU-derived sizing
+            if performance_mode == "Eco":
+                self.max_workers = max(1, cpu_count // 4)
+            elif performance_mode == "Balanced":
+                self.max_workers = max(2, cpu_count)
+            else:
+                self.max_workers = max(4, cpu_count * 2)
 
     def pause(self):
         self._is_paused = True
@@ -229,11 +237,15 @@ class ScanWorker(QThread):
 
         from concurrent.futures import ThreadPoolExecutor, as_completed
 
-        batch_size = max(4, self.max_workers * 2)
         remaining_files = [f for f in self.files[self.start_index:] if str(f) not in self.processed_files]
 
+        # Submit ALL remaining files at once — no batch barrier.
+        # This keeps the CUDA stream saturated: as one photo finishes its GPU
+        # inference, the next thread is already waiting to hand it the next image.
         with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
-            for b_idx in range(0, len(remaining_files), batch_size):
+            future_to_file = {executor.submit(self._process_single_photo, f): f for f in remaining_files}
+
+            for future in as_completed(future_to_file):
                 if self._is_cancelled:
                     logger.info("Scan worker cancelled by user.")
                     self._save_checkpoint("Cancelled", self.processed_count)
@@ -244,53 +256,47 @@ class ScanWorker(QThread):
                     time.sleep(0.2)
                     self._save_checkpoint("Paused", self.processed_count)
 
-                batch = remaining_files[b_idx : b_idx + batch_size]
-                future_to_file = {executor.submit(self._process_single_photo, f): f for f in batch}
+                f_path = future_to_file[future]
+                str_path = str(f_path)
+                try:
+                    res = future.result()
+                except Exception as exc:
+                    res = {"status": "error", "file_path": str_path, "error": str(exc)}
 
-                for future in as_completed(future_to_file):
-                    if self._is_cancelled:
-                        break
-                    f_path = future_to_file[future]
-                    str_path = str(f_path)
-                    try:
-                        res = future.result()
-                    except Exception as exc:
-                        res = {"status": "error", "file_path": str_path, "error": str(exc)}
+                with self._stats_lock:
+                    self._apply_file_result(f_path, res)
+                    self.processed_count += 1
+                    self.processed_files.add(str_path)
+                    _snap_processed = self.processed_count
+                    _snap_matched = self.matched_count
+                    _snap_no_match = self.no_match_count
+                    _snap_unknown = self.unknown_faces_count
+                    _snap_skipped = self.skipped_count
+                    _snap_errors = self.error_count
 
-                    with self._stats_lock:
-                        self._apply_file_result(f_path, res)
-                        self.processed_count += 1
-                        self.processed_files.add(str_path)
-                        _snap_processed = self.processed_count
-                        _snap_matched = self.matched_count
-                        _snap_no_match = self.no_match_count
-                        _snap_unknown = self.unknown_faces_count
-                        _snap_skipped = self.skipped_count
-                        _snap_errors = self.error_count
+                if _snap_processed % 5 == 0 or _snap_processed == self.total_files:
+                    self._save_checkpoint("Running", _snap_processed)
 
-                    if _snap_processed % 5 == 0 or _snap_processed == self.total_files:
-                        self._save_checkpoint("Running", _snap_processed)
+                elapsed = time.time() - start_time
+                files_per_sec = _snap_processed / elapsed if elapsed > 0 else 0
+                rem_count = self.total_files - _snap_processed
+                eta_seconds = rem_count / files_per_sec if files_per_sec > 0 else 0
 
-                    elapsed = time.time() - start_time
-                    files_per_sec = _snap_processed / elapsed if elapsed > 0 else 0
-                    rem_count = self.total_files - _snap_processed
-                    eta_seconds = rem_count / files_per_sec if files_per_sec > 0 else 0
-
-                    self.progress_signal.emit({
-                        "scan_id": self.scan_id,
-                        "current_file": f_path.name,
-                        "current_index": _snap_processed,
-                        "total_files": self.total_files,
-                        "progress_percent": round((_snap_processed / self.total_files) * 100.0, 1),
-                        "processed": _snap_processed,
-                        "matched": _snap_matched,
-                        "no_match": _snap_no_match,
-                        "unknown_faces": _snap_unknown,
-                        "skipped": _snap_skipped,
-                        "errors": _snap_errors,
-                        "speed_fps": round(files_per_sec, 2),
-                        "eta_seconds": round(eta_seconds, 1),
-                    })
+                self.progress_signal.emit({
+                    "scan_id": self.scan_id,
+                    "current_file": f_path.name,
+                    "current_index": _snap_processed,
+                    "total_files": self.total_files,
+                    "progress_percent": round((_snap_processed / self.total_files) * 100.0, 1),
+                    "processed": _snap_processed,
+                    "matched": _snap_matched,
+                    "no_match": _snap_no_match,
+                    "unknown_faces": _snap_unknown,
+                    "skipped": _snap_skipped,
+                    "errors": _snap_errors,
+                    "speed_fps": round(files_per_sec, 2),
+                    "eta_seconds": round(eta_seconds, 1),
+                })
 
         # Scan completed successfully
         elapsed_total = time.time() - start_time

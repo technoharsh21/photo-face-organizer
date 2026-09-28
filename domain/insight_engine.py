@@ -68,6 +68,45 @@ class InsightFaceEngine:
         self._configure_providers()
 
 
+    def get_system_gpu_vram_mb(self) -> int | None:
+        """Detect GPU VRAM in MB via nvidia-smi. Returns None if unavailable."""
+        try:
+            if sys.platform == "win32":
+                out = subprocess.check_output(
+                    "nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits",
+                    shell=True, text=True, stderr=subprocess.DEVNULL
+                )
+            elif sys.platform in ("linux", "darwin"):
+                out = subprocess.check_output(
+                    "nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits",
+                    shell=True, text=True, stderr=subprocess.DEVNULL
+                )
+            else:
+                return None
+            val = int(out.strip().split("\n")[0].strip())
+            return val
+        except Exception:
+            return None
+
+    @staticmethod
+    def suggest_gpu_workers(vram_mb: int | None, cpu_cores: int, performance_mode: str) -> int:
+        """
+        Suggest optimal thread pool size for a GPU-accelerated scan.
+        VRAM budget: ~150 MB per concurrent worker (image buffers + face crops).
+        Rounds down to keep headroom. Falls back to CPU-core-based sizing.
+        """
+        if vram_mb is not None and performance_mode != "Eco":
+            # Conservative: use 75% of VRAM, 150 MB per worker
+            workers_by_vram = int((vram_mb * 0.75) / 150)
+            cpu_baseline = max(4, cpu_cores * 2) if performance_mode == "Maximum Performance" else max(2, cpu_cores)
+            return max(cpu_baseline, workers_by_vram)
+        # Fallback to CPU-derived sizing
+        if performance_mode == "Maximum Performance":
+            return max(4, cpu_cores * 2)
+        elif performance_mode == "Balanced":
+            return max(2, cpu_cores)
+        return max(1, cpu_cores // 4)
+
     def get_system_gpu_name(self) -> str:
         """Dynamically fetch the exact real GPU model name in real-time from OS kernel queries for any user machine."""
         try:
@@ -307,19 +346,34 @@ class InsightFaceEngine:
 
                 # --- Build ONNX Runtime SessionOptions for maximum multi-core throughput ---
                 sess_opts = onnxruntime.SessionOptions()
-                sess_opts.intra_op_num_threads = cpu_cores          # threads within one op (BLAS, GEMM, Conv)
-                sess_opts.inter_op_num_threads = 1                  # keep operators sequential to preserve accuracy
+                sess_opts.intra_op_num_threads = 0  # 0 = let ONNX auto-tune (CUDA: uses GPU threads, CPU: uses physical cores)
+                sess_opts.inter_op_num_threads = 0  # 0 = let ONNX auto-tune
                 sess_opts.execution_mode = onnxruntime.ExecutionMode.ORT_SEQUENTIAL
                 sess_opts.graph_optimization_level = onnxruntime.GraphOptimizationLevel.ORT_ENABLE_ALL
 
-                logger.info(f"Initializing InsightFace models (CPU cores: {cpu_cores}, ONNX intra_op_threads: {cpu_cores})...")
+                # --- CUDA-specific provider options for maximum throughput ---
+                cuda_opts = {
+                    "device_id": 0,
+                    "arena_extend_strategy": "kNextPowerOfTwo",
+                    "cudnn_conv_algo_search": "HEURISTIC",  # faster startup vs EXHAUSTIVE; same quality as DEFAULT
+                    "do_copy_in_default_stream": False,       # async host<->GPU copies overlap with compute
+                }
+                gpu_opts = [{"CUDAExecutionProvider": cuda_opts}, {"CPUExecutionProvider": {}}]
+
+                # For non-CUDA GPU EPs (ROCM, TensorRT, DirectML), use empty opts dict
+                all_opts = []
+                for p in self.providers:
+                    if p == "CUDAExecutionProvider":
+                        all_opts.append(cuda_opts)
+                    else:
+                        all_opts.append({})
+
+                logger.info(f"Initializing InsightFace models (sess_opts: intra=0, inter=0, CUDA opts: {cuda_opts})...")
 
                 # 1. Attempt primary configured provider list
                 try:
-                    self.app = FaceAnalysis(name="buffalo_sc", providers=self.providers)
+                    self.app = FaceAnalysis(name="buffalo_sc", providers=self.providers, sess_options=sess_opts, provider_options=all_opts)
                     self.app.prepare(ctx_id=0, det_size=(640, 640), det_thresh=0.35)
-                    # --- Patch ONNX session thread counts post-init (InsightFace creates the session internally) ---
-                    self._patch_session_threads(sess_opts.intra_op_num_threads)
                     self._is_initialized = True
                     logger.info(f"InsightFace engine initialized successfully on {self.active_device}.")
                     return
@@ -332,9 +386,9 @@ class InsightFaceEngine:
                     try:
                         logger.info("Attempting cascading fallback to DirectX 12 DirectML GPU...")
                         dml_providers = ["DmlExecutionProvider", "CPUExecutionProvider"]
-                        self.app = FaceAnalysis(name="buffalo_sc", providers=dml_providers)
+                        dml_opts = [{}, {"CPUExecutionProvider": {}}]
+                        self.app = FaceAnalysis(name="buffalo_sc", providers=dml_providers, sess_options=sess_opts, provider_options=dml_opts)
                         self.app.prepare(ctx_id=0, det_size=(640, 640), det_thresh=0.35)
-                        self._patch_session_threads(cpu_cores)
                         self.providers = dml_providers
                         gpu_name = self.get_system_gpu_name()
                         self.active_device = f"DirectX 12 GPU ({gpu_name})"
@@ -351,9 +405,8 @@ class InsightFaceEngine:
                 self.providers = ["CPUExecutionProvider"]
                 self.active_device = f"Multi-Core CPU ({cpu_name})"
                 self.gpu_available = False
-                self.app = FaceAnalysis(name="buffalo_sc", providers=self.providers)
+                self.app = FaceAnalysis(name="buffalo_sc", providers=self.providers, sess_options=sess_opts)
                 self.app.prepare(ctx_id=0, det_size=(640, 640), det_thresh=0.35)
-                self._patch_session_threads(cpu_cores)
                 self._is_initialized = True
                 logger.info(f"InsightFace engine initialized on Multi-Core CPU ({cpu_name}).")
 

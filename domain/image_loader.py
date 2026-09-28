@@ -171,7 +171,27 @@ def load_image(file_path: Path) -> tuple[Image.Image | None, str | None]:
             # Convert to RGB if needed (e.g. RGBA, CMYK, P, L)
             if transposed.mode != "RGB":
                 transposed = transposed.convert("RGB")
-            return transposed, None
+
+        # Fast draft decode: give Pillow a size hint so libjpeg/libturbo-jpeg
+        # decodes at scan_target instead of full resolution.
+        # Only helpful for JPG; no-op for PNG/WebP/HEIC which use other codecs.
+        try:
+            w, h = transposed.size
+            max_scan = 1024
+            if max(w, h) > max_scan:
+                # draft before .load() on the already-opened+transposed copy
+                # — reuse the open img handle; draft uses original file bytes
+                with Image.open(path) as draft_img:
+                    draft_img.draft("RGB", (max_scan, max_scan))
+                    # re-apply EXIF transpose on drafted result
+                    drafted = ImageOps.exif_transpose(draft_img)
+                    if drafted.mode != "RGB":
+                        drafted = drafted.convert("RGB")
+                    return drafted, None
+        except Exception:
+            pass  # Fall through to full-res decode
+
+        return transposed, None
 
     except Exception as e:
         logger.warning(f"Failed to load image {path}: {e}")
