@@ -322,7 +322,18 @@ class InsightFaceEngine:
         with InsightFaceEngine._init_lock:
             # Double-check inside lock: another thread may have finished init while we waited
             if self._is_initialized and self.app is not None:
+                logger.debug(
+                    f"[_ensure_initialized] SKIPPED (already initialized by another thread) | "
+                    f"active_device={self.active_device} | providers={self.providers}"
+                )
                 return
+
+            logger.info(
+                f"[_ensure_initialized] INIT START | "
+                f"device_preference={self.device_preference} | "
+                f"target_providers={self.providers} | "
+                f"active_device(before)={self.active_device}"
+            )
 
             # Guard stdout/stderr during InsightFace model loading (PyInstaller --windowed)
             _orig_stdout = sys.stdout
@@ -358,7 +369,6 @@ class InsightFaceEngine:
                     "cudnn_conv_algo_search": "HEURISTIC",  # faster startup vs EXHAUSTIVE; same quality as DEFAULT
                     "do_copy_in_default_stream": False,       # async host<->GPU copies overlap with compute
                 }
-                gpu_opts = [{"CUDAExecutionProvider": cuda_opts}, {"CPUExecutionProvider": {}}]
 
                 # For non-CUDA GPU EPs (ROCM, TensorRT, DirectML), use empty opts dict
                 all_opts = []
@@ -371,20 +381,38 @@ class InsightFaceEngine:
                 logger.info(f"Initializing InsightFace models (sess_opts: intra=0, inter=0, CUDA opts: {cuda_opts})...")
 
                 # 1. Attempt primary configured provider list
+                logger.info(
+                    f"[_ensure_initialized] STEP 1 — Trying primary providers: {self.providers} | "
+                    f"sess_opts=intra_op=0,inter_op=0 | provider_options={all_opts}"
+                )
                 try:
                     self.app = FaceAnalysis(name="buffalo_sc", providers=self.providers, sess_options=sess_opts, provider_options=all_opts)
                     self.app.prepare(ctx_id=0, det_size=(640, 640), det_thresh=0.35)
                     self._is_initialized = True
-                    logger.info(f"InsightFace engine initialized successfully on {self.active_device}.")
+                    logger.info(
+                        f"[_ensure_initialized] STEP 1 SUCCESS | "
+                        f"active_device={self.active_device} | "
+                        f"providers={self.providers} | gpu_available={self.gpu_available}"
+                    )
                     return
                 except Exception as primary_err:
-                    logger.warning(f"Primary GPU provider ({self.providers}) failed: {primary_err}", exc_info=True)
+                    logger.warning(
+                        f"[_ensure_initialized] STEP 1 FAILED | "
+                        f"providers={self.providers} | error={primary_err}"
+                    )
 
                 # 2. Cascading Fallback 1: Try DirectX 12 DirectML (NVIDIA / AMD / Intel GPU)
                 available = onnxruntime.get_available_providers()
+                logger.info(
+                    f"[_ensure_initialized] STEP 2 — Checking DML fallback | "
+                    f"available_providers={available} | current_providers={self.providers}"
+                )
                 if "DmlExecutionProvider" in available and "DmlExecutionProvider" not in self.providers:
+                    logger.info(
+                        f"[_ensure_initialized] STEP 2 — Trying DirectX 12 DirectML GPU | "
+                        f"dml_providers=['DmlExecutionProvider','CPUExecutionProvider']"
+                    )
                     try:
-                        logger.info("Attempting cascading fallback to DirectX 12 DirectML GPU...")
                         dml_providers = ["DmlExecutionProvider", "CPUExecutionProvider"]
                         dml_opts = [{}, {"CPUExecutionProvider": {}}]
                         self.app = FaceAnalysis(name="buffalo_sc", providers=dml_providers, sess_options=sess_opts, provider_options=dml_opts)
@@ -394,24 +422,49 @@ class InsightFaceEngine:
                         self.active_device = f"DirectX 12 GPU ({gpu_name})"
                         self.gpu_available = True
                         self._is_initialized = True
-                        logger.info(f"InsightFace successfully initialized on DirectX 12 DirectML GPU ({gpu_name})!")
+                        logger.info(
+                            f"[_ensure_initialized] STEP 2 SUCCESS | "
+                            f"active_device={self.active_device} | "
+                            f"providers={dml_providers} | gpu_available=True"
+                        )
                         return
                     except Exception as dml_err:
-                        logger.warning(f"DirectX 12 DirectML GPU fallback failed: {dml_err}", exc_info=True)
+                        logger.warning(
+                            f"[_ensure_initialized] STEP 2 FAILED | "
+                            f"error={dml_err} | "
+                            f"DirectX 12 DirectML GPU is unavailable or failed"
+                        )
 
                 # 3. Cascading Fallback 2: Multi-Core CPU
-                logger.info("Falling back to Multi-Core CPU execution...")
+                logger.info(
+                    f"[_ensure_initialized] STEP 3 — Falling back to Multi-Core CPU | "
+                    f"providers=['CPUExecutionProvider']"
+                )
                 cpu_name = self.get_system_cpu_name()
                 self.providers = ["CPUExecutionProvider"]
                 self.active_device = f"Multi-Core CPU ({cpu_name})"
                 self.gpu_available = False
-                self.app = FaceAnalysis(name="buffalo_sc", providers=self.providers, sess_options=sess_opts)
-                self.app.prepare(ctx_id=0, det_size=(640, 640), det_thresh=0.35)
-                self._is_initialized = True
-                logger.info(f"InsightFace engine initialized on Multi-Core CPU ({cpu_name}).")
+                try:
+                    self.app = FaceAnalysis(name="buffalo_sc", providers=self.providers, sess_options=sess_opts)
+                    self.app.prepare(ctx_id=0, det_size=(640, 640), det_thresh=0.35)
+                    self._is_initialized = True
+                    logger.info(
+                        f"[_ensure_initialized] STEP 3 SUCCESS | "
+                        f"active_device={self.active_device} | "
+                        f"providers={self.providers} | gpu_available=False"
+                    )
+                except Exception as cpu_init_err:
+                    logger.error(
+                        f"[_ensure_initialized] STEP 3 FAILED | ALL BACKENDS EXHAUSTED | "
+                        f"error={cpu_init_err}"
+                    )
 
             except Exception as cpu_err:
-                logger.error(f"Failed to initialize InsightFace engine: {cpu_err}", exc_info=True)
+                logger.error(
+                    f"[_ensure_initialized] OUTER EXCEPTION | "
+                    f"device_preference={self.device_preference} | "
+                    f"error={cpu_err}", exc_info=True
+                )
 
 
     def _patch_session_threads(self, num_threads: int):
@@ -484,6 +537,13 @@ class InsightFaceEngine:
         if img_bgr is None or img_bgr.size == 0:
             return img_bgr
 
+        h, w = img_bgr.shape[:2]
+        logger.debug(
+            f"[preprocess] START | img={w}x{h} | "
+            f"active_device={self.active_device} | "
+            f"gpu_available={self.gpu_available}"
+        )
+
         # Adaptive detection resolution — ONLY for non-DML providers.
         # DML pre-compiles at (640,640) and CANNOT be dynamically resized without crashing.
         _using_dml = "DmlExecutionProvider" in self.providers
@@ -505,6 +565,7 @@ class InsightFaceEngine:
                 self._current_det_size = (640, 640)
 
         # Low-light CLAHE contrast enhancement for dark nighttime photos
+        _clahe_applied = False
         try:
             gray_mean = float(np.mean(img_bgr))
             if gray_mean < 65.0:
@@ -515,10 +576,21 @@ class InsightFaceEngine:
                 cl = clahe.apply(l)
                 limg = cv2.merge((cl, a, b))
                 enhanced_bgr = cv2.cvtColor(limg, cv2.COLOR_LAB2BGR)
+                _clahe_applied = True
+                logger.debug(
+                    f"[preprocess] END   | img={w}x{h} | "
+                    f"CLAHE=YES (brightness={gray_mean:.0f}<65) | "
+                    f"active_device={self.active_device}"
+                )
                 return enhanced_bgr
         except Exception:
             pass
 
+        logger.debug(
+            f"[preprocess] END   | img={w}x{h} | "
+            f"CLAHE=NO  (brightness>65 or error) | "
+            f"active_device={self.active_device}"
+        )
         return img_bgr
 
     @staticmethod
@@ -555,10 +627,53 @@ class InsightFaceEngine:
                 app.models["detection"].det_thresh = float(det_thresh)
             except Exception:
                 pass
+
+        h, w = img_bgr.shape[:2]
+
         if "DmlExecutionProvider" in self.providers:
+            logger.debug(
+                f"[DML] Inference START | img={w}x{h} | "
+                f"provider=DmlExecutionProvider | _infer_lock=HELD | "
+                f"active_device={self.active_device}"
+            )
             with InsightFaceEngine._infer_lock:
-                return app.get(img_bgr)
-        return app.get(img_bgr)
+                try:
+                    t0 = time.perf_counter()
+                    result = app.get(img_bgr)
+                    elapsed_ms = (time.perf_counter() - t0) * 1000
+                    logger.debug(
+                        f"[DML] Inference END   | {len(result)} faces | "
+                        f"{elapsed_ms:.1f}ms | active_device={self.active_device}"
+                    )
+                    return result
+                except Exception as dml_err:
+                    elapsed_ms = (time.perf_counter() - t0) * 1000 if "t0" in dir() else 0
+                    logger.error(
+                        f"[DML] Inference FAILED | img={w}x{h} | "
+                        f"elapsed={elapsed_ms:.1f}ms | error={dml_err} | "
+                        f"active_device={self.active_device} | "
+                        f"providers={self.providers} | RAISING to trigger CPU fallback"
+                    )
+                    # Raise to caller so the detection method can trigger CPU fallback.
+                    raise RuntimeError(f"DML inference failed: {dml_err}") from dml_err
+
+        # CUDA / CPU / ROCm / CoreML path
+        try:
+            t0 = time.perf_counter()
+            result = app.get(img_bgr)
+            elapsed_ms = (time.perf_counter() - t0) * 1000
+            logger.debug(
+                f"[GPU/CPU] Inference OK | img={w}x{h} | {len(result)} faces | "
+                f"{elapsed_ms:.1f}ms | active_device={self.active_device}"
+            )
+            return result
+        except Exception as inf_err:
+            logger.error(
+                f"[GPU/CPU] Inference FAILED | img={w}x{h} | "
+                f"error={inf_err} | active_device={self.active_device} | "
+                f"providers={self.providers}"
+            )
+            raise
 
     @staticmethod
     def calculate_face_sharpness(image: Any) -> float:
@@ -637,19 +752,25 @@ class InsightFaceEngine:
                 locations.append((top, right, bottom, left))
             return locations
         except Exception as e:
-            err_str = str(e)
-            logger.warning(f"SCRFD detect_faces exception on {self.active_device}: {e}")
-
-            is_dml_reshape_error = (
-                "DmlExecutionProvider" in str(self.providers)
-                and ("80070057" in err_str or "Reshape" in err_str or "RUNTIME_EXCEPTION" in err_str)
+            h, w = img_bgr.shape[:2]
+            logger.warning(
+                f"[detect_faces] EXCEPTION | img={w}x{h} | "
+                f"active_device={self.active_device} | "
+                f"providers={self.providers} | error={e}"
             )
-            if is_dml_reshape_error:
+
+            # DML crash recovery fallback: ANY DML error means switch to CPU.
+            is_dml_error = "DmlExecutionProvider" in self.providers
+            if is_dml_error:
                 logger.warning(
-                    "DirectML Reshape error detected — falling back to CPU for this image "
-                    "and switching engine to CPU-only mode for remaining scan."
+                    f"[detect_faces] DML error on img={w}x{h} — attempting CPU fallback. "
+                    f"Error was: {e}"
                 )
                 try:
+                    cpu_name = self.get_system_cpu_name()
+                    logger.info(
+                        f"[detect_faces] Creating CPU engine ({cpu_name}) for fallback on img={w}x{h}..."
+                    )
                     cpu_app = FaceAnalysis(name="buffalo_sc", providers=["CPUExecutionProvider"])
                     cpu_app.prepare(ctx_id=0, det_size=(640, 640), det_thresh=0.35)
                     faces = self._run_inference(cpu_app, img_bgr, det_thresh=det_thresh)
@@ -658,15 +779,24 @@ class InsightFaceEngine:
                         bbox = face.bbox.astype(int)
                         left, top, right, bottom = int(bbox[0]), int(bbox[1]), int(bbox[2]), int(bbox[3])
                         locations.append((top, right, bottom, left))
+
+                    # PERMANENTLY switch engine to CPU for remaining scan
                     self.app = cpu_app
                     self.providers = ["CPUExecutionProvider"]
-                    cpu_name = self.get_system_cpu_name()
                     self.active_device = f"Multi-Core CPU ({cpu_name})"
                     self.gpu_available = False
-                    logger.info(f"Engine degraded to CPU-only: {self.active_device}")
+                    logger.warning(
+                        f"[detect_faces] >>> ENGINE DEGRADED TO CPU <<< | "
+                        f"was={self.active_device} | "
+                        f"all subsequent inferences will use CPU | "
+                        f"error that triggered: {e}"
+                    )
                     return locations
                 except Exception as cpu_err:
-                    logger.warning(f"CPU fallback for DML Reshape error also failed: {cpu_err}")
+                    logger.error(
+                        f"[detect_faces] CPU fallback FAILED | img={w}x{h} | "
+                        f"DML error was: {e} | CPU error: {cpu_err}"
+                    )
 
             return []
 
@@ -801,20 +931,27 @@ class InsightFaceEngine:
             return locations, embeddings, crops
 
         except Exception as e:
-            err_str = str(e)
-            logger.warning(f"detect_and_embed_faces exception on {self.active_device}: {e}")
-
-            # DML Reshape crash recovery fallback
-            is_dml_reshape_error = (
-                "DmlExecutionProvider" in str(self.providers)
-                and ("80070057" in err_str or "Reshape" in err_str or "RUNTIME_EXCEPTION" in err_str)
+            h, w = img_bgr.shape[:2]
+            logger.warning(
+                f"[detect_and_embed_faces] EXCEPTION | img={w}x{h} | "
+                f"active_device={self.active_device} | "
+                f"providers={self.providers} | error={e}"
             )
-            if is_dml_reshape_error:
+
+            # DML crash recovery fallback: ANY DML error means switch to CPU.
+            # D3D12 device-lost / reshape / OOM / timeout all manifest as different
+            # error strings. Catch them all when DML is the active provider.
+            is_dml_error = "DmlExecutionProvider" in self.providers
+            if is_dml_error:
                 logger.warning(
-                    "DirectML Reshape error in detect_and_embed_faces — falling back to CPU "
-                    "and degrading engine to CPU-only mode."
+                    f"[detect_and_embed_faces] DML error on img={w}x{h} — attempting CPU fallback. "
+                    f"Error was: {e}"
                 )
                 try:
+                    cpu_name = self.get_system_cpu_name()
+                    logger.info(
+                        f"[detect_and_embed_faces] Creating CPU engine ({cpu_name}) for fallback on img={w}x{h}..."
+                    )
                     cpu_app = FaceAnalysis(name="buffalo_sc", providers=["CPUExecutionProvider"])
                     cpu_app.prepare(ctx_id=0, det_size=(640, 640), det_thresh=0.35)
                     faces = self._run_inference(cpu_app, img_bgr, det_thresh=det_thresh)
@@ -839,15 +976,25 @@ class InsightFaceEngine:
                         else:
                             crops.append(pil_img.copy())
 
+                    # PERMANENTLY switch engine to CPU for remaining scan
                     self.app = cpu_app
                     self.providers = ["CPUExecutionProvider"]
-                    cpu_name = self.get_system_cpu_name()
                     self.active_device = f"Multi-Core CPU ({cpu_name})"
                     self.gpu_available = False
-                    logger.info(f"Engine degraded to CPU-only: {self.active_device}")
+                    logger.warning(
+                        f"[detect_and_embed_faces] >>> ENGINE DEGRADED TO CPU <<< | "
+                        f"was={self.active_device} | "
+                        f"all subsequent inferences will use CPU | "
+                        f"error that triggered: {e}"
+                    )
                     return locations, embeddings, crops
                 except Exception as cpu_err:
-                    logger.warning(f"CPU fallback in detect_and_embed_faces failed: {cpu_err}")
+                    logger.error(
+                        f"[detect_and_embed_faces] CPU fallback FAILED | img={w}x{h} | "
+                        f"DML error was: {e} | CPU error: {cpu_err}"
+                    )
+
+            return [], [], []
 
             return [], [], []
 
