@@ -35,6 +35,7 @@ from services.scan_service import ScanService
 from services.settings_service import SettingsService
 from services.solo_scan_service import SoloScanService
 from services.unknown_face_service import UnknownFaceService
+from ui.components.async_task import AsyncTask
 from ui.components.crash_recovery_dialog import CrashRecoveryDialog
 from ui.components.icons import get_icon
 from ui.components.onboarding_tour import OnboardingTour, TourStep
@@ -414,22 +415,30 @@ class MainWindow(QMainWindow):
                         widget._needs_refresh = False
 
     def _check_interrupted_scans(self):
-        """Startup check for interrupted scans."""
-        interrupted = self.scan_service.check_interrupted_scans()
-        if interrupted:
-            scan_data = interrupted[0]
-            dlg = CrashRecoveryDialog(self, scan_data)
-            dlg.exec()
+        """Startup check for interrupted scans — runs off UI thread."""
+        task = AsyncTask(self.scan_service.check_interrupted_scans)
 
-            action = dlg.chosen_action
-            scan_id = scan_data.get("scan_id")
+        def on_done(interrupted):
+            if interrupted:
+                scan_data = interrupted[0]
+                dlg = CrashRecoveryDialog(self, scan_data)
+                dlg.exec()
 
-            if action == "resume":
-                self._on_resume_history_scan(scan_id)
-            elif action == "restart":
-                self.navigate_to("New Scan")
-            else:  # discard
-                self.scan_service.discard_recovery(scan_id)
+                action = dlg.chosen_action
+                scan_id = scan_data.get("scan_id")
+
+                if action == "resume":
+                    self._on_resume_history_scan(scan_id)
+                elif action == "restart":
+                    self.navigate_to("New Scan")
+                else:  # discard
+                    self.scan_service.discard_recovery(scan_id)
+
+        task.result_ready.connect(on_done)
+        task.failed.connect(lambda err: print(f"[MainWindow] check_interrupted_scans failed: {err}"))
+        task.result_ready.connect(lambda _: setattr(self, "_recovery_check_task", None))
+        self._recovery_check_task = task
+        task.start()
 
     def _on_scan_started(self, worker, scan_meta):
         self._set_navigation_enabled(False)

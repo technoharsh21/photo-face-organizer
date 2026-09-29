@@ -39,6 +39,7 @@ from services.face_cache_service import FaceCacheService
 from services.find_photos_service import FindPhotosSaveWorker, FindPhotosService, FindPhotosWorker
 from services.profile_service import ProfileService
 from services.settings_service import SettingsService
+from ui.components.async_task import AsyncTask
 from ui.components.flow_layout import FlowLayout
 from ui.components.icons import get_icon
 from ui.components.image_cache import get_async_thumbnail_loader, load_cover_pixmap
@@ -1031,9 +1032,34 @@ class FindPhotosPage(QWidget):
             if child.widget():
                 child.widget().deleteLater()
 
-        summaries = self.profile_service.list_profiles_summary()
-        # Filter out group profiles
-        individual_profiles = [p for p in summaries if not p.get("is_group_profile")]
+        loading_lbl = QLabel("Loading people…")
+        loading_lbl.setStyleSheet("color: #94a3b8; font-size: 14px; padding: 30px;")
+        loading_lbl.setAlignment(Qt.AlignCenter)
+        self.people_flow_layout.addWidget(loading_lbl)
+        self.btn_step1_next.setEnabled(False)
+
+        task = AsyncTask(self.profile_service.list_profiles_summary)
+
+        def on_loaded(summaries):
+            loading_lbl.deleteLater()
+            # Filter out group profiles
+            individual_profiles = [p for p in summaries if not p.get("is_group_profile")]
+            self._populate_people_grid(individual_profiles)
+
+        def on_failed(err):
+            loading_lbl.setText(f"Failed to load profiles: {err}")
+            self.btn_step1_next.setEnabled(False)
+
+        task.result_ready.connect(on_loaded)
+        task.failed.connect(on_failed)
+        self._people_grid_task = task
+        task.start()
+
+    def _populate_people_grid(self, individual_profiles):
+        while self.people_flow_layout.count():
+            child = self.people_flow_layout.takeAt(0)
+            if child.widget():
+                child.widget().deleteLater()
 
         if not individual_profiles:
             empty_lbl = QLabel("No people profiles found. Go to '👥 People Profiles' to create a profile first.")

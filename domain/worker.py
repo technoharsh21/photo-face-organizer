@@ -11,7 +11,8 @@ import logging
 import os
 import threading
 import time
-from concurrent.futures import as_completed
+import queue
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any
 
@@ -239,6 +240,54 @@ class ScanWorker(QThread):
 
         remaining_files = [f for f in self.files[self.start_index:] if str(f) not in self.processed_files]
 
+        # Rebuild the unknown-face duplicate index from disk for this scan.
+        self.unknown_face_service.reset_dedup_cache()
+
+        # Background queue: offload store_unknown_face (DB I/O, profile scoring, disk writes)
+        # from the main scan loop so workers never stall waiting on sequential work.
+        # Bounded: a slow consumer applies backpressure instead of piling up PIL crops in RAM.
+        unknown_queue: queue.Queue[tuple[Any, ...]] = queue.Queue(maxsize=200)
+        unknown_count = 0
+        unknown_lock = threading.Lock()
+
+        def _register_unknown_face_worker():
+            """Dedicated background thread: processes unknown face registrations sequentially."""
+            nonlocal unknown_count
+            while True:
+                try:
+                    task = unknown_queue.get(timeout=1.0)
+                except queue.Empty:
+                    continue
+                if task is None:
+                    break
+                face_res, crop, str_path, f_path = task
+                try:
+                    stored = self.unknown_face_service.store_unknown_face(
+                        face_crop=crop,
+                        face_encoding=face_res.face_encoding,
+                        source_photo_path=str_path,
+                        bounding_box=list(face_res.bounding_box),
+                        scan_id=self.scan_id,
+                    )
+                    if stored is not None:
+                        with unknown_lock:
+                            unknown_count += 1
+                except Exception:
+                    logger.exception(f"Unknown face registration failed for {str_path}")
+                finally:
+                    unknown_queue.task_done()
+
+        bg_thread = threading.Thread(target=_register_unknown_face_worker, daemon=True)
+        bg_thread.start()
+
+        def _drain_unknown_queue():
+            """Flush pending registrations, stop the background thread, sync the count."""
+            unknown_queue.join()
+            unknown_queue.put(None)
+            bg_thread.join()
+            with unknown_lock:
+                self.unknown_faces_count = unknown_count
+
         # Submit ALL remaining files at once — no batch barrier.
         # This keeps the CUDA stream saturated: as one photo finishes its GPU
         # inference, the next thread is already waiting to hand it the next image.
@@ -248,6 +297,7 @@ class ScanWorker(QThread):
             for future in as_completed(future_to_file):
                 if self._is_cancelled:
                     logger.info("Scan worker cancelled by user.")
+                    _drain_unknown_queue()
                     self._save_checkpoint("Cancelled", self.processed_count)
                     self.finished_signal.emit(self._build_summary("Cancelled", time.time() - start_time))
                     return
@@ -264,13 +314,20 @@ class ScanWorker(QThread):
                     res = {"status": "error", "file_path": str_path, "error": str(exc)}
 
                 with self._stats_lock:
+                    # Queue unknown face registrations to background thread — DO NOT block main scan loop.
+                    # Workers keep running at full speed while unknown face DB work happens in parallel.
+                    status = res.get("status")
+                    if status == "success":
+                        for face_res, crop in zip(res.get("face_results", []), res.get("face_crops", [])):
+                            if not face_res.is_match or not face_res.matched_profile_name:
+                                unknown_queue.put((face_res, crop, str_path, f_path))
+
                     self._apply_file_result(f_path, res)
                     self.processed_count += 1
                     self.processed_files.add(str_path)
                     _snap_processed = self.processed_count
                     _snap_matched = self.matched_count
                     _snap_no_match = self.no_match_count
-                    _snap_unknown = self.unknown_faces_count
                     _snap_skipped = self.skipped_count
                     _snap_errors = self.error_count
 
@@ -281,6 +338,9 @@ class ScanWorker(QThread):
                 files_per_sec = _snap_processed / elapsed if elapsed > 0 else 0
                 rem_count = self.total_files - _snap_processed
                 eta_seconds = rem_count / files_per_sec if files_per_sec > 0 else 0
+
+                with unknown_lock:
+                    _snap_unknown = unknown_count
 
                 self.progress_signal.emit({
                     "scan_id": self.scan_id,
@@ -297,6 +357,9 @@ class ScanWorker(QThread):
                     "speed_fps": round(files_per_sec, 2),
                     "eta_seconds": round(eta_seconds, 1),
                 })
+
+        # Flush pending unknown face registrations before finishing.
+        _drain_unknown_queue()
 
         # Scan completed successfully
         elapsed_total = time.time() - start_time
@@ -318,21 +381,6 @@ class ScanWorker(QThread):
                 return
 
             matched_person_names = res.get("matched_names", set())
-            face_results = res.get("face_results", [])
-            face_crops = res.get("face_crops", [])
-
-            # Record unknown faces (skips faces belonging to any existing profile in the system)
-            for face_res, crop in zip(face_results, face_crops):
-                if not face_res.is_match or not face_res.matched_profile_name:
-                    stored = self.unknown_face_service.store_unknown_face(
-                        face_crop=crop,
-                        face_encoding=face_res.face_encoding,
-                        source_photo_path=str_path,
-                        bounding_box=list(face_res.bounding_box),
-                        scan_id=self.scan_id,
-                    )
-                    if stored is not None:
-                        self.unknown_faces_count += 1
 
             # Route copies
             if matched_person_names:

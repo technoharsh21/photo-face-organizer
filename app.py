@@ -203,6 +203,7 @@ def main():
     )
 
     main_window.show()
+    app.aboutToQuit.connect(settings_service.flush)
     sys.exit(app.exec())
 
 

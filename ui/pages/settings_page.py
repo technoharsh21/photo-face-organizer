@@ -27,6 +27,7 @@ from PySide6.QtWidgets import (
 from domain.face_engine import FaceEngine
 from services.face_cache_service import FaceCacheService
 from services.settings_service import SettingsService
+from ui.components.async_task import AsyncTask
 
 
 class SettingsCard(QFrame):
@@ -258,7 +259,7 @@ class SettingsPage(QWidget):
 
         cache_row.addLayout(cache_info, 1)
 
-        btn_clear_cache = self._create_action_button(
+        self.btn_clear_cache = self._create_action_button(
             "🧹 Clear Cache",
             bg_color="#dc2626",
             hover_color="#b91c1c",
@@ -266,8 +267,8 @@ class SettingsPage(QWidget):
             border_color="#b91c1c",
             padding_h=20,
         )
-        btn_clear_cache.clicked.connect(self._clear_cache)
-        cache_row.addWidget(btn_clear_cache)
+        self.btn_clear_cache.clicked.connect(self._clear_cache)
+        cache_row.addWidget(self.btn_clear_cache)
 
         c_layout.addLayout(cache_row)
         layout.addWidget(card_cache)
@@ -457,11 +458,29 @@ class SettingsPage(QWidget):
                 QMessageBox.Yes | QMessageBox.No,
             )
             if res == QMessageBox.Yes:
-                deleted_count, freed_mb = self.face_cache_service.clear_cache()
-                QMessageBox.information(
-                    self,
-                    "Cache Cleared",
-                    f"Successfully cleared {deleted_count} cached face entries ({freed_mb} MB freed).",
-                )
+                btn = getattr(self, "btn_clear_cache", None)
+                if btn:
+                    btn.setEnabled(False)
+                task = AsyncTask(self.face_cache_service.clear_cache)
+
+                def on_done(result):
+                    deleted_count, freed_mb = result
+                    if btn:
+                        btn.setEnabled(True)
+                    QMessageBox.information(
+                        self,
+                        "Cache Cleared",
+                        f"Successfully cleared {deleted_count} cached face entries ({freed_mb} MB freed).",
+                    )
+
+                def on_failed(err):
+                    if btn:
+                        btn.setEnabled(True)
+                    QMessageBox.critical(self, "Error", f"Failed to clear cache:\n{err}")
+
+                task.result_ready.connect(on_done)
+                task.failed.connect(on_failed)
+                self._clear_cache_task = task
+                task.start()
         else:
             QMessageBox.information(self, "Cache Cleared", "Face cache is currently empty.")

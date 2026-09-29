@@ -13,6 +13,8 @@ RULES:
 import json
 import logging
 import os
+import queue
+import threading
 import time
 from pathlib import Path
 from typing import Any
@@ -143,6 +145,54 @@ class SoloScanWorker(QThread):
 
         remaining_files = [f for f in self.files[self.start_index:] if str(f) not in self.processed_files]
 
+        # Rebuild the unknown-face duplicate index from disk for this scan.
+        self.unknown_face_service.reset_dedup_cache()
+
+        # Background queue: offload store_unknown_face (DB I/O, profile scoring, disk writes)
+        # from the main scan loop so workers never stall waiting on sequential work.
+        # Bounded: a slow consumer applies backpressure instead of piling up PIL crops in RAM.
+        unknown_queue: queue.Queue[tuple[Any, ...]] = queue.Queue(maxsize=200)
+        unknown_count = 0
+        unknown_lock = threading.Lock()
+
+        def _register_unknown_face_worker():
+            """Dedicated background thread: processes unknown face registrations sequentially."""
+            nonlocal unknown_count
+            while True:
+                try:
+                    task = unknown_queue.get(timeout=1.0)
+                except queue.Empty:
+                    continue
+                if task is None:
+                    break
+                crop, face_encoding, str_path, bbox = task
+                try:
+                    stored = self.unknown_face_service.store_unknown_face(
+                        face_crop=crop,
+                        face_encoding=face_encoding,
+                        source_photo_path=str_path,
+                        bounding_box=list(bbox),
+                        scan_id=self.scan_id,
+                    )
+                    if stored is not None:
+                        with unknown_lock:
+                            unknown_count += 1
+                except Exception:
+                    logger.exception(f"Unknown face registration failed for {str_path}")
+                finally:
+                    unknown_queue.task_done()
+
+        bg_thread = threading.Thread(target=_register_unknown_face_worker, daemon=True)
+        bg_thread.start()
+
+        def _drain_unknown_queue():
+            """Flush pending registrations, stop the background thread, sync the count."""
+            unknown_queue.join()
+            unknown_queue.put(None)
+            bg_thread.join()
+            with unknown_lock:
+                self.unknown_faces_count = unknown_count
+
         # Submit ALL remaining files at once — no batch barrier.
         # Keeps the CUDA stream saturated: next thread hands its image as soon as the GPU finishes.
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
@@ -151,6 +201,7 @@ class SoloScanWorker(QThread):
             for future in as_completed(future_to_file):
                 if self._is_cancelled:
                     logger.info("Solo scan worker cancelled by user.")
+                    _drain_unknown_queue()
                     self._save_checkpoint("Cancelled", self.processed_count)
                     self.finished_signal.emit(self._build_summary("Cancelled", time.time() - start_time))
                     return
@@ -162,7 +213,11 @@ class SoloScanWorker(QThread):
                 f_path = future_to_file[future]
                 str_path = str(f_path)
                 try:
-                    future.result()
+                    file_result = future.result()
+                    # Queue unknown face registration to background thread — DO NOT block worker.
+                    if isinstance(file_result, dict) and "unknown_face" in file_result:
+                        self.source_to_output_map[str_path] = ["Unmatched Single Face (No Output Copy)"]
+                        unknown_queue.put(file_result["unknown_face"])
                 except Exception as exc:
                     self.skipped_count += 1
                     self.error_count += 1
@@ -179,6 +234,9 @@ class SoloScanWorker(QThread):
                 rem_count = self.total_files - self.processed_count
                 eta_seconds = rem_count / files_per_sec if files_per_sec > 0 else 0
 
+                with unknown_lock:
+                    _snap_unknown = unknown_count
+
                 self.progress_signal.emit({
                     "scan_id": self.scan_id,
                     "current_file": f_path.name,
@@ -188,12 +246,15 @@ class SoloScanWorker(QThread):
                     "processed": self.processed_count,
                     "matched": self.matched_count,
                     "no_match": self.no_match_count,
-                    "unknown_faces": self.unknown_faces_count,
+                    "unknown_faces": _snap_unknown,
                     "skipped": self.skipped_count,
                     "errors": self.error_count,
                     "speed_fps": round(files_per_sec, 2),
                     "eta_seconds": round(eta_seconds, 1),
                 })
+
+        # Flush pending unknown face registrations before finishing.
+        _drain_unknown_queue()
 
         # Solo scan completed
         elapsed_total = time.time() - start_time
@@ -201,7 +262,8 @@ class SoloScanWorker(QThread):
         summary = self._build_summary("Completed", elapsed_total)
         self.finished_signal.emit(summary)
 
-    def _process_file(self, file_path: Path, index: int):
+    def _process_file(self, file_path: Path, index: int) -> dict[str, Any]:
+        """Returns {unknown_face: (crop, encoding, str_path, bbox)} if an unknown face needs registering."""
         pil_img, err = load_image(file_path)
         if pil_img is None:
             self.skipped_count += 1
@@ -306,16 +368,8 @@ class SoloScanWorker(QThread):
 
                 if len(face_locations) == 1 and face_results and face_crops:
                     res = face_results[0]
-                    stored = self.unknown_face_service.store_unknown_face(
-                        face_crop=face_crops[0],
-                        face_encoding=res.face_encoding,
-                        source_photo_path=str(file_path),
-                        bounding_box=list(res.bounding_box),
-                        scan_id=self.scan_id,
-                    )
-                    if stored is not None:
-                        self.unknown_faces_count += 1
-                    self.source_to_output_map[str(file_path)] = ["Unmatched Single Face (No Output Copy)"]
+                    return {"unknown_face": (face_crops[0], res.face_encoding, str(file_path), res.bounding_box)}
+
                 else:
                     self.source_to_output_map[str(file_path)] = [f"Filtered Out Group Photo ({len(face_locations)} faces)"]
 
