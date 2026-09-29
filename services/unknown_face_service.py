@@ -34,6 +34,11 @@ class UnknownFaceService:
         self.unknown_dir.mkdir(parents=True, exist_ok=True)
         self._profiles_cache: list[tuple[str, list[np.ndarray]]] = []
         self._profiles_cache_time: float = 0.0
+        # In-memory index {source_photo_path: [bounding_box, ...]} of stored unknown
+        # faces. Rebuilt lazily (one full disk scan) and appended to on each store, so
+        # the per-face duplicate check is O(faces-in-this-photo) instead of re-reading
+        # every unknown face directory on disk for every detected face.
+        self._dedup_index: dict[str, list[list[int]]] | None = None
 
     def _get_profile_embeddings_cache(self) -> list[tuple[str, list[np.ndarray]]]:
         """Fetch and cache pre-converted numpy arrays for all profiles in the system (refreshed every 5s)."""
@@ -70,17 +75,32 @@ class UnknownFaceService:
                         return True
         return False
 
+    def reset_dedup_cache(self):
+        """Drop the in-memory duplicate index so it is rebuilt from disk on next check."""
+        self._dedup_index = None
+
+    def _build_dedup_index(self) -> dict[str, list[list[int]]]:
+        """One-time full scan of stored unknown faces, indexed by source photo path."""
+        index: dict[str, list[list[int]]] = {}
+        for u in self.list_unknown_faces():
+            path = u.get("source_photo_path")
+            bbox = u.get("bounding_box", [])
+            if path and bbox and len(bbox) == 4:
+                index.setdefault(path, []).append(list(bbox))
+        return index
+
     def _is_duplicate_unknown_face(self, source_photo_path: str, bounding_box: list[int]) -> bool:
         """Check if an unknown face entry already exists for this exact photo and bounding box."""
         if not source_photo_path or not bounding_box or len(bounding_box) != 4:
             return False
 
-        for u in self.list_unknown_faces():
-            if u.get("source_photo_path") == source_photo_path:
-                existing_bbox = u.get("bounding_box", [])
-                if existing_bbox and len(existing_bbox) == 4:
-                    if all(abs(e - b) <= 5 for e, b in zip(existing_bbox, bounding_box)):
-                        return True
+        if self._dedup_index is None:
+            self._dedup_index = self._build_dedup_index()
+
+        for existing_bbox in self._dedup_index.get(source_photo_path, []):
+            if len(existing_bbox) == 4:
+                if all(abs(e - b) <= 5 for e, b in zip(existing_bbox, bounding_box)):
+                    return True
         return False
 
     @staticmethod
@@ -227,6 +247,10 @@ class UnknownFaceService:
             json.dump(metadata, f, indent=2)
 
         np.save(str(u_dir / "embedding.npy"), face_encoding)
+
+        # Keep the in-memory duplicate index in sync with what was just stored.
+        if self._dedup_index is not None:
+            self._dedup_index.setdefault(source_photo_path, []).append(list(bounding_box))
 
         return metadata
 

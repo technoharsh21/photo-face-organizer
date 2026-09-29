@@ -29,6 +29,7 @@ from PySide6.QtWidgets import (
 )
 
 from services.unknown_face_service import UnknownFaceService
+from ui.components.async_task import AsyncTask
 from ui.components.flow_layout import FlowLayout
 from ui.components.image_cache import get_async_thumbnail_loader, load_cover_pixmap
 
@@ -518,20 +519,38 @@ class UnknownFacesPage(QWidget):
         if not self.current_group_id:
             return
 
-        profiles = self.unknown_face_service.profile_service.list_profiles()
-        if not profiles:
-            QMessageBox.warning(self, "No Profiles Found", "No person profiles exist yet. Please create a profile first.")
-            return
+        group_id = self.current_group_id
+        task = AsyncTask(self.unknown_face_service.profile_service.list_profiles)
 
-        items = [f"{p['name']} ({len(p.get('references', []))} refs)" for p in profiles]
-        item, ok = QInputDialog.getItem(self, "Add to Existing Profile", "Select Target Person Profile:", items, 0, False)
-        if ok and item:
-            idx = items.index(item)
-            target_p = profiles[idx]
-            updated_p = self.unknown_face_service.add_group_to_existing_profile(self.current_group_id, target_p["id"])
-            if updated_p:
-                QMessageBox.information(self, "Success", f"Successfully added unknown face group to profile '{updated_p['name']}'.")
-                self.refresh()
+        def on_profiles(profiles):
+            if not profiles:
+                QMessageBox.warning(self, "No Profiles Found", "No person profiles exist yet. Please create a profile first.")
+                return
+
+            items = [f"{p['name']} ({len(p.get('references', []))} refs)" for p in profiles]
+            item, ok = QInputDialog.getItem(self, "Add to Existing Profile", "Select Target Person Profile:", items, 0, False)
+            if ok and item:
+                idx = items.index(item)
+                target_p = profiles[idx]
+                add_task = AsyncTask(self.unknown_face_service.add_group_to_existing_profile, group_id, target_p["id"])
+
+                def on_added(updated_p):
+                    if updated_p:
+                        QMessageBox.information(self, "Success", f"Successfully added unknown face group to profile '{updated_p['name']}'.")
+                        self.refresh()
+
+                def on_failed(err):
+                    QMessageBox.critical(self, "Error", f"Failed to add group to profile:\n{err}")
+
+                add_task.result_ready.connect(on_added)
+                add_task.failed.connect(on_failed)
+                self._add_group_task = add_task
+                add_task.start()
+
+        task.result_ready.connect(on_profiles)
+        task.failed.connect(lambda err: QMessageBox.critical(self, "Error", f"Failed to load profiles:\n{err}"))
+        self._list_profiles_task = task
+        task.start()
 
     def _delete_face(self, unknown_id: str, btn: QPushButton | None = None):
         if not unknown_id:

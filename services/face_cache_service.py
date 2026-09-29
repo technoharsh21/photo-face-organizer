@@ -10,6 +10,7 @@ import hashlib
 import json
 import logging
 import sqlite3
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -30,11 +31,21 @@ class FaceCacheService:
         self.cache_dir = config.cache_dir
         self.cache_dir.mkdir(parents=True, exist_ok=True)
         self.db_path = self.cache_dir / "face_cache.db"
+        self._local = threading.local()
 
         self._init_db()
 
+    def _get_conn(self) -> sqlite3.Connection:
+        """Persistent per-thread SQLite connection (avoids reconnect cost)."""
+        conn = getattr(self._local, "conn", None)
+        if conn is None:
+            conn = sqlite3.connect(self.db_path, timeout=30.0)
+            conn.execute("PRAGMA synchronous=NORMAL")
+            self._local.conn = conn
+        return conn
+
     def _init_db(self):
-        """Initialize SQLite database table for face caching."""
+        """Initialize SQLite database table for face caching (runs once at startup)."""
         try:
             with sqlite3.connect(self.db_path) as conn:
                 conn.execute("PRAGMA journal_mode=WAL")
@@ -85,34 +96,34 @@ class FaceCacheService:
         file_hash = self.compute_file_hash(file_path)
 
         try:
-            with sqlite3.connect(self.db_path) as conn:
-                cursor = conn.cursor()
-                cursor.execute(
-                    "SELECT locations_json, encodings_blob FROM face_cache WHERE file_hash = ?",
-                    (file_hash,),
-                )
-                row = cursor.fetchone()
-                if row:
-                    locs_json, encs_bytes = row
-                    locations = [tuple(loc) for loc in json.loads(locs_json)]
+            conn = self._get_conn()
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT locations_json, encodings_blob FROM face_cache WHERE file_hash = ?",
+                (file_hash,),
+            )
+            row = cursor.fetchone()
+            if row:
+                locs_json, encs_bytes = row
+                locations = [tuple(loc) for loc in json.loads(locs_json)]
 
-                    # Deserialize encodings numpy array from bytes
-                    encs_arr = np.frombuffer(encs_bytes, dtype=np.float64)
-                    if len(locations) == 0:
-                        return [], []
+                # Deserialize encodings numpy array from bytes
+                encs_arr = np.frombuffer(encs_bytes, dtype=np.float64)
+                if len(locations) == 0:
+                    return [], []
 
-                    num_faces = len(locations)
-                    dim = encs_arr.size // num_faces if num_faces > 0 else 0
+                num_faces = len(locations)
+                dim = encs_arr.size // num_faces if num_faces > 0 else 0
 
-                    # Strict 512-d InsightFace check: Ignore legacy 128-d cache entries
-                    if dim != 512 or (encs_arr.size % num_faces != 0):
-                        logger.info(f"Invalid/legacy cache embedding dimension {dim} for {file_path.name}. Auto-invalidating cache entry.")
-                        return None
+                # Strict 512-d InsightFace check: Ignore legacy 128-d cache entries
+                if dim != 512 or (encs_arr.size % num_faces != 0):
+                    logger.info(f"Invalid/legacy cache embedding dimension {dim} for {file_path.name}. Auto-invalidating cache entry.")
+                    return None
 
-                    encodings_list = [
-                        encs_arr[i * dim : (i + 1) * dim] for i in range(num_faces)
-                    ]
-                    return locations, encodings_list
+                encodings_list = [
+                    encs_arr[i * dim : (i + 1) * dim] for i in range(num_faces)
+                ]
+                return locations, encodings_list
         except Exception as e:
             logger.warning(f"Error fetching from face cache for {file_path.name}: {e}")
 
@@ -141,15 +152,15 @@ class FaceCacheService:
             encs_bytes = b""
 
         try:
-            with sqlite3.connect(self.db_path) as conn:
-                conn.execute(
-                    """
-                    INSERT OR REPLACE INTO face_cache (file_hash, locations_json, encodings_blob)
-                    VALUES (?, ?, ?)
-                    """,
-                    (file_hash, locs_json, encs_bytes),
-                )
-                conn.commit()
+            conn = self._get_conn()
+            conn.execute(
+                """
+                INSERT OR REPLACE INTO face_cache (file_hash, locations_json, encodings_blob)
+                VALUES (?, ?, ?)
+                """,
+                (file_hash, locs_json, encs_bytes),
+            )
+            conn.commit()
         except Exception as e:
             logger.warning(f"Error saving to face cache for {file_path.name}: {e}")
 
@@ -164,6 +175,7 @@ class FaceCacheService:
         if self.db_path.exists():
             freed_mb = round(self.db_path.stat().st_size / (1024 * 1024), 2)
             try:
+                # VACUUM needs exclusive lock — use fresh connection here
                 with sqlite3.connect(self.db_path) as conn:
                     cursor = conn.cursor()
                     cursor.execute("SELECT COUNT(*) FROM face_cache")

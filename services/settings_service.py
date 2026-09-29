@@ -10,6 +10,8 @@ import os
 import tempfile
 from typing import Any
 
+from PySide6.QtCore import QTimer
+
 from config import Config
 
 DEFAULT_SETTINGS: dict[str, Any] = {
@@ -28,10 +30,14 @@ class SettingsService:
         self.config = config
         self.settings_file = config.settings_file
         self.settings = DEFAULT_SETTINGS.copy()
+        self._save_timer = QTimer()
+        self._save_timer.setSingleShot(True)
+        self._save_timer.timeout.connect(self.save_settings)
         self.load_settings()
 
     def load_settings(self):
         """Load settings from JSON file if available."""
+        self._save_timer.stop()
         if self.settings_file.exists():
             try:
                 with open(self.settings_file, "r", encoding="utf-8") as f:
@@ -64,12 +70,23 @@ class SettingsService:
 
     def set(self, key: str, value: Any):
         self.settings[key] = value
-        self.save_settings()
+        self._schedule_save()
 
     def update(self, new_settings: dict[str, Any]):
         self.settings.update(new_settings)
-        self.save_settings()
+        self._schedule_save()
+
+    def _schedule_save(self):
+        """Debounced save — coalesces rapid sequential changes into one write."""
+        if not self._save_timer.isActive():
+            self._save_timer.start(300)  # ms
 
     def reset_to_defaults(self):
         self.settings = DEFAULT_SETTINGS.copy()
+        self._save_timer.stop()
+        self.save_settings()
+
+    def flush(self):
+        """Force immediate save (bypasses debounce). Call on app exit."""
+        self._save_timer.stop()
         self.save_settings()
