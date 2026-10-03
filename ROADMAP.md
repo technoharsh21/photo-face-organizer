@@ -36,14 +36,6 @@ This roadmap outlines proposed future functionalities, architectural designs, an
   * Tag standard IPTC Keywords (`IPTC:Keywords`) and XMP Subject (`XMP:Subject`, `XMP-mwg-rs:Regions`).
   * Add toggle: *"Tag Metadata in In-Place Mode (No Copy)"* in New Scan page.
 
-### 1.3 Zero-Disk-Space Hardlinks & Symlinks
-* **Goal**: Organize photos without duplicating file size on disk.
-* **Supported Modes**:
-  1. **Copy** (`shutil.copy2`): Full isolated copies (current safe default).
-  2. **Hardlink** (`os.link`): 0 bytes extra disk space, instant creation, works on same drive/filesystem.
-  3. **Symlink / Shortcut** (`os.symlink`): Pointer to original file.
-* **Safety Guards**: Verify destination filesystem matches source before hardlinking, with automatic fallback to copy if cross-device.
-
 ---
 
 ## Milestone 2: Automation & Background Sync
@@ -143,7 +135,6 @@ This roadmap outlines proposed future functionalities, architectural designs, an
 | Feature | Category | Priority | Target Status |
 | :--- | :--- | :---: | :---: |
 | **EXIF Date & Timeline Folders** | Smart Organization | 🔴 High | ✅ Completed |
-| **Hardlinks & Symlinks Mode** | Smart Organization | 🔴 High | Planned |
 | **Direct EXIF / IPTC Face Tagging** | Metadata | 🔴 High | Planned |
 | **Watch Folder Auto-Sync** | Automation | 🟡 Medium | Planned |
 | **Face Review & Verification Grid** | UI / UX | 🟡 Medium | Planned |

@@ -145,34 +145,13 @@ def send_to_trash(file_path: str | Path) -> bool:
             logger.debug(f"osascript trash failed: {e}")
 
     elif sys.platform == "win32":
-        # Windows 1: Try native in-process Win32 Shell API (Instant, No console window)
+        # Windows: Try native in-process Win32 Shell API (Instant, No console window)
         try:
             if _win32_recycle_bin(str_path) and not p.exists():
                 logger.info(f"Successfully sent to recycle bin via Win32 Shell API: {str_path}")
                 return True
         except Exception as e:
             logger.debug(f"Win32 Shell API failed for {str_path}: {e}")
-
-        # Windows 2: Try PowerShell FileSystem.DeleteFile with hidden window flags
-        try:
-            ps_cmd = (
-                f"Add-Type -AssemblyName Microsoft.VisualBasic; "
-                f"[Microsoft.VisualBasic.FileIO.FileSystem]::DeleteFile('{str_path}', "
-                f"'OnlyErrorDialogs', 'SendToRecycleBin')"
-            )
-            creation_flags = getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)
-            res = subprocess.run(
-                ["powershell", "-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-Command", ps_cmd],
-                capture_output=True,
-                text=True,
-                check=False,
-                creationflags=creation_flags,
-            )
-            if res.returncode == 0 and not p.exists():
-                logger.info(f"Successfully sent to recycle bin via PowerShell: {str_path}")
-                return True
-        except Exception as e:
-            logger.debug(f"PowerShell recycle bin failed: {e}")
 
     logger.error(f"All trash methods failed for file: {str_path}")
     return False
