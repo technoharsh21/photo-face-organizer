@@ -385,7 +385,7 @@ This project is open-source and licensed under the [MIT License](LICENSE).
 
 ## 👥 Authors & Acknowledgments
 
-- **Lead Developer**: [Harsh](https://github.com/technoharsh21) (<support@technoharsh.com>)
+- **Lead Developer**: [Harsh](https://github.com/technoharsh21) (<technoharsh21@gmail.com>)
 - Powered by [InsightFace](https://github.com/deepinsight/insightface), [PySide6 / Qt](https://www.qt.io/), [ONNX Runtime](https://onnxruntime.ai/), and [Pillow](https://python-pillow.org/).
 
 

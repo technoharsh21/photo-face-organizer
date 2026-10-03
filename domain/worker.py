@@ -98,6 +98,7 @@ class ScanWorker(QThread):
         threshold: float = 50.0,
         performance_mode: str = "Maximum Performance",
         operation_mode: str = "copy",
+        folder_organization: str = "flat",
         start_index: int = 0,
         initial_stats: dict[str, Any] | None = None,
         sources: list[str] | None = None,
@@ -117,6 +118,7 @@ class ScanWorker(QThread):
         self.threshold = threshold
         self.performance_mode = performance_mode
         self.operation_mode = operation_mode
+        self.folder_organization = folder_organization
         self.start_index = start_index
 
         self._is_paused = False
@@ -394,6 +396,7 @@ class ScanWorker(QThread):
                 source_path=file_path,
                 output_base_dir=self.output_dir,
                 matched_profile_names=matched_person_names,
+                folder_organization=self.folder_organization,
             )
 
             output_targets = []

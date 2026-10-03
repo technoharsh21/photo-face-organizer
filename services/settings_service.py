@@ -20,6 +20,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "matching_threshold": 50.0,            # Match score threshold (0 - 100)
     "recursive_scan": True,                # Default recursive directory scan
     "auto_group_unknowns": True,           # Group similar unknown faces automatically
+    "folder_organization": "flat",         # "flat", "year_date", "year_month", "year_only"
 }
 
 

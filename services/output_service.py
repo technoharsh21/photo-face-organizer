@@ -9,17 +9,123 @@ SAFETY MANDATE:
 - NEVER move, delete, rename, or modify original source files.
 """
 
-import shutil
+from datetime import datetime
+import logging
 from pathlib import Path
+import shutil
+
+from PIL import Image
 
 from domain.duplicate_detector import DuplicateDetector
 
+logger = logging.getLogger(__name__)
+
+FOLDER_ORGANIZATION_OPTIONS = {
+    "flat": "Flat (Output/{Person}/photo.jpg)",
+    "year_date": "Year / Date (Output/{Person}/YYYY/YYYY-MM-DD/photo.jpg)",
+    "year_month": "Year / Month (Output/{Person}/YYYY/YYYY-MM (Month)/photo.jpg)",
+    "year_only": "Year Only (Output/{Person}/YYYY/photo.jpg)",
+}
+
 
 class OutputService:
-    """Manages output photo placement, filename collision resolution, and duplicate checks."""
+    """Manages output photo placement, date-based folder hierarchies, filename collision resolution, and duplicate checks."""
 
-    def __init__(self, duplicate_detector: DuplicateDetector):
+    def __init__(self, duplicate_detector: DuplicateDetector, folder_organization: str = "flat"):
         self.duplicate_detector = duplicate_detector
+        self.folder_organization = folder_organization
+
+    def set_folder_organization(self, folder_organization: str):
+        """Update default folder organization mode."""
+        self.folder_organization = folder_organization
+
+    @staticmethod
+    def extract_photo_date(source_path: Path) -> datetime:
+        """
+        Extract the best capture date for a photo:
+        1. EXIF DateTimeOriginal (tag 36867 / 0x9003)
+        2. EXIF DateTimeDigitized (tag 36868 / 0x9004)
+        3. EXIF DateTime (tag 306 / 0x0132)
+        4. File modification time (st_mtime) fallback
+        """
+        try:
+            with Image.open(source_path) as img:
+                exif = img.getexif()
+                if exif:
+                    date_str = None
+                    for tag_id in (36867, 36868, 306):
+                        if tag_id in exif:
+                            date_str = exif[tag_id]
+                            break
+
+                    if not date_str and hasattr(exif, "get_ifd"):
+                        try:
+                            exif_ifd = exif.get_ifd(0x8769)
+                            for tag_id in (36867, 36868, 306):
+                                if tag_id in exif_ifd:
+                                    date_str = exif_ifd[tag_id]
+                                    break
+                        except Exception:
+                            pass
+
+                    if date_str and isinstance(date_str, str):
+                        date_str = date_str.strip()
+                        for fmt in (
+                            "%Y:%m:%d %H:%M:%S",
+                            "%Y-%m-%d %H:%M:%S",
+                            "%Y:%m:%d",
+                            "%Y-%m-%d",
+                            "%Y%m%d_%H%M%S",
+                        ):
+                            try:
+                                return datetime.strptime(date_str[:19], fmt)
+                            except (ValueError, TypeError):
+                                continue
+        except Exception:
+            pass
+
+        try:
+            mtime = source_path.stat().st_mtime
+            if mtime > 0:
+                return datetime.fromtimestamp(mtime)
+        except Exception:
+            pass
+
+        return datetime.now()
+
+    def build_date_subfolder(self, source_path: Path, folder_organization: str | None = None) -> Path:
+        """
+        Build relative subfolder Path based on the chosen organization mode.
+        - flat: Path("")
+        - year_date: Path("YYYY/YYYY-MM-DD")
+        - year_month: Path("YYYY/YYYY-MM (Month_Name)")
+        - year_only: Path("YYYY")
+        """
+        mode = folder_organization or self.folder_organization or "flat"
+
+        if mode in ("year_date", "date"):
+            dt = self.extract_photo_date(source_path)
+            return Path(f"{dt.year:04d}") / f"{dt.year:04d}-{dt.month:02d}-{dt.day:02d}"
+        elif mode in ("year_month", "month"):
+            dt = self.extract_photo_date(source_path)
+            month_name = dt.strftime("%B")
+            return Path(f"{dt.year:04d}") / f"{dt.year:04d}-{dt.month:02d} ({month_name})"
+        elif mode in ("year_only", "year"):
+            dt = self.extract_photo_date(source_path)
+            return Path(f"{dt.year:04d}")
+
+        return Path("")
+
+    def get_destination_folder(
+        self, base_folder: Path, source_path: Path, folder_organization: str | None = None
+    ) -> Path:
+        """
+        Resolve full destination folder including date subfolders if configured.
+        """
+        sub = self.build_date_subfolder(source_path, folder_organization)
+        if str(sub) and str(sub) != ".":
+            return base_folder / sub
+        return base_folder
 
     @staticmethod
     def get_non_conflicting_path(target_folder: Path, original_filename: str) -> Path:
@@ -43,13 +149,13 @@ class OutputService:
             counter += 1
 
     def copy_photo_to_destination(
-        self, source_path: Path, destination_folder: Path, folder_key: str
+        self, source_path: Path, destination_folder: Path, folder_key: str = ""
     ) -> tuple[bool, Path | None, str]:
         """
         Safely copy source_path to destination_folder.
 
         :param source_path: Original file path.
-        :param destination_folder: Target directory path (e.g. Output/Harsh).
+        :param destination_folder: Target directory path (e.g. Output/Harsh/2026/2026-08-15).
         :param folder_key: Key name identifying destination (e.g. 'Harsh' or 'No Match').
         :return: (copied_boolean, target_path_if_copied, status_message)
         """
@@ -89,13 +195,14 @@ class OutputService:
         source_path: Path,
         output_base_dir: Path,
         matched_profile_names: set[str],
+        folder_organization: str | None = None,
     ) -> list[tuple[str, Path | None, str]]:
         """
-        Routes photo copy based on matched profiles.
+        Routes photo copy based on matched profiles and folder organization structure.
 
         Rules:
-        - If matched_profile_names is non-empty: copy photo to each matched person's folder once.
-        - If matched_profile_names is empty: copy photo to 'No Match' folder.
+        - If matched_profile_names is non-empty: copy photo to each matched person's folder (or date subfolder) once.
+        - If matched_profile_names is empty: copy photo to 'No Match' folder (or date subfolder).
         """
         results = []
 
@@ -103,16 +210,18 @@ class OutputService:
             # Copy into each unique matched person's folder
             for person_name in sorted(matched_profile_names):
                 clean_name = self.sanitize_folder_name(person_name)
-                person_folder = output_base_dir / clean_name
+                person_base = output_base_dir / clean_name
+                target_folder = self.get_destination_folder(person_base, source_path, folder_organization)
                 success, target_path, status = self.copy_photo_to_destination(
-                    source_path, person_folder, folder_key=clean_name
+                    source_path, target_folder, folder_key=clean_name
                 )
                 results.append((clean_name, target_path, status))
         else:
             # No profiles matched -> Copy to No Match folder
-            no_match_folder = output_base_dir / "No Match"
+            no_match_base = output_base_dir / "No Match"
+            target_folder = self.get_destination_folder(no_match_base, source_path, folder_organization)
             success, target_path, status = self.copy_photo_to_destination(
-                source_path, no_match_folder, folder_key="No Match"
+                source_path, target_folder, folder_key="No Match"
             )
             results.append(("No Match", target_path, status))
 

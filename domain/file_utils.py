@@ -15,16 +15,64 @@ from pathlib import Path
 logger = logging.getLogger(__name__)
 
 
+def _win32_recycle_bin(path_str: str) -> bool:
+    """
+    Direct in-process Windows Shell API call to move file to Recycle Bin.
+    Uses SHFileOperationW from shell32.dll with FOF_ALLOWUNDO (no console window, instant <1ms).
+    """
+    try:
+        import ctypes
+        from ctypes import wintypes
+
+        class SHFILEOPSTRUCTW(ctypes.Structure):
+            _fields_ = [
+                ("hwnd", ctypes.c_void_p),
+                ("wFunc", wintypes.UINT),
+                ("pFrom", wintypes.LPCWSTR),
+                ("pTo", wintypes.LPCWSTR),
+                ("fFlags", ctypes.c_uint16),
+                ("fAnyOperationsAborted", wintypes.BOOL),
+                ("hNameMappings", ctypes.c_void_p),
+                ("lpszProgressTitle", wintypes.LPCWSTR),
+            ]
+
+        FO_DELETE = 0x0003
+        FOF_ALLOWUNDO = 0x0040        # Move to Recycle Bin instead of permanent delete
+        FOF_NOCONFIRMATION = 0x0010   # Don't ask user confirmation
+        FOF_SILENT = 0x0004           # Don't show Windows progress dialog
+        FOF_NOERRORUI = 0x0400        # Don't show error dialog
+
+        flags = FOF_ALLOWUNDO | FOF_NOCONFIRMATION | FOF_SILENT | FOF_NOERRORUI
+        p_from = path_str + "\0\0"
+
+        fileop = SHFILEOPSTRUCTW(
+            hwnd=None,
+            wFunc=FO_DELETE,
+            pFrom=p_from,
+            pTo=None,
+            fFlags=flags,
+            fAnyOperationsAborted=False,
+            hNameMappings=None,
+            lpszProgressTitle=None,
+        )
+
+        res = ctypes.windll.shell32.SHFileOperationW(ctypes.byref(fileop))
+        return res == 0 and not fileop.fAnyOperationsAborted
+    except Exception as e:
+        logger.debug(f"Win32 SHFileOperationW failed: {e}")
+        return False
+
+
 def send_to_trash(file_path: str | Path) -> bool:
     """
     Sends a file to the OS Recycle Bin / Trash in a cross-platform manner.
 
     Tries the following methods in order:
     1. send2trash (cross-platform Python library)
-    2. Platform-native commands:
+    2. Platform-native commands / APIs:
        - Linux: gio trash, trash-put
        - macOS: AppleScript (Finder delete)
-       - Windows: PowerShell Microsoft.VisualBasic.FileIO.FileSystem.DeleteFile
+       - Windows: Win32 SHFileOperationW (in-process, 0ms, no window), PowerShell fallback (hidden window)
     
     Returns:
         bool: True if the file was successfully moved to Trash / Recycle Bin, False otherwise.
@@ -97,18 +145,28 @@ def send_to_trash(file_path: str | Path) -> bool:
             logger.debug(f"osascript trash failed: {e}")
 
     elif sys.platform == "win32":
-        # Windows: try PowerShell FileSystem.DeleteFile with SendToRecycleBin
+        # Windows 1: Try native in-process Win32 Shell API (Instant, No console window)
+        try:
+            if _win32_recycle_bin(str_path) and not p.exists():
+                logger.info(f"Successfully sent to recycle bin via Win32 Shell API: {str_path}")
+                return True
+        except Exception as e:
+            logger.debug(f"Win32 Shell API failed for {str_path}: {e}")
+
+        # Windows 2: Try PowerShell FileSystem.DeleteFile with hidden window flags
         try:
             ps_cmd = (
                 f"Add-Type -AssemblyName Microsoft.VisualBasic; "
                 f"[Microsoft.VisualBasic.FileIO.FileSystem]::DeleteFile('{str_path}', "
                 f"'OnlyErrorDialogs', 'SendToRecycleBin')"
             )
+            creation_flags = getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)
             res = subprocess.run(
-                ["powershell", "-NoProfile", "-NonInteractive", "-Command", ps_cmd],
+                ["powershell", "-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-Command", ps_cmd],
                 capture_output=True,
                 text=True,
                 check=False,
+                creationflags=creation_flags,
             )
             if res.returncode == 0 and not p.exists():
                 logger.info(f"Successfully sent to recycle bin via PowerShell: {str_path}")

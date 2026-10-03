@@ -318,25 +318,52 @@ class ResultsPage(QWidget):
         known_person_names = set(results_by_person.keys())
         known_person_names.add("No Match")
 
+        def _count_and_add_nodes(parent_tree_item: QTreeWidgetItem, dir_path: Path) -> int:
+            """Recursively adds subfolders and photos to the tree, returning total photos under this folder."""
+            total_photos = 0
+            try:
+                entries = sorted(dir_path.iterdir(), key=lambda p: (p.is_file(), p.name.lower()))
+            except Exception:
+                return 0
+
+            subdirs = [d for d in entries if d.is_dir() and not d.name.startswith(".")]
+            files = [f for f in entries if f.is_file() and not f.name.startswith(".")]
+
+            for sd in subdirs:
+                sub_item = QTreeWidgetItem([f"📁 {sd.name}", ""])
+                sub_item.setData(0, Qt.UserRole, str(sd))
+                sub_photos = _count_and_add_nodes(sub_item, sd)
+                sub_item.setText(1, f"{sub_photos} photo{'s' if sub_photos != 1 else ''}")
+                if sub_photos > 0:
+                    parent_tree_item.addChild(sub_item)
+                    total_photos += sub_photos
+
+            for f in files:
+                child_item = QTreeWidgetItem([f.name, str(f)])
+                child_item.setData(0, Qt.UserRole, str(f))
+                parent_tree_item.addChild(child_item)
+                total_photos += 1
+
+            return total_photos
+
         found_any = False
         for person_dir in sorted(out_path.iterdir()):
             if person_dir.is_dir():
-                files = [f for f in person_dir.iterdir() if f.is_file()]
-                if files or person_dir.name in known_person_names:
+                # Count total files inside person_dir recursively
+                all_photos = [f for f in person_dir.rglob("*") if f.is_file() and not f.name.startswith(".")]
+                photo_count = len(all_photos)
+                if photo_count > 0 or person_dir.name in known_person_names:
                     found_any = True
-                    photo_count = len(files)
-                    parent_item = QTreeWidgetItem([
+                    person_item = QTreeWidgetItem([
                         f"📁 {person_dir.name}",
                         f"{photo_count} photo{'s' if photo_count != 1 else ''}",
                     ])
-                    parent_item.setData(0, Qt.UserRole, str(person_dir))
+                    person_item.setData(0, Qt.UserRole, str(person_dir))
 
-                    for f in sorted(files):
-                        child_item = QTreeWidgetItem([f.name, str(f)])
-                        child_item.setData(0, Qt.UserRole, str(f))
-                        parent_item.addChild(child_item)
+                    # Recursively populate subfolders and direct files
+                    _count_and_add_nodes(person_item, person_dir)
 
-                    self.tree.addTopLevelItem(parent_item)
+                    self.tree.addTopLevelItem(person_item)
 
         if not found_any:
             placeholder = QTreeWidgetItem(["No matched photos found", "0 photos"])
@@ -349,15 +376,19 @@ class ResultsPage(QWidget):
         q = query.strip().lower()
         for i in range(self.tree.topLevelItemCount()):
             parent = self.tree.topLevelItem(i)
-            parent_match = q in parent.text(0).lower()
-            visible_children = 0
-            for j in range(parent.childCount()):
-                child = parent.child(j)
-                child_match = q in child.text(0).lower() or q in child.text(1).lower()
-                child.setHidden(not (parent_match or child_match))
-                if not child.isHidden():
-                    visible_children += 1
-            parent.setHidden(not (parent_match or visible_children > 0))
+            self._filter_tree_item(parent, q)
+
+    def _filter_tree_item(self, item: QTreeWidgetItem, q: str) -> bool:
+        """Recursively filter tree items matching search query."""
+        item_match = q in item.text(0).lower() or q in item.text(1).lower()
+        visible_children = 0
+        for j in range(item.childCount()):
+            child = item.child(j)
+            if self._filter_tree_item(child, q):
+                visible_children += 1
+        is_visible = item_match or (visible_children > 0)
+        item.setHidden(not is_visible)
+        return is_visible
 
     def _open_skipped_details_dialog(self):
         """Show dialog with details of skipped/unreadable files."""
@@ -374,36 +405,44 @@ class ResultsPage(QWidget):
 
     def _on_tree_selection_changed(self):
         item = self.tree.currentItem()
-        if not item or not item.parent():
-            if item:
-                folder_name = item.text(0)
-                photo_cnt = item.text(1)
-                self.img_cover.set_image_path(None)
-                self.lbl_photo_info.setText(f"<b>Folder Selected:</b> {folder_name} ({photo_cnt})<br><b>Path:</b> {item.data(0, Qt.UserRole)}")
-            else:
-                self._clear_preview()
-            return
-
-        file_path_str = item.data(0, Qt.UserRole)
-        if not file_path_str:
+        if not item:
             self._clear_preview()
             return
 
-        file_path = Path(file_path_str)
-        if not file_path.exists():
-            self.img_cover.set_image_path(None)
-            self.lbl_photo_info.setText(f"File not found: {file_path.name}")
+        target_path_str = item.data(0, Qt.UserRole)
+        if not target_path_str:
+            self._clear_preview()
             return
 
-        self.img_cover.set_image_path(str(file_path))
+        target_path = Path(target_path_str)
+        if not target_path.exists():
+            self._clear_preview()
+            return
 
-        person_folder = item.parent().text(0)
-        file_size_kb = round(file_path.stat().st_size / 1024, 1)
+        if target_path.is_dir():
+            folder_name = item.text(0)
+            photo_cnt = item.text(1)
+            self.img_cover.set_image_path(None)
+            self.lbl_photo_info.setText(
+                f"<b>Folder Selected:</b> {folder_name} ({photo_cnt})<br><b>Path:</b> {target_path}"
+            )
+            return
+
+        # It is a photo file
+        self.img_cover.set_image_path(str(target_path))
+
+        # Walk up to find the person root name
+        curr = item
+        while curr.parent() is not None:
+            curr = curr.parent()
+        person_name = curr.text(0).replace("📁 ", "")
+
+        file_size_kb = round(target_path.stat().st_size / 1024, 1)
         self.lbl_photo_info.setText(
-            f"<b>Photo:</b> {file_path.name}<br>"
-            f"<b>Match Group:</b> {person_folder}<br>"
+            f"<b>Photo:</b> {target_path.name}<br>"
+            f"<b>Match Group:</b> {person_name}<br>"
             f"<b>Size:</b> {file_size_kb} KB<br>"
-            f"<b>Path:</b> {file_path}"
+            f"<b>Path:</b> {target_path}"
         )
 
     def _open_output_folder(self):
