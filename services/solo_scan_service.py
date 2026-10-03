@@ -14,6 +14,7 @@ from typing import Any
 
 from config import Config
 from domain.face_engine import FaceEngine
+from domain.file_utils import send_to_trash
 from domain.scanner import discover_photos
 from domain.solo_worker import SoloScanWorker
 from services.face_cache_service import FaceCacheService
@@ -185,7 +186,7 @@ class SoloScanService:
 
     def delete_verified_sources(self, source_paths: list[str]) -> tuple[int, int]:
         """
-        Safely deletes verified original source files from disk after user confirmation.
+        Safely deletes verified original source files from disk after user confirmation (sends to Trash / Recycle Bin).
 
         :return: (successfully_deleted_count, error_count)
         """
@@ -196,7 +197,8 @@ class SoloScanService:
             src = Path(src_str)
             if src.exists():
                 try:
-                    src.unlink()
+                    if not send_to_trash(src):
+                        src.unlink()
                     deleted_count += 1
                 except Exception as e:
                     logger.error(f"Failed to delete source file {src_str}: {e}")

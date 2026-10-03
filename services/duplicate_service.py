@@ -3,21 +3,35 @@ Duplicate Service Module.
 
 Scans directories for duplicate images using fast size pre-filtering and SHA-256 content hashing.
 Provides smart auto-selection rules (Keep Oldest, Keep Newest, Keep Shortest Path)
-and safe cleanup options (OS Trash, Quarantine Folder, or Permanent Delete).
+and safe cleanup options (OS Trash / Recycle Bin or Permanent Delete).
 """
 
 import datetime
 import hashlib
 import logging
 import os
+import re
 import shutil
 from pathlib import Path
 from typing import Any
 
 from config import Config
+from domain.file_utils import send_to_trash
 from domain.scanner import discover_photos
 
 logger = logging.getLogger(__name__)
+
+# Regex pattern detecting copy indicators like " - Copy", " (1)", "_copy", "_1", " (2)", etc.
+COPY_NAME_PATTERN = re.compile(
+    r'(?:[-_\s]+copy(?:\s*\(\d+\))?|\s*\(\d+\)|[-_]\d+|[-_]duplicate)',
+    re.IGNORECASE
+)
+
+
+def is_copy_filename(filename: str) -> bool:
+    """Check whether a filename looks like an OS-generated copy or duplicate name."""
+    stem = Path(filename).stem
+    return bool(COPY_NAME_PATTERN.search(stem))
 
 
 def format_bytes(size_bytes: int) -> str:
@@ -46,8 +60,6 @@ class DuplicateService:
 
     def __init__(self, config: Config):
         self.config = config
-        self.quarantine_dir = config.app_data_dir / "quarantine"
-        self.quarantine_dir.mkdir(parents=True, exist_ok=True)
 
     @staticmethod
     def compute_file_hash(file_path: Path, block_size: int = 65536) -> str:
@@ -121,18 +133,19 @@ class DuplicateService:
 
         for f_hash, files in hash_groups.items():
             if len(files) >= 2:
-                # Sort files by mtime (oldest first by default)
                 file_items = []
                 for p in files:
                     try:
                         st = p.stat()
                         mtime_iso = datetime.datetime.fromtimestamp(st.st_mtime).strftime("%Y-%m-%d %H:%M:%S")
+                        ctime = getattr(st, "st_birthtime", None) or getattr(st, "st_ctime", st.st_mtime)
                         file_items.append({
                             "path": str(p),
                             "filename": p.name,
                             "size": st.st_size,
                             "formatted_size": format_bytes(st.st_size),
                             "mtime": st.st_mtime,
+                            "ctime": ctime,
                             "formatted_mtime": mtime_iso,
                             "is_recommended_keep": False,
                             "is_selected_for_removal": False,
@@ -141,13 +154,6 @@ class DuplicateService:
                         pass
 
                 if len(file_items) >= 2:
-                    # Sort by modification time (oldest first)
-                    file_items.sort(key=lambda x: x["mtime"])
-                    # Mark the oldest file as default recommended keep
-                    file_items[0]["is_recommended_keep"] = True
-                    for fi in file_items[1:]:
-                        fi["is_selected_for_removal"] = True
-
                     sample_name = file_items[0]["filename"]
                     single_size = file_items[0]["size"]
                     potential_savings = single_size * (len(file_items) - 1)
@@ -164,6 +170,7 @@ class DuplicateService:
                     })
                     set_idx += 1
 
+        self.apply_auto_select_rule(duplicate_sets, rule="keep_oldest")
         return duplicate_sets
 
     def apply_auto_select_rule(
@@ -171,9 +178,9 @@ class DuplicateService:
     ):
         """
         Applies auto-selection rule across all duplicate sets:
-        - 'keep_oldest': Keeps file with oldest creation/modification date.
-        - 'keep_newest': Keeps file with newest creation/modification date.
-        - 'keep_shortest_path': Keeps file with shortest file path.
+        - 'keep_oldest': Keeps original photo with earliest timestamp, prioritizing non-copy filenames.
+        - 'keep_newest': Keeps most recently created or modified duplicate copy.
+        - 'keep_shortest_path': Keeps file with shortest and cleanest file path.
         """
         for dset in duplicate_sets:
             files = dset.get("files", [])
@@ -186,34 +193,47 @@ class DuplicateService:
                 f["is_selected_for_removal"] = False
 
             if rule == "keep_oldest":
-                files.sort(key=lambda x: x["mtime"])
+                def _key_oldest(x):
+                    is_copy = 1 if is_copy_filename(x.get("filename", "")) else 0
+                    mtime = x.get("mtime", 0.0)
+                    ctime = x.get("ctime", mtime)
+                    filename = x.get("filename", "")
+                    path = x.get("path", "")
+                    # Priority: Earliest mtime -> Earliest ctime -> Original clean name -> Shorter filename -> Shorter path
+                    return (mtime, ctime, is_copy, len(filename), len(path), path)
+
+                files.sort(key=_key_oldest)
+
             elif rule == "keep_newest":
-                files.sort(key=lambda x: x["mtime"], reverse=True)
+                def _key_newest(x):
+                    is_copy = 1 if is_copy_filename(x.get("filename", "")) else 0
+                    mtime = x.get("mtime", 0.0)
+                    ctime = x.get("ctime", mtime)
+                    filename = x.get("filename", "")
+                    path = x.get("path", "")
+                    return (-mtime, -ctime, -is_copy, -len(filename), -len(path), path)
+
+                files.sort(key=_key_newest)
+
             elif rule == "keep_shortest_path":
-                files.sort(key=lambda x: len(x["path"]))
+                def _key_shortest(x):
+                    is_copy = 1 if is_copy_filename(x.get("filename", "")) else 0
+                    path = x.get("path", "")
+                    filename = x.get("filename", "")
+                    mtime = x.get("mtime", 0.0)
+                    return (len(path), is_copy, len(filename), mtime, path)
+
+                files.sort(key=_key_shortest)
+
             else:
-                files.sort(key=lambda x: x["mtime"])
+                files.sort(key=lambda x: x.get("mtime", 0.0))
 
             # Keep the first file according to rule
             files[0]["is_recommended_keep"] = True
             for f in files[1:]:
                 f["is_selected_for_removal"] = True
 
-    def _get_unique_quarantine_path(self, original_filename: str) -> Path:
-        """Generate a guaranteed collision-free path in the quarantine directory."""
-        self.quarantine_dir.mkdir(parents=True, exist_ok=True)
-        dest = self.quarantine_dir / original_filename
-        if not dest.exists():
-            return dest
-
-        stem = dest.stem
-        suffix = dest.suffix
-        counter = 1
-        while True:
-            candidate = self.quarantine_dir / f"{stem}_{counter}{suffix}"
-            if not candidate.exists():
-                return candidate
-            counter += 1
+            dset["sample_name"] = files[0]["filename"]
 
     def remove_duplicates(
         self,
@@ -223,10 +243,9 @@ class DuplicateService:
         cancel_check: Any = None,
     ) -> tuple[int, int, int]:
         """
-        Removes or quarantines selected duplicate files.
+        Removes selected duplicate files by moving them to OS Trash / Recycle Bin or permanently deleting them.
         Modes:
-        - 'trash': Sends files to OS Trash / Recycle Bin if send2trash is installed, else quarantine.
-        - 'quarantine': Moves files to app data quarantine folder.
+        - 'trash': Sends files to OS Trash / Recycle Bin.
         - 'delete': Permanently unlinks files.
 
         Returns: (success_count, error_count, freed_bytes)
@@ -250,16 +269,11 @@ class DuplicateService:
             try:
                 f_size = p.stat().st_size
                 if mode == "trash":
-                    try:
-                        import send2trash
-                        send2trash.send2trash(str(p))
-                    except Exception:
-                        # Fallback to quarantine move if send2trash unavailable or external drive
-                        dest = self._get_unique_quarantine_path(p.name)
-                        shutil.move(str(p), str(dest))
-                elif mode == "quarantine":
-                    dest = self._get_unique_quarantine_path(p.name)
-                    shutil.move(str(p), str(dest))
+                    trashed = send_to_trash(p)
+                    if not trashed:
+                        logger.error(f"Failed to send duplicate file {p_str} to trash.")
+                        error_count += 1
+                        continue
                 elif mode == "delete":
                     p.unlink()
 

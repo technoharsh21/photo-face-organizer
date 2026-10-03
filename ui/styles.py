@@ -102,7 +102,7 @@ _STYLESHEET_TEMPLATE = """
 /* =========================================================================
    1. Global Window & Base Controls
    ========================================================================= */
-QMainWindow, QDialog, QMessageBox, QInputDialog, QFileDialog {
+QMainWindow, QDialog, QInputDialog, QFileDialog {
     background-color: #080c14;
     color: #f8fafc;
     font-family: 'Inter', 'Segoe UI', Roboto, -apple-system, BlinkMacSystemFont, Arial, sans-serif;
