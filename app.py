@@ -133,14 +133,53 @@ def _setup_crash_logging(config: Config):
 
 
 
+from PySide6.QtNetwork import QLocalServer, QLocalSocket
 from services.face_cache_service import FaceCacheService
 from services.solo_scan_service import SoloScanService
+
+SINGLE_INSTANCE_KEY = "PhotoFaceOrganizer_SingleInstance_AppKey"
+
+
+def ensure_single_instance() -> tuple[bool, QLocalServer | None]:
+    """
+    Ensures only a single instance of Photo Face Organizer runs concurrently.
+    If an existing instance is found, sends an 'ACTIVATE' message to bring it to focus,
+    and returns (False, None).
+    If no instance is running, starts a QLocalServer to listen and returns (True, server).
+    """
+    socket = QLocalSocket()
+    socket.connectToServer(SINGLE_INSTANCE_KEY)
+    if socket.waitForConnected(500):
+        # Existing instance running -> send message to wake it up and exit
+        try:
+            socket.write(b"ACTIVATE\n")
+            socket.waitForBytesWritten(500)
+        except Exception:
+            pass
+        finally:
+            socket.disconnectFromServer()
+        return False, None
+
+    # First instance -> Start listening
+    server = QLocalServer()
+    # Remove any stale lock file from previous crash
+    QLocalServer.removeServer(SINGLE_INSTANCE_KEY)
+    if not server.listen(SINGLE_INSTANCE_KEY):
+        QLocalServer.removeServer(SINGLE_INSTANCE_KEY)
+        server.listen(SINGLE_INSTANCE_KEY)
+
+    return True, server
 
 
 def main():
     app = QApplication(sys.argv)
     app.setApplicationName("Photo Face Organizer")
     app.setDesktopFileName("photofaceorganizer")
+
+    # Single-instance enforcement: prevent duplicate running windows
+    is_first, single_instance_server = ensure_single_instance()
+    if not is_first:
+        sys.exit(0)
 
     app.setStyleSheet(get_stylesheet())
     app.setPalette(get_dark_palette())
@@ -201,6 +240,26 @@ def main():
         settings_service=settings_service,
         face_cache_service=face_cache_service,
     )
+
+    # Wire up single-instance activation listener
+    if single_instance_server:
+        def _on_new_instance():
+            conn = single_instance_server.nextPendingConnection()
+            if conn:
+                def _activate():
+                    try:
+                        conn.readAll()
+                    except Exception:
+                        pass
+                    if main_window.isMinimized():
+                        main_window.showNormal()
+                    main_window.show()
+                    main_window.raise_()
+                    main_window.activateWindow()
+
+                conn.readyRead.connect(_activate)
+
+        single_instance_server.newConnection.connect(_on_new_instance)
 
     main_window.show()
     app.aboutToQuit.connect(settings_service.flush)

@@ -8,7 +8,6 @@ and allowing 1-click Export of the complete Audit Log (.txt / .json) to disk.
 
 import json
 import os
-import subprocess
 import sys
 from pathlib import Path
 from typing import Any
