@@ -484,6 +484,37 @@ class SoloScanPage(QWidget):
 
         l.addWidget(out_card)
 
+        # Output Folder Structure Box
+        org_box = QFrame()
+        org_box.setStyleSheet("background-color: #0c1322; border: 1px solid #1e293b; border-radius: 10px; padding: 14px;")
+        ob_layout = QVBoxLayout(org_box)
+        ob_layout.setSpacing(10)
+
+        ob_layout.addWidget(QLabel("<b>Solo Folder Organization Structure:</b>"))
+        self.combo_folder_org = QComboBox()
+        self.combo_folder_org.setFixedHeight(36)
+        self.combo_folder_org.setCursor(Qt.PointingHandCursor)
+        self.combo_folder_org.addItem("Flat (Default) — Output/{Person}/photo.jpg", "flat")
+        self.combo_folder_org.addItem("Year / Date — Output/{Person}/YYYY/YYYY-MM-DD/photo.jpg", "year_date")
+        self.combo_folder_org.addItem("Year / Month — Output/{Person}/YYYY/YYYY-MM (Month)/photo.jpg", "year_month")
+        self.combo_folder_org.addItem("Year Only — Output/{Person}/YYYY/photo.jpg", "year_only")
+
+        default_org = self.settings_service.get("folder_organization", "flat")
+        idx = self.combo_folder_org.findData(default_org)
+        if idx >= 0:
+            self.combo_folder_org.setCurrentIndex(idx)
+
+        ob_layout.addWidget(self.combo_folder_org)
+
+        self.lbl_org_hint = QLabel()
+        self.lbl_org_hint.setStyleSheet("color: #60a5fa; font-size: 12px; background: #0f172a; padding: 8px 12px; border-radius: 6px; border: 1px solid #1e293b;")
+        ob_layout.addWidget(self.lbl_org_hint)
+
+        self.combo_folder_org.currentIndexChanged.connect(self._update_folder_org_hint)
+        self._update_folder_org_hint()
+
+        l.addWidget(org_box)
+
         # File Operation Mode Cards (Copy vs Move)
         mode_box = QFrame()
         mode_box.setStyleSheet("background-color: #0c1322; border: 1px solid #1e293b; border-radius: 10px; padding: 14px;")
@@ -554,6 +585,18 @@ class SoloScanPage(QWidget):
 
         l.addStretch()
         return widget
+
+    def _update_folder_org_hint(self):
+        mode = self.combo_folder_org.currentData() or "flat"
+        if mode == "year_date":
+            hint = "📌 <b>Preview:</b> <code>Output/Alice/2026/2026-08-15/IMG_1024.jpg</code> (from EXIF date)"
+        elif mode == "year_month":
+            hint = "📌 <b>Preview:</b> <code>Output/Alice/2026/2026-08 (August)/IMG_1024.jpg</code> (from EXIF date)"
+        elif mode == "year_only":
+            hint = "📌 <b>Preview:</b> <code>Output/Alice/2026/IMG_1024.jpg</code> (from EXIF date)"
+        else:
+            hint = "📌 <b>Preview:</b> <code>Output/Alice/IMG_1024.jpg</code> (Flat person folder)"
+        self.lbl_org_hint.setText(hint)
 
     def _select_operation_mode(self, mode: str):
         if mode == "copy":
@@ -822,6 +865,11 @@ class SoloScanPage(QWidget):
         self.txt_output_dir.setText(self.output_dir_path)
         self.rad_copy_mode.setChecked(True)
         self._update_operation_mode_cards()
+        default_org = self.settings_service.get("folder_organization", "flat")
+        idx = self.combo_folder_org.findData(default_org)
+        if idx >= 0:
+            self.combo_folder_org.setCurrentIndex(idx)
+        self._update_folder_org_hint()
 
         # 4. Reset AI Settings (Default 70% for Solo Scan)
         self.combo_perf.setCurrentText("Maximum Performance")
@@ -1020,7 +1068,8 @@ class SoloScanPage(QWidget):
 
         # 3. Output Card
         is_move = self.rad_move_mode.isChecked()
-        self.lbl_rev_out_mode.setText("✂️ Move Mode (Verified)" if is_move else "📁 Copy Mode (Safe)")
+        org_title = self.combo_folder_org.currentText().split("—")[0].strip()
+        self.lbl_rev_out_mode.setText(f"{'✂️ Move Mode (Verified)' if is_move else '📁 Copy Mode (Safe)'} • {org_title}")
         self.lbl_rev_out_path.setText(self.output_dir_path)
 
         # 4. AI Neural Engine Card
@@ -1048,6 +1097,7 @@ class SoloScanPage(QWidget):
             recursive=self.chk_recursive.isChecked(),
             performance_mode=self.combo_perf.currentText(),
             operation_mode=op_mode,
+            folder_organization=self.combo_folder_org.currentData() or "flat",
             threshold=float(self.spin_threshold.value()),
         )
 

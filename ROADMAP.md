@@ -142,12 +142,12 @@ This roadmap outlines proposed future functionalities, architectural designs, an
 
 | Feature | Category | Priority | Target Status |
 | :--- | :--- | :---: | :---: |
-| **EXIF Date & Timeline Folders** | Smart Organization | 🔴 High | Planned |
+| **EXIF Date & Timeline Folders** | Smart Organization | 🔴 High | ✅ Completed |
 | **Hardlinks & Symlinks Mode** | Smart Organization | 🔴 High | Planned |
 | **Direct EXIF / IPTC Face Tagging** | Metadata | 🔴 High | Planned |
 | **Watch Folder Auto-Sync** | Automation | 🟡 Medium | Planned |
 | **Face Review & Verification Grid** | UI / UX | 🟡 Medium | Planned |
-| **Built-in Lightbox & Viewer** | UI / UX | 🟡 Medium | Planned |
+| **Built-in Lightbox & Viewer** | UI / UX | 🟡 Medium | ✅ Completed |
 | **SQLite Library Indexing** | Performance | 🟡 Medium | Planned |
 | **Natural Language Search (CLIP)** | AI Superpower | 🟢 Future | Planned |
 | **Best-Shot & Blink Detection** | AI Superpower | 🟢 Future | Planned |

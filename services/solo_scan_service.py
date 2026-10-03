@@ -61,6 +61,7 @@ class SoloScanService:
         threshold: float = 70.0,
         allow_distant_photobombers: bool = False,
         min_sharpness: float = 0.0,
+        folder_organization: str = "flat",
     ) -> tuple[SoloScanWorker, dict[str, Any]]:
         """
         Initializes and returns a SoloScanWorker thread configured for single-person photo matching.
@@ -96,6 +97,7 @@ class SoloScanService:
             "recursive": recursive,
             "performance_mode": performance_mode,
             "operation_mode": operation_mode,
+            "folder_organization": folder_organization,
             "threshold": threshold,
             "allow_distant_photobombers": allow_distant_photobombers,
             "min_sharpness": min_sharpness,
@@ -126,6 +128,7 @@ class SoloScanService:
             threshold=threshold,
             performance_mode=performance_mode,
             operation_mode=operation_mode,
+            folder_organization=folder_organization,
             start_index=0,
             all_system_profiles=all_sys_profiles,
             allow_distant_photobombers=allow_distant_photobombers,

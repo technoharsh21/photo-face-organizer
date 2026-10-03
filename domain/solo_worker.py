@@ -55,6 +55,7 @@ class SoloScanWorker(QThread):
         threshold: float = 70.0,
         performance_mode: str = "Maximum Performance",
         operation_mode: str = "copy",
+        folder_organization: str = "flat",
         start_index: int = 0,
         initial_stats: dict[str, Any] | None = None,
         all_system_profiles: list[dict[str, Any]] | None = None,
@@ -81,6 +82,7 @@ class SoloScanWorker(QThread):
         self.threshold = threshold
         self.performance_mode = performance_mode
         self.operation_mode = operation_mode  # "copy" or "move"
+        self.folder_organization = folder_organization
         self.start_index = start_index
 
         self._is_paused = False
@@ -346,9 +348,10 @@ class SoloScanWorker(QThread):
                 for p_name in sorted(matched_person_names):
                     self.results_by_person[p_name] = self.results_by_person.get(p_name, 0) + 1
                     clean_name = self.output_service.sanitize_folder_name(p_name)
-                    person_folder = self.output_dir / clean_name
+                    person_base = self.output_dir / clean_name
+                    target_folder = self.output_service.get_destination_folder(person_base, file_path, self.folder_organization)
                     success, target_path, status = self.output_service.copy_photo_to_destination(
-                        file_path, person_folder, folder_key=clean_name
+                        file_path, target_folder, folder_key=clean_name
                     )
                     if target_path is not None:
                         output_targets.append(str(target_path))

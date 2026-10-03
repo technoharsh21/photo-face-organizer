@@ -273,7 +273,46 @@ class SettingsPage(QWidget):
         c_layout.addLayout(cache_row)
         layout.addWidget(card_cache)
 
-        # 6. Card: Local Storage Directory
+        # 6. Card: Output Folder Organization & Structure
+        card_org = SettingsCard()
+        org_layout = QVBoxLayout(card_org)
+        org_layout.setContentsMargins(18, 16, 18, 16)
+        org_layout.setSpacing(12)
+
+        card_org_title = QLabel("📁 Output Folder Organization & Structure")
+        card_org_title.setStyleSheet("color: #38bdf8; font-size: 14px; font-weight: 800;")
+        org_layout.addWidget(card_org_title)
+
+        org_desc = QLabel(
+            "Configure default hierarchy for organized person folders. "
+            "Dates are automatically extracted from EXIF metadata (falling back to file timestamps)."
+        )
+        org_desc.setStyleSheet("font-size: 12px; color: #94a3b8;")
+        org_layout.addWidget(org_desc)
+
+        org_row = QHBoxLayout()
+        org_row.setSpacing(14)
+        lbl_org_p = QLabel("<b>Organization Structure:</b>")
+        lbl_org_p.setStyleSheet("font-size: 13px; color: #ffffff;")
+        self.combo_folder_org = QComboBox()
+        self.combo_folder_org.setFixedHeight(34)
+        self.combo_folder_org.setCursor(Qt.PointingHandCursor)
+        self.combo_folder_org.addItem("Flat (Default) — Output/{Person}/photo.jpg", "flat")
+        self.combo_folder_org.addItem("Year / Date — Output/{Person}/YYYY/YYYY-MM-DD/photo.jpg", "year_date")
+        self.combo_folder_org.addItem("Year / Month — Output/{Person}/YYYY/YYYY-MM (Month)/photo.jpg", "year_month")
+        self.combo_folder_org.addItem("Year Only — Output/{Person}/YYYY/photo.jpg", "year_only")
+        org_row.addWidget(lbl_org_p)
+        org_row.addWidget(self.combo_folder_org, 1)
+        org_layout.addLayout(org_row)
+
+        self.lbl_org_preview = QLabel()
+        self.lbl_org_preview.setStyleSheet("color: #60a5fa; font-size: 12px; background: #0f172a; padding: 10px; border-radius: 6px; border: 1px solid #1e293b;")
+        org_layout.addWidget(self.lbl_org_preview)
+        self.combo_folder_org.currentIndexChanged.connect(self._update_folder_org_preview)
+
+        layout.addWidget(card_org)
+
+        # 7. Card: Local Storage Directory
         card_storage = SettingsCard()
         st_layout = QVBoxLayout(card_storage)
         st_layout.setContentsMargins(18, 16, 18, 16)
@@ -306,7 +345,7 @@ class SettingsPage(QWidget):
         st_layout.addLayout(st_row)
         layout.addWidget(card_storage)
 
-        # 7. Action Buttons Footer Bar
+        # 8. Action Buttons Footer Bar
         btn_layout = QHBoxLayout()
         btn_layout.setSpacing(16)
 
@@ -362,6 +401,18 @@ class SettingsPage(QWidget):
         self.lbl_threshold_desc.setText(text)
         self.lbl_threshold_desc.setStyleSheet(style)
 
+    def _update_folder_org_preview(self):
+        mode = self.combo_folder_org.currentData() or "flat"
+        if mode == "year_date":
+            preview = "📌 <b>Example Target Path:</b> <code>Output/Alice/2026/2026-08-15/IMG_1024.jpg</code>"
+        elif mode == "year_month":
+            preview = "📌 <b>Example Target Path:</b> <code>Output/Alice/2026/2026-08 (August)/IMG_1024.jpg</code>"
+        elif mode == "year_only":
+            preview = "📌 <b>Example Target Path:</b> <code>Output/Alice/2026/IMG_1024.jpg</code>"
+        else:
+            preview = "📌 <b>Example Target Path:</b> <code>Output/Alice/IMG_1024.jpg</code>"
+        self.lbl_org_preview.setText(preview)
+
     def refresh(self):
         """Refresh displayed settings values and AI hardware status."""
         self.combo_perf.setCurrentText(self.settings_service.get("performance_mode", "Maximum Performance"))
@@ -369,6 +420,12 @@ class SettingsPage(QWidget):
         self.slider_threshold.setValue(t_val)
         self.spin_threshold.setValue(t_val)
         self.chk_enable_cache.setChecked(self.settings_service.get("enable_face_cache", True))
+
+        org_mode = self.settings_service.get("folder_organization", "flat")
+        idx = self.combo_folder_org.findData(org_mode)
+        if idx >= 0:
+            self.combo_folder_org.setCurrentIndex(idx)
+        self._update_folder_org_preview()
 
         dev_pref = self.settings_service.get("device_preference", "Auto")
         pref_map = {
@@ -409,6 +466,7 @@ class SettingsPage(QWidget):
             "device_preference": pref,
             "matching_threshold": self.spin_threshold.value(),
             "enable_face_cache": self.chk_enable_cache.isChecked(),
+            "folder_organization": self.combo_folder_org.currentData(),
         })
 
         if hasattr(self.face_engine, "set_device_preference"):
@@ -423,6 +481,7 @@ class SettingsPage(QWidget):
         self.slider_threshold.setValue(50)
         self.spin_threshold.setValue(50)
         self.chk_enable_cache.setChecked(True)
+        self.combo_folder_org.setCurrentIndex(0)
         self.settings_service.reset_to_defaults()
         if hasattr(self.face_engine, "set_device_preference"):
             self.face_engine.set_device_preference("Auto")

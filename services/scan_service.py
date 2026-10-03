@@ -103,6 +103,7 @@ class ScanService:
         performance_mode: str = "Balanced",
         operation_mode: str = "copy",
         threshold: float = 50.0,
+        folder_organization: str = "flat",
     ) -> tuple[ScanWorker, dict[str, Any]]:
         """
         Initializes and returns a ScanWorker thread ready to start scanning.
@@ -142,6 +143,7 @@ class ScanService:
             "active_device": active_device,
             "performance_mode": performance_mode,
             "operation_mode": operation_mode,
+            "folder_organization": folder_organization,
             "threshold": threshold,
             "total_files": 0,
         }
@@ -167,6 +169,7 @@ class ScanService:
             threshold=threshold,
             performance_mode=performance_mode,
             operation_mode=operation_mode,
+            folder_organization=folder_organization,
             start_index=0,
         )
 
@@ -278,6 +281,8 @@ class ScanService:
             unknown_face_service=self.unknown_face_service,
             threshold=scan_meta.get("threshold", 50.0),
             performance_mode=scan_meta.get("performance_mode", "Balanced"),
+            operation_mode=scan_meta.get("operation_mode", "copy"),
+            folder_organization=scan_meta.get("folder_organization", "flat"),
             start_index=start_index,
             initial_stats=cp_data,
         )
