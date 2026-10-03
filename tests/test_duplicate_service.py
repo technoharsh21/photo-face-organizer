@@ -4,6 +4,7 @@ Unit tests for Duplicate Service.
 
 import tempfile
 from pathlib import Path
+from unittest.mock import patch
 
 from config import Config
 from services.duplicate_service import DuplicateService, format_bytes
@@ -64,7 +65,7 @@ def test_auto_select_rules(tmp_path):
     assert files_newest[0]["is_recommended_keep"] is True
 
 
-def test_remove_duplicates_quarantine_and_delete(tmp_path):
+def test_remove_duplicates_trash_and_delete(tmp_path):
     config = Config(app_data_dir=tmp_path / "appdata")
     service = DuplicateService(config)
 
@@ -72,18 +73,8 @@ def test_remove_duplicates_quarantine_and_delete(tmp_path):
     dir1.mkdir()
 
     f1 = dir1 / "a.jpg"
-    f2 = dir1 / "b.jpg"
     data = b"duplicate bytes 12345"
     f1.write_bytes(data)
-    f2.write_bytes(data)
-
-    # Test quarantine
-    success, err, freed = service.remove_duplicates([str(f2)], mode="quarantine")
-    assert success == 1
-    assert err == 0
-    assert freed == len(data)
-    assert not f2.exists()
-    assert (service.quarantine_dir / "b.jpg").exists()
 
     # Test delete
     f3 = dir1 / "c.jpg"
@@ -92,38 +83,22 @@ def test_remove_duplicates_quarantine_and_delete(tmp_path):
     assert succ_del == 1
     assert not f3.exists()
 
+    # Test trash (with mocked send_to_trash)
+    f4 = dir1 / "d.jpg"
+    f4.write_bytes(data)
+    with patch("services.duplicate_service.send_to_trash", return_value=True) as mock_trash:
+        succ_trash, err_trash, freed_trash = service.remove_duplicates([str(f4)], mode="trash")
+        assert succ_trash == 1
+        assert err_trash == 0
+        assert freed_trash == len(data)
+        mock_trash.assert_called_once()
+
 
 def test_format_bytes():
     assert format_bytes(500) == "500 B"
     assert format_bytes(1024 * 500) == "500.0 KB"
     assert format_bytes(1024 * 1024 * 5) == "5.0 MB"
     assert format_bytes(1024 * 1024 * 1024 * 2) == "2.00 GB"
-
-
-def test_quarantine_filename_collision(tmp_path):
-    config = Config(app_data_dir=tmp_path / "appdata")
-    service = DuplicateService(config)
-
-    dir1 = tmp_path / "folder1"
-    dir2 = tmp_path / "folder2"
-    dir1.mkdir()
-    dir2.mkdir()
-
-    # Create two different files with identical filenames in different folders
-    f1 = dir1 / "same_name.jpg"
-    f2 = dir2 / "same_name.jpg"
-    f1.write_bytes(b"content 1")
-    f2.write_bytes(b"content 2")
-
-    # Quarantine both
-    succ1, _, _ = service.remove_duplicates([str(f1)], mode="quarantine")
-    succ2, _, _ = service.remove_duplicates([str(f2)], mode="quarantine")
-
-    assert succ1 == 1
-    assert succ2 == 1
-    # Both files must exist in quarantine without overwriting each other
-    quarantine_files = list(service.quarantine_dir.glob("same_name*"))
-    assert len(quarantine_files) == 2
 
 
 def test_duplicate_scan_strict_parent_and_subfolder_isolation(tmp_path):
@@ -179,5 +154,46 @@ def test_duplicate_scan_strict_parent_and_subfolder_isolation(tmp_path):
     assert str(sub_f2) in files_rec
     assert str(nested_file) in files_rec
     assert str(parent_file) not in files_rec
+
+
+def test_oldest_original_selection_with_multiple_copies(tmp_path):
+    config = Config(app_data_dir=tmp_path / "appdata")
+    service = DuplicateService(config)
+
+    dir1 = tmp_path / "photos"
+    dir1.mkdir()
+
+    content = b"exact byte identical photo data 9999"
+    # Create original file
+    orig = dir1 / "IMG_2026.JPG"
+    orig.write_bytes(content)
+
+    # Create 10 copies with typical OS copy suffixes
+    copies = []
+    for i in range(1, 11):
+        cp = dir1 / f"IMG_2026 - Copy ({i}).JPG" if i > 1 else dir1 / "IMG_2026 - Copy.JPG"
+        cp.write_bytes(content)
+        copies.append(cp)
+
+    sets = service.scan_directories_for_duplicates([dir1], recursive=True)
+    assert len(sets) == 1
+    dset = sets[0]
+    assert dset["file_count"] == 11
+
+    # Apply keep_oldest rule
+    service.apply_auto_select_rule(sets, rule="keep_oldest")
+    files = dset["files"]
+
+    # The clean original MUST be kept
+    kept = [f for f in files if f["is_recommended_keep"]]
+    assert len(kept) == 1
+    assert kept[0]["filename"] == "IMG_2026.JPG"
+
+    # All 10 copies MUST be marked for removal
+    for f in files:
+        if f["filename"] != "IMG_2026.JPG":
+            assert f["is_selected_for_removal"] is True
+            assert f["is_recommended_keep"] is False
+
 
 

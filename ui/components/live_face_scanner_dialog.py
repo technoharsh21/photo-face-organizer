@@ -7,6 +7,7 @@ and automatic high-accuracy 512-d embedding enrollment.
 """
 
 import logging
+import sys
 import time
 from pathlib import Path
 from typing import Any
@@ -14,7 +15,7 @@ from typing import Any
 import cv2
 import numpy as np
 from PIL import Image
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import Qt, QThread, QTimer, Signal
 from PySide6.QtGui import QImage, QPixmap
 from PySide6.QtWidgets import (
     QDialog,
@@ -71,6 +72,51 @@ ENROLLMENT_STEPS = [
         "desc": "Give a natural smile or look slightly tilted.",
     },
 ]
+
+
+class CameraInitWorker(QThread):
+    """
+    Asynchronous background worker to initialize OpenCV VideoCapture device
+    using the fastest platform-specific backend without freezing the GUI thread.
+    """
+    camera_ready = Signal(object, str)
+
+    def run(self):
+        cap = None
+        try:
+            # 1. On Windows, DirectShow is 10x-15x faster than default MSMF (100ms vs 2500ms)
+            if sys.platform == "win32":
+                cap = cv2.VideoCapture(0, cv2.CAP_DSHOW)
+                if not cap.isOpened():
+                    cap = cv2.VideoCapture(0)
+            elif sys.platform.startswith("linux"):
+                cap = cv2.VideoCapture(0, cv2.CAP_V4L2)
+                if not cap.isOpened():
+                    cap = cv2.VideoCapture(0)
+            else:
+                cap = cv2.VideoCapture(0)
+
+            # Fallback to index 1 if index 0 is not available
+            if not cap or not cap.isOpened():
+                if sys.platform == "win32":
+                    cap = cv2.VideoCapture(1, cv2.CAP_DSHOW)
+                elif sys.platform.startswith("linux"):
+                    cap = cv2.VideoCapture(1, cv2.CAP_V4L2)
+                else:
+                    cap = cv2.VideoCapture(1)
+
+            if cap and cap.isOpened():
+                try:
+                    cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+                except Exception:
+                    pass
+                cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
+                cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
+                self.camera_ready.emit(cap, "")
+            else:
+                self.camera_ready.emit(None, "No webcam detected. Please connect a USB camera and try again.")
+        except Exception as e:
+            self.camera_ready.emit(None, str(e))
 
 
 class LiveFaceScannerDialog(QDialog):
@@ -133,43 +179,14 @@ class LiveFaceScannerDialog(QDialog):
         self.countdown_timer = QTimer(self)
         self.countdown_timer.timeout.connect(self._tick_countdown)
 
+        self._cam_worker: CameraInitWorker | None = None
         self._setup_ui()
-        self._init_camera()
+        self._start_camera_worker()
 
     def _setup_ui(self):
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(20, 20, 20, 20)
         main_layout.setSpacing(14)
-
-        # Header Info Card
-        header_card = QFrame()
-        header_card.setStyleSheet("""
-            background-color: #1e293b;
-            border: 1px solid #334155;
-            border-radius: 10px;
-            padding: 12px 16px;
-        """)
-        h_layout = QHBoxLayout(header_card)
-        h_layout.setContentsMargins(0, 0, 0, 0)
-        h_layout.setSpacing(12)
-
-        icon_lbl = QLabel("🎥")
-        icon_lbl.setStyleSheet("font-size: 28px;")
-        h_layout.addWidget(icon_lbl)
-
-        info_box = QVBoxLayout()
-        info_box.setSpacing(2)
-        self.lbl_title = QLabel("<b>360° Multi-Angle Face Enrollment</b>")
-        self.lbl_title.setStyleSheet("font-size: 16px; color: #38bdf8; font-weight: bold;")
-        self.lbl_subtitle = QLabel(
-            "Captures 5 diverse face angles (Front, Left, Right, Up, Smile) for 99.86% matching accuracy across all photos."
-        )
-        self.lbl_subtitle.setStyleSheet("color: #94a3b8; font-size: 12px;")
-        info_box.addWidget(self.lbl_title)
-        info_box.addWidget(self.lbl_subtitle)
-        h_layout.addLayout(info_box, 1)
-
-        main_layout.addWidget(header_card)
 
         # Profile Name Input (if creating a new profile)
         if not self.target_profile_id:
@@ -380,26 +397,28 @@ class LiveFaceScannerDialog(QDialog):
         main_layout.addLayout(bottom_bar)
         self._update_step_ui()
 
-    def _init_camera(self):
-        """Initialize OpenCV camera capture device."""
-        try:
-            self.cap = cv2.VideoCapture(0)
-            if not self.cap or not self.cap.isOpened():
-                self.cap = cv2.VideoCapture(1)
+    def _start_camera_worker(self):
+        """Asynchronously initialize camera in the background so the dialog opens instantly."""
+        self.lbl_camera.setText("📷 Connecting to webcam stream... Please wait.")
+        self.btn_capture.setEnabled(False)
+        self.btn_auto.setEnabled(False)
+        self._cam_worker = CameraInitWorker(self)
+        self._cam_worker.camera_ready.connect(self._on_camera_ready)
+        self._cam_worker.start()
 
-            if not self.cap or not self.cap.isOpened():
-                self.lbl_camera.setText("⚠️ No webcam detected.\nPlease connect a USB camera and try again.")
-                self.btn_capture.setEnabled(False)
-                self.btn_auto.setEnabled(False)
-                return
-
-            self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
-            self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
+    def _on_camera_ready(self, cap: cv2.VideoCapture | None, err_msg: str):
+        """Callback when camera hardware finishes opening in background."""
+        if cap and cap.isOpened():
+            self.cap = cap
+            self.btn_capture.setEnabled(True)
+            self.btn_auto.setEnabled(True)
             self.timer.start(33)
             logger.info("360° Face Scanner camera stream started successfully.")
-        except Exception as e:
-            logger.warning(f"Error opening camera: {e}")
-            self.lbl_camera.setText(f"⚠️ Camera error:\n{e}")
+        else:
+            self.cap = None
+            self.lbl_camera.setText(f"⚠️ {err_msg or 'No webcam detected.'}\nPlease connect a USB camera and try again.")
+            self.btn_capture.setEnabled(False)
+            self.btn_auto.setEnabled(False)
 
 
     def _update_camera_frame(self):
@@ -789,7 +808,10 @@ class LiveFaceScannerDialog(QDialog):
 
 
     def _release_camera(self):
-        """Stop timer and release OpenCV camera device."""
+        """Stop timer, wait for background worker, and release OpenCV camera device."""
+        if hasattr(self, "_cam_worker") and self._cam_worker and self._cam_worker.isRunning():
+            self._cam_worker.wait(500)
+            self._cam_worker = None
         if self.timer.isActive():
             self.timer.stop()
         if self.countdown_timer.isActive():

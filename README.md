@@ -51,7 +51,7 @@ An advanced, high-performance, **100% offline and privacy-first** desktop applic
 | **👥 Compulsory Group Profiles** | Create group profiles (e.g., *"Mom & Dad"*, *"Family Vacation"*) that require **all compulsory members** to be present in the photo together. |
 | **🎯 Solo Scan (0% False Positives)** | Calibrated multi-stage verification engine designed specifically for isolating individual people without false-positive spillover. |
 | **❓ Unknown Faces Clustering** | Unsupervised face clustering groups unrecognized faces together so you can create new profiles with a single click. |
-| **🔍 Exact Duplicate Finder** | SHA-256 and size-filtered duplicate scanner with smart selection rules (*Keep Oldest*, *Keep Newest*, *Keep Shortest Path*) and safe actions (OS Trash, Quarantine, Permanent Delete). |
+| **🔍 Exact Duplicate Finder** | SHA-256 and size-filtered duplicate scanner with smart selection rules (*Keep Oldest*, *Keep Newest*, *Keep Shortest Path*) and safe actions (OS Trash / Recycle Bin, Permanent Delete). |
 | **🛡️ 100% Data Safety & Audit** | **Never alters original files**. Built-in file audit reconciliation verifies that 100% of discovered photos are accounted for with zero data loss. |
 | **⚡ Hardware Acceleration** | Auto-detects and leverages **NVIDIA CUDA**, **Microsoft DirectML** (all DirectX 12 GPUs including Intel Arc & AMD Radeon), **Apple CoreML**, and multi-threaded CPU fallback. |
 | **📷 Universal Format Support** | Native support for JPEG, PNG, WebP, BMP, TIFF, Apple **HEIC/HEIF**, and Camera RAW formats (**CR2, NEF, ARW, DNG, RAF, RW2, PEF**). |
@@ -85,7 +85,7 @@ photo-face-organizer/
 │   ├── find_photos_service.py  # Real-time interactive photo search worker
 │   ├── profile_service.py      # Profile management, multi-crop embeddings & quality assessment
 │   ├── unknown_face_service.py # Face clustering & unknown cluster management
-│   ├── duplicate_service.py    # Directory duplicate scanning, grouping & quarantine
+│   ├── duplicate_service.py    # Directory duplicate scanning & grouping
 │   ├── face_cache_service.py   # Embedding cache indexed by (path, mtime, size)
 │   ├── history_service.py      # JSONL scan logs, stats & undo tracking
 │   └── settings_service.py     # Atomically persisted user preferences
@@ -163,7 +163,7 @@ photo-face-organizer/
   2. SHA-256 block hashing on matching file sizes.
 - View side-by-side comparisons with path and resolution metadata.
 - Apply batch selection rules (*Keep Oldest*, *Keep Newest*, *Keep Shortest Path*).
-- Safely resolve duplicates by sending them to **System Trash**, moving them to a **Quarantine Folder**, or deleting them permanently.
+- Safely resolve duplicates by sending them to **System Trash / Recycle Bin** or deleting them permanently.
 
 ### 7. Zero Data Loss & Audit Reconciliation
 - Original photos are never modified, edited, or destroyed.
@@ -302,7 +302,6 @@ Application data and configuration files are stored safely in standard platform 
 PhotoFaceOrganizer/
 ├── profiles/               # Saved person profiles, crops & vector embeddings
 ├── duplicates/             # SHA-256 destination hash indices
-├── quarantine/             # Safely isolated duplicate photos
 ├── history/                # Scans ledger (scans.jsonl)
 ├── settings/               # Persisted user settings (settings.json)
 ├── cache/                  # Fast face embedding cache

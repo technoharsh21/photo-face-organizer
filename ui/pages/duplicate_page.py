@@ -3,7 +3,7 @@ Duplicate Photos Manager Page Module.
 
 Provides an interactive, responsive UI for scanning directories, reviewing duplicate image sets,
 comparing side-by-side metadata, applying smart auto-selection rules, providing inline 1-click deletion
-per duplicate file, batch cleanup to OS Trash/Quarantine, and instant UI refresh without stale caching.
+per duplicate file, batch cleanup to OS Trash / Recycle Bin, and instant UI refresh without stale caching.
 """
 
 import datetime
@@ -506,54 +506,93 @@ class DuplicatePage(QWidget):
         right_l.setContentsMargins(16, 16, 16, 16)
         right_l.setSpacing(12)
 
-        # Actions Toolbar — wraps on narrow windows so button text never clips
-        actions_l = FlowLayout(h_spacing=8, v_spacing=8)
+        # Actions Toolbar Header Bar
+        actions_bar = QFrame()
+        actions_bar.setStyleSheet(
+            "QFrame { background-color: #0c1322; border: 1px solid #1e293b; border-radius: 10px; padding: 2px 4px; }"
+        )
+        actions_l = QHBoxLayout(actions_bar)
+        actions_l.setContentsMargins(10, 6, 10, 6)
+        actions_l.setSpacing(12)
 
-        lbl_rule = QLabel("<b>Rule:</b>")
-        lbl_rule.setStyleSheet("color: #ffffff; font-size: 12px;")
-        actions_l.addWidget(lbl_rule)
+        rule_container = QHBoxLayout()
+        rule_container.setSpacing(8)
+
+        lbl_rule = QLabel("🎯 <b>Auto-Selection Rule:</b>")
+        lbl_rule.setStyleSheet("color: #e2e8f0; font-size: 13px; font-weight: 600; background: transparent; border: none;")
+        rule_container.addWidget(lbl_rule)
 
         self.combo_rule = QComboBox()
         self.combo_rule.setCursor(Qt.PointingHandCursor)
+        self.combo_rule.setFixedHeight(36)
+        self.combo_rule.setMinimumWidth(230)
         self.combo_rule.addItems(["Keep Oldest (Original)", "Keep Newest Copy", "Keep Shortest Path"])
-        actions_l.addWidget(self.combo_rule)
+        self.combo_rule.setStyleSheet("""
+            QComboBox {
+                background-color: #1e293b;
+                border: 1px solid #3b82f6;
+                border-radius: 8px;
+                padding: 4px 32px 4px 12px;
+                color: #ffffff;
+                font-size: 13px;
+                font-weight: 600;
+            }
+            QComboBox:hover {
+                background-color: #162238;
+                border: 1px solid #60a5fa;
+            }
+            QComboBox:focus {
+                border: 1px solid #38bdf8;
+                background-color: #162238;
+            }
+            QComboBox::drop-down {
+                subcontrol-origin: padding;
+                subcontrol-position: top right;
+                width: 28px;
+                border: none;
+                background: transparent;
+            }
+            QComboBox QAbstractItemView {
+                background-color: #0f172a;
+                color: #ffffff;
+                selection-background-color: #2563eb;
+                selection-color: #ffffff;
+                border: 1px solid #3b82f6;
+                border-radius: 8px;
+                padding: 4px;
+                outline: 0px;
+            }
+            QComboBox QAbstractItemView::item {
+                min-height: 30px;
+                padding: 6px 10px;
+                border-radius: 4px;
+                color: #ffffff;
+            }
+            QComboBox QAbstractItemView::item:selected {
+                background-color: #2563eb;
+                color: #ffffff;
+                font-weight: bold;
+            }
+        """)
+        self.combo_rule.currentIndexChanged.connect(self._apply_auto_select_rule)
+        rule_container.addWidget(self.combo_rule)
 
-        btn_auto_select = QPushButton("⚡ Auto Select")
-        btn_auto_select.setProperty("class", "SecondaryButton")
-        btn_auto_select.setCursor(Qt.PointingHandCursor)
-        btn_auto_select.setFixedHeight(36)
-        btn_auto_select.setStyleSheet(
-            "QPushButton { background-color: #1e293b; color: #ffffff; font-weight: 700; border-radius: 8px; padding: 0 16px; font-size: 13px; border: 1px solid #3b82f6; }"
-            "QPushButton:hover { background-color: #1d4ed8; color: #ffffff; }"
-        )
-        btn_auto_select.clicked.connect(self._apply_auto_select_rule)
-        actions_l.addWidget(btn_auto_select)
-
-        self.btn_quarantine = QPushButton("📁 Quarantine Selected")
-        self.btn_quarantine.setProperty("class", "SecondaryButton")
-        self.btn_quarantine.setCursor(Qt.PointingHandCursor)
-        self.btn_quarantine.setFixedHeight(36)
-        self.btn_quarantine.setStyleSheet(
-            "QPushButton { background-color: #1e293b; color: #ffffff; font-weight: 700; border-radius: 8px; padding: 0 16px; font-size: 13px; border: 1px solid #3b82f6; }"
-            "QPushButton:hover { background-color: #1d4ed8; color: #ffffff; }"
-        )
-        self.btn_quarantine.setToolTip("Move selected duplicate copies to a safe Quarantine folder.")
-        self.btn_quarantine.clicked.connect(self._quarantine_selected)
-        actions_l.addWidget(self.btn_quarantine)
+        actions_l.addLayout(rule_container)
+        actions_l.addStretch()
 
         self.btn_delete = QPushButton("🗑️ Delete Selected Copies")
         self.btn_delete.setProperty("class", "DangerButton")
         self.btn_delete.setCursor(Qt.PointingHandCursor)
         self.btn_delete.setFixedHeight(36)
         self.btn_delete.setStyleSheet(
-            "QPushButton { background-color: #dc2626; color: #ffffff; font-weight: 700; border-radius: 8px; padding: 0 16px; font-size: 13px; border: none; }"
+            "QPushButton { background-color: #dc2626; color: #ffffff; font-weight: 700; border-radius: 8px; padding: 0 18px; font-size: 13px; border: none; }"
             "QPushButton:hover { background-color: #b91c1c; }"
         )
         self.btn_delete.setToolTip("Safely delete selected duplicate photos to recycle bin.")
         self.btn_delete.clicked.connect(self._delete_selected)
         actions_l.addWidget(self.btn_delete)
 
-        right_l.addLayout(actions_l)
+        right_l.addWidget(actions_bar)
 
         # Comparison Files Scroll Area
         self.scroll = QScrollArea()
@@ -609,12 +648,12 @@ class DuplicatePage(QWidget):
 
     def _run_duplicate_scan(self):
         if not self.sources:
-            folder = QFileDialog.getExistingDirectory(self, "Select Folder to Scan for Duplicates")
-            if folder:
-                self.sources = [str(Path(folder).resolve())]
-                self._update_sources_label()
-            else:
-                return
+            QMessageBox.warning(
+                self,
+                "No Folder Selected",
+                "Please select a folder to scan using '📁 Choose Folder to Scan' before starting the duplicate scan.",
+            )
+            return
 
         scan_targets = list(self.sources)
 
@@ -638,7 +677,7 @@ class DuplicatePage(QWidget):
         self.btn_rescan_hdr.setEnabled(True)
         self.lbl_loading_status.hide()
         self.duplicate_sets = duplicate_sets
-        self.refresh()
+        self._apply_auto_select_rule()
 
     def refresh(self):
         """Refresh duplicate sets list and summary bar while preserving active selection."""
@@ -813,23 +852,14 @@ class DuplicatePage(QWidget):
             pass
 
     def _delete_single_file(self, set_id: str, file_path_str: str, card: DuplicateFileCard | None = None):
-        """Direct inline deletion of an individual duplicate file with instant list removal and loading indicator."""
+        """Direct inline deletion of an individual duplicate file directly to Recycle Bin without confirmation popup."""
         p = Path(file_path_str)
         fname = p.name
-
-        confirm = QMessageBox.question(
-            self,
-            "Confirm Delete Duplicate File",
-            f"Are you sure you want to delete this duplicate copy?\n\n📁 {fname}\n\nThis file will be safely sent to Trash.",
-            QMessageBox.Yes | QMessageBox.No,
-        )
-        if confirm != QMessageBox.Yes:
-            return
 
         if card:
             card.set_deleting_state()
 
-        self.lbl_loading_status.setText(f"⏳ Deleting duplicate file '{fname}' to Trash... Please wait.")
+        self.lbl_loading_status.setText(f"⏳ Moving '{fname}' to Recycle Bin... Please wait.")
         self.lbl_loading_status.show()
 
         worker = DuplicateBatchActionWorker(self.duplicate_service, [file_path_str], mode="trash")
@@ -884,22 +914,6 @@ class DuplicatePage(QWidget):
                     to_remove.append(fi["path"])
         return to_remove
 
-    def _quarantine_selected(self):
-        to_remove = self._get_all_files_selected_for_removal()
-        if not to_remove:
-            QMessageBox.information(self, "No Selection", "No duplicate files selected for removal.")
-            return
-
-        confirm = QMessageBox.question(
-            self,
-            "Quarantine Selected Duplicates",
-            f"Are you sure you want to move {len(to_remove)} duplicate files to the Quarantine folder?\n\nOriginal files marked 'Keep This Copy' will remain in place.",
-            QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.No,
-        )
-        if confirm == QMessageBox.Yes:
-            self._execute_batch_action(to_remove, mode="quarantine", title="Quarantining Duplicate Files")
-
     def _delete_selected(self):
         to_remove = self._get_all_files_selected_for_removal()
         if not to_remove:
@@ -916,9 +930,8 @@ class DuplicatePage(QWidget):
         if confirm == QMessageBox.Yes:
             self._execute_batch_action(to_remove, mode="trash", title="Deleting Duplicate Files")
 
-    def _execute_batch_action(self, to_remove: list[str], mode: str, title: str):
+    def _execute_batch_action(self, to_remove: list[str], mode: str = "trash", title: str = "Deleting Duplicate Files"):
         total = len(to_remove)
-        action_name = "quarantined" if mode == "quarantine" else "sent to Trash"
 
         prog_dlg = QProgressDialog(f"Processing 1 of {total}...", "Cancel", 0, total, self)
         prog_dlg.setWindowTitle(title)
@@ -948,7 +961,7 @@ class DuplicatePage(QWidget):
             QMessageBox.information(
                 self,
                 "Batch Cleanup Complete",
-                f"✨ Successfully {action_name} {success} duplicate file(s).\n\n💾 Reclaimed {format_bytes(freed)} of disk space.",
+                f"✨ Successfully sent to Trash {success} duplicate file(s).\n\n💾 Reclaimed {format_bytes(freed)} of disk space.",
             )
 
         prog_dlg.canceled.connect(worker.cancel)
