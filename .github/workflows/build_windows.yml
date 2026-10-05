@@ -31,7 +31,7 @@ jobs:
       - name: Build Executable with PyInstaller
         shell: powershell
         run: |
-          pyinstaller --noconfirm --onedir --windowed --name "PhotoFaceOrganizer" --icon="icon.ico" --exclude-module tkinter --exclude-module matplotlib --exclude-module pandas --hidden-import scipy --hidden-import scipy.spatial --hidden-import scipy.spatial.distance --collect-all insightface --collect-all onnxruntime --collect-binaries onnxruntime --collect-all pillow_heif --collect-all send2trash app.py
+          pyinstaller --noconfirm --onedir --windowed --name "PhotoFaceOrganizer" --icon="icon.ico" --exclude-module tkinter --exclude-module matplotlib --exclude-module pandas --hidden-import scipy --hidden-import scipy.spatial --hidden-import scipy.spatial.distance --collect-all insightface --collect-all onnxruntime --collect-all pillow_heif --collect-all send2trash app.py
 
       - name: Install Inno Setup & Compile Installer
         shell: powershell
