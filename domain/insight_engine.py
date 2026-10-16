@@ -12,6 +12,7 @@ Powered by Microsoft ONNX Runtime with automatic hardware GPU detection
 import io
 import logging
 import os
+import subprocess
 import sys
 import threading
 import time
@@ -250,13 +251,13 @@ class InsightFaceEngine:
     def _configure_providers(self):
         """Quickly detect hardware providers without loading models into memory (Instant App Launch)."""
         try:
-            available_providers = onnxruntime.get_available_providers()
+            available_providers = onnxruntime.get_available_providers() if onnxruntime is not None else []
             gpu_name = self.get_system_gpu_name()
             cpu_name = self.get_system_cpu_name()
 
             logger.info("=== AI HARDWARE CONFIGURATION ===")
             logger.info(f"Platform: {sys.platform}")
-            logger.info(f"ONNX Runtime Version: {getattr(onnxruntime, '__version__', 'Unknown')}")
+            logger.info(f"ONNX Runtime Version: {getattr(onnxruntime, '__version__', 'Unknown') if onnxruntime is not None else 'Not Installed'}")
             logger.info(f"Available ONNX Execution Providers: {available_providers}")
             logger.info(f"Device Preference: {self.device_preference}")
             logger.info(f"Detected System GPU: {gpu_name or 'None Detected'}")
@@ -402,7 +403,7 @@ class InsightFaceEngine:
                     )
 
                 # 2. Cascading Fallback 1: Try DirectX 12 DirectML (NVIDIA / AMD / Intel GPU)
-                available = onnxruntime.get_available_providers()
+                available = onnxruntime.get_available_providers() if onnxruntime is not None else []
                 logger.info(
                     f"[_ensure_initialized] STEP 2 — Checking DML fallback | "
                     f"available_providers={available} | current_providers={self.providers}"

@@ -110,11 +110,20 @@ class UnknownFacesClusterWorker(QThread):
     """Background worker for clustering unknown faces without blocking UI."""
 
     finished_signal = Signal(list)
+    _running: set["UnknownFacesClusterWorker"] = set()
 
     def __init__(self, unknown_face_service: UnknownFaceService, threshold: float = 50.0):
         super().__init__()
         self.unknown_face_service = unknown_face_service
         self.threshold = threshold
+        self.finished.connect(self._on_finished)
+
+    def start(self, priority=QThread.Priority.InheritPriority):
+        UnknownFacesClusterWorker._running.add(self)
+        super().start(priority)
+
+    def _on_finished(self):
+        UnknownFacesClusterWorker._running.discard(self)
 
     def run(self):
         try:
@@ -133,6 +142,7 @@ class UnknownFacesPage(QWidget):
         self.groups: list[dict[str, Any]] = []
         self.current_group_id: str | None = None
         self.current_faces: list[dict[str, Any]] = []
+        self.cluster_worker: UnknownFacesClusterWorker | None = None
         self._needs_refresh = True  # Track if page needs refresh on next visit
 
         self._setup_ui()
@@ -334,12 +344,16 @@ class UnknownFacesPage(QWidget):
         self._run_clustering()
 
     def _run_clustering(self):
+        if self.cluster_worker is not None and self.cluster_worker.isRunning():
+            return
+
         target_group_id = self.current_group_id
         self.group_title_lbl.setText("⏳ Analyzing & grouping unknown faces...")
 
         self.cluster_worker = UnknownFacesClusterWorker(self.unknown_face_service, threshold=50.0)
 
         def on_clustered(groups: list[dict[str, Any]]):
+            self.cluster_worker = None
             self.groups = groups
             self.groups_list.blockSignals(True)
             self.groups_list.clear()

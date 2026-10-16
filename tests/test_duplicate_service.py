@@ -196,4 +196,60 @@ def test_oldest_original_selection_with_multiple_copies(tmp_path):
             assert f["is_recommended_keep"] is False
 
 
+def test_mobile_and_recompressed_duplicate_detection(tmp_path):
+    from PIL import Image, ImageDraw
 
+    config = Config(app_data_dir=tmp_path / "appdata")
+    service = DuplicateService(config)
+
+    dir1 = tmp_path / "photos"
+    dir1.mkdir()
+
+    # Create original photo with pattern
+    p1 = dir1 / "photo.jpg"
+    img1 = Image.new("RGB", (120, 120), (180, 80, 40))
+    d1 = ImageDraw.Draw(img1)
+    d1.rectangle([20, 20, 60, 60], fill=(0, 200, 255))
+    d1.line([0, 0, 120, 120], fill=(255, 255, 255), width=2)
+    img1.save(p1, "JPEG", quality=95)
+
+    # Create mobile copy with (1) suffix, recompressed and with custom EXIF tags
+    p2 = dir1 / "photo (1).jpg"
+    exif = img1.getexif()
+    exif[306] = "2026:10:15 21:00:00"
+    exif[271] = "MobileDevice"
+    exif[272] = "PhoneModel"
+    img1.save(p2, "JPEG", quality=80, exif=exif)
+
+    # Ensure their byte sizes are different (as happens on mobile)
+    assert p1.stat().st_size != p2.stat().st_size
+
+    # Create a completely different photo
+    p3 = dir1 / "unrelated.jpg"
+    img3 = Image.new("RGB", (120, 120), (30, 180, 70))
+    d3 = ImageDraw.Draw(img3)
+    d3.ellipse([30, 30, 90, 90], fill=(255, 0, 100))
+    img3.save(p3, "JPEG", quality=90)
+
+    # 1. Visual mode (default) MUST detect photo.jpg and photo (1).jpg as duplicates
+    sets = service.scan_directories_for_duplicates([dir1], recursive=True, method="visual")
+    assert len(sets) == 1
+    dset = sets[0]
+    assert dset["file_count"] == 2
+    filenames = [f["filename"] for f in dset["files"]]
+    assert "photo.jpg" in filenames
+    assert "photo (1).jpg" in filenames
+    assert "unrelated.jpg" not in filenames
+
+    # Auto-selection rule: clean original photo.jpg MUST be kept, photo (1).jpg marked for removal
+    kept = [f for f in dset["files"] if f["is_recommended_keep"]]
+    assert len(kept) == 1
+    assert kept[0]["filename"] == "photo.jpg"
+
+    removed = [f for f in dset["files"] if f["is_selected_for_removal"]]
+    assert len(removed) == 1
+    assert removed[0]["filename"] == "photo (1).jpg"
+
+    # 2. Exact mode should NOT detect them because sizes and byte hashes differ
+    sets_exact = service.scan_directories_for_duplicates([dir1], recursive=True, method="exact")
+    assert len(sets_exact) == 0

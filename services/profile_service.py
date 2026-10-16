@@ -129,15 +129,23 @@ class ProfileService:
         Much cheaper than list_profiles() for display-only screens.
         """
         out: list[dict[str, Any]] = []
-        for p_dir in self.profiles_dir.iterdir():
+        if not self.profiles_dir.exists():
+            return out
+
+        try:
+            dirs = list(self.profiles_dir.iterdir())
+        except Exception:
+            return out
+
+        for p_dir in dirs:
             if not p_dir.is_dir():
                 continue
             p_file = p_dir / "profile.json"
             if not p_file.exists():
                 continue
             try:
-                with open(p_file, "r", encoding="utf-8") as f:
-                    data = json.load(f)
+                content = p_file.read_text(encoding="utf-8", errors="replace")
+                data = json.loads(content)
             except Exception:
                 continue
 
@@ -162,7 +170,7 @@ class ProfileService:
                 "first_ref_path": first_ref_path,
                 "is_group_profile": bool(data.get("is_group_profile")),
             })
-        out.sort(key=lambda x: x["name"].lower())
+        out.sort(key=lambda x: str(x.get("name", "")).lower())
         return out
 
     def get_profile(self, profile_id: str) -> dict[str, Any] | None:
@@ -282,6 +290,9 @@ class ProfileService:
         if not profile:
             return False, "Profile not found"
 
+        if profile.get("is_group_profile"):
+            return False, "Group profiles automatically use reference photos from their member individual profiles. Adding reference photos to a group profile is not permitted."
+
         pil_img, locations, crops = self.detect_faces_in_reference(image_path)
         if pil_img is None:
             return False, "Could not load reference image"
@@ -389,6 +400,9 @@ class ProfileService:
         profile = self.get_profile(profile_id)
         if not profile:
             return 0, 0, "Profile not found"
+
+        if profile.get("is_group_profile"):
+            return 0, 0, "Group profiles automatically use reference photos from their member individual profiles. Batch training on a group profile is not permitted."
 
         photo_paths = discover_photos([str(folder_path)], recursive=recursive)
         if not photo_paths:

@@ -262,17 +262,19 @@ class DuplicateScanWorker(QThread):
 
     finished_signal = Signal(list)
 
-    def __init__(self, duplicate_service: DuplicateService, sources: list[str], recursive: bool):
+    def __init__(self, duplicate_service: DuplicateService, sources: list[str], recursive: bool, method: str = "visual"):
         super().__init__()
         self.duplicate_service = duplicate_service
         self.sources = sources
         self.recursive = recursive
+        self.method = method
 
     def run(self):
         try:
             sets = self.duplicate_service.scan_directories_for_duplicates(
                 sources=self.sources,
                 recursive=self.recursive,
+                method=self.method,
             )
             self.finished_signal.emit(sets)
         except Exception:
@@ -404,6 +406,47 @@ class DuplicatePage(QWidget):
         self.chk_recursive.setCursor(Qt.PointingHandCursor)
         self.chk_recursive.setStyleSheet("color: #ffffff; font-weight: 600; font-size: 13px;")
 
+        self.combo_scan_mode = QComboBox()
+        self.combo_scan_mode.setCursor(Qt.PointingHandCursor)
+        self.combo_scan_mode.setFixedHeight(36)
+        self.combo_scan_mode.addItems([
+            "🔍 Visual & Mobile Copies (Smart)",
+            "⚡ Exact Match (Byte-for-Byte)",
+        ])
+        self.combo_scan_mode.setToolTip(
+            "Visual mode detects mobile copies, recompressed photos, and images with modified EXIF timestamps.\n"
+            "Exact Match only detects bit-for-bit identical files."
+        )
+        self.combo_scan_mode.setStyleSheet("""
+            QComboBox {
+                background-color: #1e293b;
+                border: 1px solid #3b82f6;
+                border-radius: 8px;
+                padding: 4px 28px 4px 10px;
+                color: #ffffff;
+                font-size: 12px;
+                font-weight: 600;
+            }
+            QComboBox:hover {
+                background-color: #162238;
+                border: 1px solid #60a5fa;
+            }
+            QComboBox QAbstractItemView {
+                background-color: #0f172a;
+                color: #ffffff;
+                selection-background-color: #2563eb;
+                selection-color: #ffffff;
+                border: 1px solid #3b82f6;
+                border-radius: 8px;
+                padding: 4px;
+                outline: 0px;
+            }
+            QComboBox QAbstractItemView::item {
+                min-height: 28px;
+                padding: 4px 8px;
+            }
+        """)
+
         self.btn_scan = QPushButton("⚡ Scan for Duplicates")
         self.btn_scan.setProperty("class", "PrimaryButton")
         self.btn_scan.setCursor(Qt.PointingHandCursor)
@@ -418,6 +461,7 @@ class DuplicatePage(QWidget):
         top_btns.addWidget(btn_add_folder)
         top_btns.addWidget(btn_clear)
         top_btns.addWidget(self.chk_recursive)
+        top_btns.addWidget(self.combo_scan_mode)
         top_btns.addStretch()
         top_btns.addWidget(self.btn_scan)
         ctrl_l.addLayout(top_btns)
@@ -656,17 +700,20 @@ class DuplicatePage(QWidget):
             return
 
         scan_targets = list(self.sources)
+        scan_mode = "visual" if self.combo_scan_mode.currentIndex() == 0 else "exact"
+        mode_desc = "visual & mobile duplicate photos" if scan_mode == "visual" else "exact duplicate photos"
 
         self.btn_scan.setEnabled(False)
         self.btn_scan.setText("⏳ Scanning... Please wait")
         self.btn_rescan_hdr.setEnabled(False)
-        self.lbl_loading_status.setText(f"⏳ Scanning {len(scan_targets)} folder(s) for duplicate photos... Please wait.")
+        self.lbl_loading_status.setText(f"⏳ Scanning {len(scan_targets)} folder(s) for {mode_desc}... Please wait.")
         self.lbl_loading_status.show()
 
         self.worker = DuplicateScanWorker(
             duplicate_service=self.duplicate_service,
             sources=scan_targets,
             recursive=self.chk_recursive.isChecked(),
+            method=scan_mode,
         )
         self.worker.finished_signal.connect(self._on_scan_finished)
         self.worker.start()

@@ -38,7 +38,6 @@ from PySide6.QtWidgets import (
 
 from domain.face_engine import FaceEngine
 from services.profile_service import ProfileService
-from ui.components.face_selector import FaceSelectorDialog
 from ui.components.flow_layout import FlowLayout
 from ui.components.image_cache import load_cover_pixmap, AsyncImageCoverWidget
 from ui.components.live_face_scanner_dialog import LiveFaceScannerDialog
@@ -254,6 +253,67 @@ class ReferencePhotoCard(QFrame):
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton:
             self.chk.setChecked(not self.chk.isChecked())
+        super().mousePressEvent(event)
+
+
+class GroupMemberCard(QFrame):
+    """Card displaying a linked member profile inside a Group Profile view."""
+
+    def __init__(self, member_profile: dict[str, Any], on_click: Any = None):
+        super().__init__()
+        self.member_id = member_profile.get("id")
+        self.on_click = on_click
+
+        self.setCursor(Qt.PointingHandCursor)
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.setMinimumWidth(130)
+        self.setMaximumWidth(260)
+        self.setFixedHeight(198)
+
+        self.setStyleSheet(
+            "QFrame { background-color: #0f172a; border: 1px solid #1e293b; border-radius: 10px; }"
+            "QFrame:hover { border: 1px solid #3b82f6; background-color: #131d33; }"
+        )
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(8, 10, 8, 10)
+        layout.setSpacing(6)
+        layout.setAlignment(Qt.AlignCenter)
+
+        m_name = member_profile.get("name", "Unknown")
+        refs = member_profile.get("references", [])
+        first_ref = None
+        for r in refs:
+            sp = r.get("stored_path")
+            if sp and Path(sp).exists():
+                first_ref = sp
+                break
+
+        img_cover = AsyncImageCoverWidget(
+            image_path=first_ref,
+            height=110,
+            radius=8,
+            initials=m_name if not first_ref else None,
+            bg_color="#1d4ed8",
+        )
+        img_cover.setCursor(Qt.PointingHandCursor)
+        layout.addWidget(img_cover)
+
+        lbl_name = QLabel(f"👤 {m_name}")
+        lbl_name.setStyleSheet("font-size: 13px; font-weight: 700; color: #ffffff; background: transparent; border: none;")
+        lbl_name.setAlignment(Qt.AlignCenter)
+        lbl_name.setCursor(Qt.PointingHandCursor)
+        layout.addWidget(lbl_name)
+
+        lbl_cnt = QLabel(f"📷 {len(refs)} Reference Photo{'s' if len(refs) != 1 else ''}")
+        lbl_cnt.setStyleSheet("font-size: 11px; color: #38bdf8; background: transparent; border: none; font-weight: 600;")
+        lbl_cnt.setAlignment(Qt.AlignCenter)
+        lbl_cnt.setCursor(Qt.PointingHandCursor)
+        layout.addWidget(lbl_cnt)
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton and self.on_click:
+            self.on_click(self.member_id)
         super().mousePressEvent(event)
 
 
@@ -731,13 +791,35 @@ class PeoplePage(QWidget):
         refs = profile.get("references", [])
         embs = profile.get("embeddings", [])
         is_group = bool(profile.get("is_group_profile"))
+        compulsory_ids = profile.get("compulsory_profile_ids", [])
+
+        # Update Tool Buttons visibility (Group profiles inherit photos from individual members)
+        self.btn_add_ref.setVisible(not is_group)
+        self.btn_batch_train.setVisible(not is_group)
+        self.btn_clean_outliers.setVisible(not is_group)
+        self.btn_360_scan.setVisible(not is_group)
+        self.btn_select_all.setVisible(not is_group)
+        self.btn_batch_delete.setVisible(not is_group)
 
         # Update Hero Banner
         group_tag = " [Group]" if is_group else ""
         self.lbl_profile_name.setText(f"{p_name}{group_tag}")
 
-        # Update Edge-to-Edge Avatar (92x92 with zero black borders)
-        if refs:
+        # Update Edge-to-Edge Avatar
+        if is_group:
+            first_m_ref = None
+            for mid in compulsory_ids:
+                m_prof = self.profile_service.get_profile(mid)
+                if m_prof and m_prof.get("references"):
+                    sp = m_prof["references"][0].get("stored_path")
+                    if sp and Path(sp).exists():
+                        first_m_ref = sp
+                        break
+            if first_m_ref:
+                self.hero_avatar.set_image_path(str(first_m_ref))
+            else:
+                self.hero_avatar.set_initials(p_name, bg_color="#4338ca")
+        elif refs:
             first_ref = refs[0].get("stored_path")
             if first_ref and Path(first_ref).exists():
                 self.hero_avatar.set_image_path(str(first_ref))
@@ -746,36 +828,67 @@ class PeoplePage(QWidget):
         else:
             self.hero_avatar.set_initials(p_name, bg_color="#2563eb")
 
-        # Update Pills (Compact)
-        self.pill_embeddings.setText(f"🧠 {len(embs)} Vectors")
-        self.pill_type.setText("👥 Group" if is_group else "👤 Individual")
-
-        # Compute Quality Score
-        if refs:
-            stars = [r.get("quality_stars", 5) if "quality_stars" in r else r.get("quality", {}).get("stars", 5) for r in refs]
-            avg_stars = sum(stars) / len(stars) if stars else 5.0
-            self.pill_quality.setText(f"⭐ {avg_stars:.1f}")
-        else:
-            self.pill_quality.setText("⭐ No Refs")
-
-        # Recommendation Text
-        if len(refs) == 0:
-            self.lbl_recommendation.setText("⚠️ <b>No reference photos yet:</b> Add at least 1 clear face photo for AI recognition.")
-            self.lbl_recommendation.setStyleSheet("color: #fbbf24; font-size: 11px; font-weight: 600;")
-        elif len(refs) < 3:
-            self.lbl_recommendation.setText("💡 <b>Good:</b> Adding 2+ more multi-angle photos boosts matching accuracy to 99.86%.")
+        # Update Pills & Recommendation
+        if is_group:
+            self.pill_embeddings.setText(f"🔗 {len(compulsory_ids)} Members")
+            self.pill_type.setText("👥 Group Profile")
+            self.pill_quality.setText("⭐ Auto-Inherited")
+            self.lbl_recommendation.setText(
+                "👥 <b>Group Profile:</b> Matches when ALL member individual profiles appear in the same photo. "
+                "Face references are automatically used from each member."
+            )
             self.lbl_recommendation.setStyleSheet("color: #38bdf8; font-size: 11px; font-weight: 600;")
         else:
-            self.lbl_recommendation.setText("✅ <b>Excellent Biometric Coverage:</b> Ready for high-precision recognition across varied lighting and angles.")
-            self.lbl_recommendation.setStyleSheet("color: #34d399; font-size: 11px; font-weight: 600;")
+            self.pill_embeddings.setText(f"🧠 {len(embs)} Vectors")
+            self.pill_type.setText("👤 Individual")
+            if refs:
+                stars = [r.get("quality_stars", 5) if "quality_stars" in r else r.get("quality", {}).get("stars", 5) for r in refs]
+                avg_stars = sum(stars) / len(stars) if stars else 5.0
+                self.pill_quality.setText(f"⭐ {avg_stars:.1f}")
+            else:
+                self.pill_quality.setText("⭐ No Refs")
+
+            if len(refs) == 0:
+                self.lbl_recommendation.setText("⚠️ <b>No reference photos yet:</b> Add at least 1 clear single-person face photo for AI recognition.")
+                self.lbl_recommendation.setStyleSheet("color: #fbbf24; font-size: 11px; font-weight: 600;")
+            elif len(refs) < 3:
+                self.lbl_recommendation.setText("💡 <b>Good:</b> Adding 2+ more single-person photos boosts matching accuracy to 99.86%.")
+                self.lbl_recommendation.setStyleSheet("color: #38bdf8; font-size: 11px; font-weight: 600;")
+            else:
+                self.lbl_recommendation.setText("✅ <b>Excellent Biometric Coverage:</b> Ready for high-precision recognition across varied lighting and angles.")
+                self.lbl_recommendation.setStyleSheet("color: #34d399; font-size: 11px; font-weight: 600;")
 
         self._display_references(profile)
 
     def _display_references(self, profile: dict[str, Any]):
+        is_group = bool(profile.get("is_group_profile"))
+        cards: list[QWidget] = []
+
+        if is_group:
+            compulsory_ids = profile.get("compulsory_profile_ids", [])
+            self.lbl_ref_section.setText(f"<b>Group Members ({len(compulsory_ids)} Linked Profiles)</b>")
+
+            for m_id in compulsory_ids:
+                m_prof = self.profile_service.get_profile(m_id)
+                if m_prof:
+                    card = GroupMemberCard(m_prof, on_click=self._on_member_card_clicked)
+                    cards.append(card)
+
+            if not cards:
+                empty_card = QFrame()
+                empty_card.setStyleSheet("background-color: #0f172a; border: 1px dashed #334155; border-radius: 10px; padding: 20px;")
+                ec_layout = QVBoxLayout(empty_card)
+                lbl = QLabel("👥 No member profiles linked yet.\nClick '⚙️ Settings' above to choose compulsory people.")
+                lbl.setStyleSheet("color: #94a3b8; font-size: 13px; text-align: center;")
+                lbl.setAlignment(Qt.AlignCenter)
+                ec_layout.addWidget(lbl)
+                cards.append(empty_card)
+
+            self.grid_widget.set_cards(cards)
+            return
+
         references = profile.get("references", [])
         self.lbl_ref_section.setText(f"<b>Enrolled Reference Photos ({len(references)})</b>")
-
-        cards: list[QWidget] = []
 
         # 1. Add Photo Action Tile (Fluid expanding width)
         add_tile = QFrame()
@@ -891,6 +1004,10 @@ class PeoplePage(QWidget):
             cards.append(card)
 
         self.grid_widget.set_cards(cards)
+
+    def _on_member_card_clicked(self, member_id: str):
+        if member_id:
+            self.refresh(select_profile_id=member_id)
 
     def _on_ref_toggled(self, ref_id: str, is_checked: bool):
         if is_checked:
@@ -1070,6 +1187,19 @@ class PeoplePage(QWidget):
             QMessageBox.warning(self, "No Profile Selected", "Please select or create a profile first.")
             return
 
+        profile = self.profile_service.get_profile(self.current_profile_id)
+        if not profile:
+            return
+
+        if profile.get("is_group_profile"):
+            QMessageBox.information(
+                self,
+                "Group Profile",
+                "Group profiles automatically use reference photos from their member individual profiles.\n\n"
+                "To add reference photos, select an individual person profile and add photos there.",
+            )
+            return
+
         file_path, _ = QFileDialog.getOpenFileName(
             self,
             "Select Reference Photo",
@@ -1080,15 +1210,26 @@ class PeoplePage(QWidget):
             return
 
         p_path = Path(file_path)
-        _, locations, crops = self.profile_service.detect_faces_in_reference(p_path)
+        _, locations, _ = self.profile_service.detect_faces_in_reference(p_path)
+
+        if len(locations) == 0:
+            QMessageBox.warning(
+                self,
+                "No Face Detected",
+                "No human face was detected in this image. Please select a clear photo containing a face.",
+            )
+            return
+
+        if len(locations) > 1:
+            QMessageBox.warning(
+                self,
+                "Multiple Faces Detected",
+                f"Multiple faces ({len(locations)} faces) were detected in this image.\n\n"
+                "Only single-face images are allowed for individual profiles. Please select a photo containing only 1 person.",
+            )
+            return
 
         selected_idx = 0
-        if len(locations) > 1:
-            dlg = FaceSelectorDialog(self, crops)
-            if dlg.exec() == FaceSelectorDialog.Accepted:
-                selected_idx = dlg.selected_index
-            else:
-                return
 
         # Show processing indicator
         self.btn_add_ref.setEnabled(False)
@@ -1114,6 +1255,16 @@ class PeoplePage(QWidget):
 
     def _open_live_face_scanner(self, profile_id: str | None = None):
         """Open interactive 360° live webcam face scanner dialog."""
+        if profile_id:
+            profile = self.profile_service.get_profile(profile_id)
+            if profile and profile.get("is_group_profile"):
+                QMessageBox.information(
+                    self,
+                    "Group Profile",
+                    "360° Face Scan is only available for individual person profiles.",
+                )
+                return
+
         engine = self.face_engine or getattr(self.profile_service, "face_engine", None)
         if not engine:
             QMessageBox.warning(self, "Engine Not Available", "Face recognition engine is not initialized.")
@@ -1134,18 +1285,39 @@ class PeoplePage(QWidget):
         if not self.current_profile_id:
             QMessageBox.warning(self, "No Person Selected", "Please select a person profile first.")
             return
+
+        profile = self.profile_service.get_profile(self.current_profile_id)
+        if profile and profile.get("is_group_profile"):
+            QMessageBox.information(
+                self,
+                "Group Profile",
+                "360° Face Scan is only available for individual person profiles.",
+            )
+            return
+
         self._open_live_face_scanner(self.current_profile_id)
 
     def _batch_train_profile(self):
         if not self.current_profile_id:
             return
 
+        profile = self.profile_service.get_profile(self.current_profile_id)
+        if not profile:
+            return
+
+        if profile.get("is_group_profile"):
+            QMessageBox.information(
+                self,
+                "Group Profile",
+                "Batch training is only available for individual person profiles.",
+            )
+            return
+
         folder = QFileDialog.getExistingDirectory(self, "Select Folder Containing Photos of Person")
         if not folder:
             return
 
-        profile = self.profile_service.get_profile(self.current_profile_id)
-        p_name = profile.get("name", "Person") if profile else "Person"
+        p_name = profile.get("name", "Person")
 
         self.btn_batch_train.setEnabled(False)
         self.btn_batch_train.setText("⏳ Training...")
@@ -1180,7 +1352,7 @@ class PeoplePage(QWidget):
             return
 
         profile = self.profile_service.get_profile(self.current_profile_id)
-        if not profile:
+        if not profile or profile.get("is_group_profile"):
             return
 
         p_name = profile.get("name", "this person")
@@ -1485,14 +1657,16 @@ class CreateProfileDialog(QDialog):
         btn_layout.addStretch()
 
         if not self.initial_profile:
-            btn_scan_cam = QPushButton("🎥 Scan with Camera")
-            btn_scan_cam.setProperty("class", "SecondaryButton")
-            btn_scan_cam.setCursor(Qt.PointingHandCursor)
-            btn_scan_cam.setFixedHeight(36)
-            btn_scan_cam.setStyleSheet("background-color: #1e3a8a; border: 1px solid #38bdf8; color: #38bdf8; font-weight: 700; padding: 0 16px;")
-            btn_scan_cam.setToolTip("Open live camera to capture 5-angle 360° face photos for this person.")
-            btn_scan_cam.clicked.connect(self._on_scan_with_camera)
-            btn_layout.addWidget(btn_scan_cam)
+            self.btn_scan_cam = QPushButton("🎥 Scan with Camera")
+            self.btn_scan_cam.setProperty("class", "SecondaryButton")
+            self.btn_scan_cam.setCursor(Qt.PointingHandCursor)
+            self.btn_scan_cam.setFixedHeight(36)
+            self.btn_scan_cam.setStyleSheet("background-color: #1e3a8a; border: 1px solid #38bdf8; color: #38bdf8; font-weight: 700; padding: 0 16px;")
+            self.btn_scan_cam.setToolTip("Open live camera to capture 5-angle 360° face photos for this person.")
+            self.btn_scan_cam.clicked.connect(self._on_scan_with_camera)
+            self.btn_scan_cam.setVisible(not self.is_group_profile)
+            self.radio_group.toggled.connect(lambda is_grp: self.btn_scan_cam.setVisible(not is_grp))
+            btn_layout.addWidget(self.btn_scan_cam)
 
         btn_text = "💾 Save Changes" if self.initial_profile else "👤 Create Profile"
         self.btn_ok = QPushButton(btn_text)
