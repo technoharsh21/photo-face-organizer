@@ -15,17 +15,28 @@ class AsyncTask(QThread):
     """Runs ``fn(*args, **kwargs)`` in a background thread.
 
     Emit ``result_ready(result)`` on success or ``failed(error_string)`` on
-    the UI thread. Keep a reference to the instance until it finishes.
+    the UI thread. Retains a reference to running tasks to guarantee the thread
+    is never destroyed prematurely by garbage collection.
     """
 
     result_ready = Signal(object)
     failed = Signal(str)
+
+    _running_tasks: set["AsyncTask"] = set()
 
     def __init__(self, fn: Callable[..., Any], *args: Any, parent=None, **kwargs: Any):
         super().__init__(parent)
         self._fn = fn
         self._args = args
         self._kwargs = kwargs
+        self.finished.connect(self._on_finished)
+
+    def start(self, priority=QThread.Priority.InheritPriority):
+        AsyncTask._running_tasks.add(self)
+        super().start(priority)
+
+    def _on_finished(self):
+        AsyncTask._running_tasks.discard(self)
 
     def run(self):
         try:

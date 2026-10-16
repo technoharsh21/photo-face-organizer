@@ -1,11 +1,14 @@
 """
 Duplicate Service Module.
 
-Scans directories for duplicate images using fast size pre-filtering and SHA-256 content hashing.
+Scans directories for duplicate images using fast size pre-filtering and SHA-256 content hashing,
+as well as perceptual hashing (pHash/dHash) to detect mobile copies, recompressed JPEGs, and photos
+with modified EXIF metadata.
 Provides smart auto-selection rules (Keep Oldest, Keep Newest, Keep Shortest Path)
 and safe cleanup options (OS Trash / Recycle Bin or Permanent Delete).
 """
 
+from concurrent.futures import ThreadPoolExecutor
 import datetime
 import hashlib
 import logging
@@ -15,11 +18,31 @@ import shutil
 from pathlib import Path
 from typing import Any
 
+import numpy as np
+from PIL import Image, ImageOps
+
 from config import Config
 from domain.file_utils import send_to_trash
 from domain.scanner import discover_photos
 
 logger = logging.getLogger(__name__)
+
+# Precomputed 32x32 DCT basis matrix for fallback/deterministic DCT
+_N_DCT = 32
+_DCT_MATRIX = np.zeros((_N_DCT, _N_DCT), dtype=np.float32)
+for _i in range(_N_DCT):
+    for _j in range(_N_DCT):
+        if _i == 0:
+            _DCT_MATRIX[_i, _j] = 1.0 / np.sqrt(_N_DCT)
+        else:
+            _DCT_MATRIX[_i, _j] = np.sqrt(2.0 / _N_DCT) * np.cos(np.pi * (2 * _j + 1) * _i / (2.0 * _N_DCT))
+
+try:
+    import cv2
+    _CV2_AVAILABLE = True
+except ImportError:
+    cv2 = None
+    _CV2_AVAILABLE = False
 
 # Regex pattern detecting copy indicators like " - Copy", " (1)", "_copy", "_1", " (2)", etc.
 COPY_NAME_PATTERN = re.compile(
@@ -70,15 +93,70 @@ class DuplicateService:
                 hasher.update(chunk)
         return hasher.hexdigest()
 
+    @staticmethod
+    def compute_perceptual_hash(file_path: Path) -> tuple[int | None, float, np.ndarray | None]:
+        """
+        Computes a 128-bit perceptual hash (64-bit DCT pHash + 64-bit dHash),
+        image aspect ratio, and an 8x8 RGB color thumbnail.
+        Returns (hash_128, aspect_ratio, color_thumb).
+        If loading fails or file is not an image, returns (None, 0.0, None).
+        """
+        try:
+            with Image.open(file_path) as img:
+                img = ImageOps.exif_transpose(img)
+                w, h = img.size
+                if w <= 0 or h <= 0:
+                    return None, 0.0, None
+                ar = float(w) / float(h)
+
+                # 8x8 RGB color thumbnail for color validation
+                color_thumb = np.asarray(
+                    img.convert("RGB").resize((8, 8), Image.Resampling.BILINEAR),
+                    dtype=np.uint8,
+                )
+
+                # 1. 64-bit DCT pHash
+                p_img = img.convert("L").resize((32, 32), Image.Resampling.BILINEAR)
+                arr = np.float32(p_img)
+                if _CV2_AVAILABLE and cv2 is not None:
+                    try:
+                        dct = cv2.dct(arr)
+                    except Exception:
+                        dct = _DCT_MATRIX @ arr @ _DCT_MATRIX.T
+                else:
+                    dct = _DCT_MATRIX @ arr @ _DCT_MATRIX.T
+
+                dct_low = dct[:8, :8]
+                med = np.median(dct_low[1:, 1:])
+                phash_bits = (dct_low > med).flatten()
+                phash_int = int.from_bytes(np.packbits(phash_bits).tobytes(), "big")
+
+                # 2. 64-bit difference hash (dHash)
+                d_img = img.convert("L").resize((9, 8), Image.Resampling.BILINEAR)
+                d_arr = np.asarray(d_img)
+                dhash_bits = (d_arr[:, 1:] > d_arr[:, :-1]).flatten()
+                dhash_int = int.from_bytes(np.packbits(dhash_bits).tobytes(), "big")
+
+                combined = (phash_int << 64) | dhash_int
+                return combined, ar, color_thumb
+        except Exception:
+            return None, 0.0, None
+
     def scan_directories_for_duplicates(
-        self, sources: list[str | Path], recursive: bool = True
+        self,
+        sources: list[str | Path],
+        recursive: bool = True,
+        method: str = "visual",
+        max_distance: int = 8,
     ) -> list[dict[str, Any]]:
         """
         Scans directories for duplicate images.
-        Step 1: Discover all image files.
-        Step 2: Group by file size (instant filter).
-        Step 3: For sizes with 2+ files, compute SHA-256 hash.
-        Step 4: Group by hash and return list of duplicate sets.
+
+        Modes:
+        - 'visual': Computes perceptual hash (pHash/dHash) and color signature in addition
+          to fast SHA-256 pre-clustering. Catches exact duplicates as well as mobile copies
+          (e.g. 'photo (1).jpg' with modified EXIF timestamps or slight recompression).
+        - 'exact': Strict byte-for-byte SHA-256 matching.
         """
         resolved_sources = [Path(s).resolve() for s in sources if s]
         photo_paths = discover_photos(sources, recursive=recursive)
@@ -99,6 +177,13 @@ class DuplicateService:
         if not valid_paths:
             return []
 
+        if method == "exact":
+            return self._scan_exact_duplicates(valid_paths)
+        else:
+            return self._scan_visual_duplicates(valid_paths, max_distance=max_distance)
+
+    def _scan_exact_duplicates(self, valid_paths: list[Path]) -> list[dict[str, Any]]:
+        """Scans directories for exact byte-for-byte duplicate images using SHA-256."""
         # Step 1: Group by file size
         size_groups: dict[int, list[Path]] = {}
         for p in valid_paths:
@@ -133,26 +218,7 @@ class DuplicateService:
 
         for f_hash, files in hash_groups.items():
             if len(files) >= 2:
-                file_items = []
-                for p in files:
-                    try:
-                        st = p.stat()
-                        mtime_iso = datetime.datetime.fromtimestamp(st.st_mtime).strftime("%Y-%m-%d %H:%M:%S")
-                        ctime = getattr(st, "st_birthtime", None) or getattr(st, "st_ctime", st.st_mtime)
-                        file_items.append({
-                            "path": str(p),
-                            "filename": p.name,
-                            "size": st.st_size,
-                            "formatted_size": format_bytes(st.st_size),
-                            "mtime": st.st_mtime,
-                            "ctime": ctime,
-                            "formatted_mtime": mtime_iso,
-                            "is_recommended_keep": False,
-                            "is_selected_for_removal": False,
-                        })
-                    except Exception:
-                        pass
-
+                file_items = self._build_file_items(files)
                 if len(file_items) >= 2:
                     sample_name = file_items[0]["filename"]
                     single_size = file_items[0]["size"]
@@ -172,6 +238,152 @@ class DuplicateService:
 
         self.apply_auto_select_rule(duplicate_sets, rule="keep_oldest")
         return duplicate_sets
+
+    def _scan_visual_duplicates(
+        self, valid_paths: list[Path], max_distance: int = 8
+    ) -> list[dict[str, Any]]:
+        """
+        Scans directories for duplicate images using perceptual hashing (pHash + dHash)
+        combined with exact SHA-256 matching.
+        Catches exact clones, mobile duplicates with modified EXIF, and recompressed copies.
+        """
+        n = len(valid_paths)
+        parent = list(range(n))
+
+        def find(i: int) -> int:
+            path = []
+            while parent[i] != i:
+                path.append(i)
+                i = parent[i]
+            for node in path:
+                parent[node] = i
+            return i
+
+        def union(i: int, j: int):
+            root_i = find(i)
+            root_j = find(j)
+            if root_i != root_j:
+                parent[root_i] = root_j
+
+        # Pass 1: Quick SHA-256 matching for exact identical byte files
+        size_groups: dict[int, list[int]] = {}
+        for idx, p in enumerate(valid_paths):
+            try:
+                st = p.stat()
+                if st.st_size > 0:
+                    size_groups.setdefault(st.st_size, []).append(idx)
+            except Exception:
+                pass
+
+        sha_map: dict[str, int] = {}
+        for size, indices in size_groups.items():
+            if len(indices) >= 2:
+                for idx in indices:
+                    try:
+                        f_hash = self.compute_file_hash(valid_paths[idx])
+                        if f_hash in sha_map:
+                            union(idx, sha_map[f_hash])
+                        else:
+                            sha_map[f_hash] = idx
+                    except Exception:
+                        pass
+
+        # Pass 2: Concurrent perceptual hash extraction
+        workers = min(8, os.cpu_count() or 4)
+        with ThreadPoolExecutor(max_workers=workers) as executor:
+            phashes = list(executor.map(self.compute_perceptual_hash, valid_paths))
+
+        # Pass 3: Pairwise comparison with DSU clustering
+        for i in range(n):
+            h_i, ar_i, c_i = phashes[i]
+            if h_i is None or c_i is None:
+                continue
+
+            for j in range(i + 1, n):
+                if find(i) == find(j):
+                    continue
+
+                h_j, ar_j, c_j = phashes[j]
+                if h_j is None or c_j is None:
+                    continue
+
+                # Verify aspect ratio compatibility (within ~8%)
+                if abs(ar_i - ar_j) > 0.08:
+                    continue
+
+                # Verify Hamming distance (pHash + dHash <= max_distance)
+                dist = (h_i ^ h_j).bit_count()
+                if dist > max_distance:
+                    continue
+
+                # Verify mean color thumbnail difference (ensures solid color images aren't confused)
+                color_diff = float(np.mean(np.abs(c_i.astype(float) - c_j.astype(float))))
+                if color_diff > 12.0:
+                    continue
+
+                union(i, j)
+
+        # Pass 4: Build duplicate sets from clusters
+        clusters: dict[int, list[Path]] = {}
+        for idx, p in enumerate(valid_paths):
+            clusters.setdefault(find(idx), []).append(p)
+
+        duplicate_sets: list[dict[str, Any]] = []
+        set_idx = 1
+
+        for root_idx, files in clusters.items():
+            if len(files) >= 2:
+                file_items = self._build_file_items(files)
+                if len(file_items) >= 2:
+                    sample_name = file_items[0]["filename"]
+                    single_size = max(f["size"] for f in file_items)
+                    total_size = sum(f["size"] for f in file_items)
+                    potential_savings = total_size - file_items[0]["size"]
+
+                    # Representative hash
+                    try:
+                        rep_hash = self.compute_file_hash(files[0])
+                    except Exception:
+                        rep_hash = f"group_{set_idx}"
+
+                    duplicate_sets.append({
+                        "set_id": f"set_{set_idx}",
+                        "hash": rep_hash,
+                        "sample_name": sample_name,
+                        "file_count": len(file_items),
+                        "single_size": single_size,
+                        "potential_savings": potential_savings,
+                        "formatted_savings": format_bytes(potential_savings),
+                        "files": file_items,
+                    })
+                    set_idx += 1
+
+        self.apply_auto_select_rule(duplicate_sets, rule="keep_oldest")
+        return duplicate_sets
+
+    @staticmethod
+    def _build_file_items(files: list[Path]) -> list[dict[str, Any]]:
+        """Build structured metadata dictionaries for a list of file paths."""
+        file_items = []
+        for p in files:
+            try:
+                st = p.stat()
+                mtime_iso = datetime.datetime.fromtimestamp(st.st_mtime).strftime("%Y-%m-%d %H:%M:%S")
+                ctime = getattr(st, "st_birthtime", None) or getattr(st, "st_ctime", st.st_mtime)
+                file_items.append({
+                    "path": str(p),
+                    "filename": p.name,
+                    "size": st.st_size,
+                    "formatted_size": format_bytes(st.st_size),
+                    "mtime": st.st_mtime,
+                    "ctime": ctime,
+                    "formatted_mtime": mtime_iso,
+                    "is_recommended_keep": False,
+                    "is_selected_for_removal": False,
+                })
+            except Exception:
+                pass
+        return file_items
 
     def apply_auto_select_rule(
         self, duplicate_sets: list[dict[str, Any]], rule: str = "keep_oldest"
@@ -199,8 +411,8 @@ class DuplicateService:
                     ctime = x.get("ctime", mtime)
                     filename = x.get("filename", "")
                     path = x.get("path", "")
-                    # Priority: Earliest mtime -> Earliest ctime -> Original clean name -> Shorter filename -> Shorter path
-                    return (mtime, ctime, is_copy, len(filename), len(path), path)
+                    # Priority: Original clean name first -> Earliest mtime -> Earliest ctime -> Shorter filename -> Shorter path
+                    return (is_copy, mtime, ctime, len(filename), len(path), path)
 
                 files.sort(key=_key_oldest)
 
@@ -234,6 +446,11 @@ class DuplicateService:
                 f["is_selected_for_removal"] = True
 
             dset["sample_name"] = files[0]["filename"]
+
+            # Recalculate potential savings accurately based on files marked for removal
+            potential_savings = sum(f.get("size", 0) for f in files if f.get("is_selected_for_removal", False))
+            dset["potential_savings"] = potential_savings
+            dset["formatted_savings"] = format_bytes(potential_savings)
 
     def remove_duplicates(
         self,

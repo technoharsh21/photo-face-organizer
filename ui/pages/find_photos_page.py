@@ -417,6 +417,8 @@ class FindPhotosPage(QWidget):
         self.match_mode: str = "all"  # "all" or "solo"
         self.matched_photos: list[dict[str, Any]] = []
         self.worker: FindPhotosWorker | None = None
+        self._people_grid_task: AsyncTask | None = None
+        self._needs_refresh = True
 
         self._setup_ui()
 
@@ -1022,10 +1024,18 @@ class FindPhotosPage(QWidget):
                 pass
         self._goto_step1()
 
+    def refresh(self):
+        """Refresh person profiles grid when navigating to this page."""
+        self._load_people_grid()
+        self._needs_refresh = False
+
     # -------------------------------------------------------------------------
     # Step 1 People Grid
     # -------------------------------------------------------------------------
     def _load_people_grid(self):
+        if self._people_grid_task and self._people_grid_task.isRunning():
+            return
+
         # Clear existing items in flow layout
         while self.people_flow_layout.count():
             child = self.people_flow_layout.takeAt(0)
@@ -1041,13 +1051,17 @@ class FindPhotosPage(QWidget):
         task = AsyncTask(self.profile_service.list_profiles_summary)
 
         def on_loaded(summaries):
-            loading_lbl.deleteLater()
+            self._people_grid_task = None
             # Filter out group profiles
             individual_profiles = [p for p in summaries if not p.get("is_group_profile")]
             self._populate_people_grid(individual_profiles)
 
         def on_failed(err):
-            loading_lbl.setText(f"Failed to load profiles: {err}")
+            self._people_grid_task = None
+            try:
+                loading_lbl.setText(f"Failed to load profiles: {err}")
+            except Exception:
+                pass
             self.btn_step1_next.setEnabled(False)
 
         task.result_ready.connect(on_loaded)

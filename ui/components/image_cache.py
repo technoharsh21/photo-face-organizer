@@ -130,7 +130,10 @@ class _ThumbnailRunnable(QRunnable):
     def run(self):
         qimg = decode_cover_qimage(self.path, self.width, self.height, self.radius)
         if qimg is not None and not qimg.isNull():
-            self.signals.finished.emit(self.cache_key, self.path, qimg)
+            try:
+                self.signals.finished.emit(self.cache_key, self.path, qimg)
+            except Exception:
+                pass
 
 
 class AsyncThumbnailLoader(QObject):
