@@ -40,7 +40,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from services.duplicate_service import DuplicateService, format_bytes
+from services.duplicate_service import VIDEO_EXTENSIONS, DuplicateService, format_bytes
 from ui.components.flow_layout import FlowLayout
 from ui.components.image_cache import get_async_thumbnail_loader, load_cover_pixmap
 
@@ -51,11 +51,12 @@ class DuplicateImageCover(QWidget):
     def __init__(self, image_path: str | None = None, size: int = 110, radius: int = 8, parent=None):
         super().__init__(parent)
         self.image_path = image_path
+        self.is_video = bool(image_path and Path(image_path).suffix.lower() in VIDEO_EXTENSIONS)
         self.radius = radius
         self.setFixedSize(size, size)
         self.pixmap: QPixmap | None = None
 
-        if image_path and Path(image_path).exists():
+        if image_path and not self.is_video and Path(image_path).exists():
             get_async_thumbnail_loader().load_thumbnail_async(
                 image_path, size, size, callback=self._on_pixmap_loaded, radius=radius
             )
@@ -82,7 +83,7 @@ class DuplicateImageCover(QWidget):
             painter.setPen(Qt.NoPen)
             painter.drawRoundedRect(0, 0, w, h, self.radius, self.radius)
             painter.setPen(QColor("#64748b"))
-            painter.drawText(QRectF(0, 0, w, h), Qt.AlignCenter, "📷 Photo")
+            painter.drawText(QRectF(0, 0, w, h), Qt.AlignCenter, "🎬 Video" if self.is_video else "📷 Photo")
         painter.end()
 
 
@@ -264,12 +265,14 @@ class DuplicateScanWorker(QThread):
     finished_signal = Signal(list)
     error_signal = Signal(str)
 
-    def __init__(self, duplicate_service: DuplicateService, sources: list[str], recursive: bool, method: str = "visual"):
+    def __init__(self, duplicate_service: DuplicateService, sources: list[str], recursive: bool,
+                 method: str = "visual", include_videos: bool = False):
         super().__init__()
         self.duplicate_service = duplicate_service
         self.sources = sources
         self.recursive = recursive
         self.method = method
+        self.include_videos = include_videos
 
     def run(self):
         try:
@@ -277,6 +280,7 @@ class DuplicateScanWorker(QThread):
                 sources=self.sources,
                 recursive=self.recursive,
                 method=self.method,
+                include_videos=self.include_videos,
             )
             self.finished_signal.emit(sets)
         except Exception as exc:
@@ -347,9 +351,9 @@ class DuplicatePage(QWidget):
 
         title_box = QVBoxLayout()
         title_box.setSpacing(2)
-        title_lbl = QLabel("🔍 Duplicate Photos Manager")
+        title_lbl = QLabel("🔍 Duplicate Photos & Videos Manager")
         title_lbl.setStyleSheet("font-size: 18px; font-weight: 800; color: #ffffff;")
-        sub_title = QLabel("Identify identical duplicate photos using SHA-256 byte hashing and safely reclaim disk storage.")
+        sub_title = QLabel("Find visual photo matches and exact video copies; review before reclaiming disk space.")
         sub_title.setStyleSheet("color: #94a3b8; font-size: 12px;")
         title_box.addWidget(title_lbl)
         title_box.addWidget(sub_title)
@@ -415,6 +419,12 @@ class DuplicatePage(QWidget):
         self.chk_recursive.setCursor(Qt.PointingHandCursor)
         self.chk_recursive.setStyleSheet("color: #ffffff; font-weight: 600; font-size: 13px;")
 
+        self.chk_videos = QCheckBox("🎬 Include videos (exact copies)")
+        self.chk_videos.setChecked(False)
+        self.chk_videos.setCursor(Qt.PointingHandCursor)
+        self.chk_videos.setToolTip("Off: scan photos only. On: also find byte-for-byte identical videos.")
+        self.chk_videos.setStyleSheet("color: #ffffff; font-weight: 600; font-size: 13px;")
+
         self.combo_scan_mode = QComboBox()
         self.combo_scan_mode.setCursor(Qt.PointingHandCursor)
         self.combo_scan_mode.setFixedHeight(36)
@@ -423,8 +433,8 @@ class DuplicatePage(QWidget):
             "⚡ Exact Match (Byte-for-Byte)",
         ])
         self.combo_scan_mode.setToolTip(
-            "Visual mode detects mobile copies, recompressed photos, and images with modified EXIF timestamps.\n"
-            "Exact Match only detects bit-for-bit identical files."
+            "Visual mode detects mobile copies and recompressed photos; videos use exact matching.\n"
+            "Exact Match only detects bit-for-bit identical photos and videos."
         )
         self.combo_scan_mode.setStyleSheet("""
             QComboBox {
@@ -470,6 +480,7 @@ class DuplicatePage(QWidget):
         top_btns.addWidget(btn_add_folder)
         top_btns.addWidget(btn_clear)
         top_btns.addWidget(self.chk_recursive)
+        top_btns.addWidget(self.chk_videos)
         top_btns.addWidget(self.combo_scan_mode)
         top_btns.addStretch()
         top_btns.addWidget(self.btn_scan)
@@ -641,13 +652,13 @@ class DuplicatePage(QWidget):
             "QPushButton { background-color: #dc2626; color: #ffffff; font-weight: 700; border-radius: 8px; padding: 0 18px; font-size: 13px; border: none; }"
             "QPushButton:hover { background-color: #b91c1c; }"
         )
-        self.btn_delete.setToolTip("Safely delete selected duplicate photos to recycle bin.")
+        self.btn_delete.setToolTip("Safely move selected duplicate photos and videos to the recycle bin.")
         self.btn_delete.clicked.connect(self._delete_selected)
         self.btn_ignore = QPushButton("⏭️ Ignore This Group")
         self.btn_ignore.setProperty("class", "SecondaryButton")
         self.btn_ignore.setCursor(Qt.PointingHandCursor)
         self.btn_ignore.setFixedHeight(36)
-        self.btn_ignore.setToolTip("Leave these photos untouched and move to the next group. A rescan shows them again.")
+        self.btn_ignore.setToolTip("Leave these files untouched and move to the next group. A rescan shows them again.")
         self.btn_ignore.clicked.connect(self._ignore_current_group)
         actions_l.addWidget(self.btn_ignore)
         actions_l.addWidget(self.btn_delete)
@@ -676,14 +687,14 @@ class DuplicatePage(QWidget):
         self.refresh()
 
     def _choose_folder(self):
-        folder = QFileDialog.getExistingDirectory(self, "Select Folder to Scan for Duplicates")
+        folder = QFileDialog.getExistingDirectory(self, "Select Folder to Scan for Duplicate Photos and Videos")
         if folder:
             p_str = str(Path(folder).resolve())
             self.sources = [p_str]
             self._update_sources_label()
 
     def _add_folder(self):
-        folder = QFileDialog.getExistingDirectory(self, "Add Another Folder to Scan for Duplicates")
+        folder = QFileDialog.getExistingDirectory(self, "Add Another Folder to Scan for Duplicate Photos and Videos")
         if folder:
             p_str = str(Path(folder).resolve())
             if p_str not in self.sources:
@@ -717,7 +728,9 @@ class DuplicatePage(QWidget):
 
         scan_targets = list(self.sources)
         scan_mode = "visual" if self.combo_scan_mode.currentIndex() == 0 else "exact"
-        mode_desc = "visual & mobile duplicate photos" if scan_mode == "visual" else "exact duplicate photos"
+        mode_desc = "visual photos" if scan_mode == "visual" else "exact photos"
+        if self.chk_videos.isChecked():
+            mode_desc += " and exact videos"
 
         self.btn_scan.setEnabled(False)
         self.btn_scan.setText("⏳ Scanning... Please wait")
@@ -730,6 +743,7 @@ class DuplicatePage(QWidget):
             sources=scan_targets,
             recursive=self.chk_recursive.isChecked(),
             method=scan_mode,
+            include_videos=self.chk_videos.isChecked(),
         )
         self.worker.finished_signal.connect(self._on_scan_finished)
         self.worker.error_signal.connect(self._on_scan_error)
@@ -830,13 +844,13 @@ class DuplicatePage(QWidget):
             icon_lbl.setAlignment(Qt.AlignCenter)
 
             empty_title = ("No duplicate groups left to review." if self._ignored_group_count
-                           else "All Clean! No duplicate image files found.")
+                           else "All Clean! No duplicate photos or videos found.")
             lbl_empty = QLabel(f"<b>{empty_title}</b>")
             lbl_empty.setStyleSheet("font-size: 16px; color: #34d399; background: transparent; border: none;")
             lbl_empty.setAlignment(Qt.AlignCenter)
 
             empty_detail = ("Ignored groups were not deleted and will reappear after a rescan."
-                            if self._ignored_group_count else "Your scanned photo directories are 100% deduplicated and organized.")
+                            if self._ignored_group_count else "No duplicate files were found in the selected folders.")
             lbl_sub_empty = QLabel(empty_detail)
             lbl_sub_empty.setStyleSheet("font-size: 12px; color: #94a3b8; background: transparent; border: none;")
             lbl_sub_empty.setAlignment(Qt.AlignCenter)

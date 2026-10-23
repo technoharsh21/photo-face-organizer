@@ -4,7 +4,7 @@ from PySide6.QtWidgets import QApplication, QLabel, QMessageBox
 
 from config import Config
 from services.duplicate_service import DuplicateService
-from ui.pages.duplicate_page import DuplicateFileCard, DuplicatePage, DuplicateScanWorker
+from ui.pages.duplicate_page import DuplicateFileCard, DuplicateImageCover, DuplicatePage, DuplicateScanWorker
 
 
 def test_duplicate_page_counts_actual_copies_and_savings(tmp_path, monkeypatch):
@@ -80,4 +80,35 @@ def test_ignore_group_moves_to_next_and_excludes_files_from_cleanup(tmp_path):
     page._on_scan_finished(service.scan_directories_for_duplicates([tmp_path], method="exact"))
     assert len(page.duplicate_sets) == 2
     assert page._ignored_group_count == 0
+    page.close()
+
+
+def test_video_cover_uses_video_placeholder_without_image_decoder(tmp_path, monkeypatch):
+    app = QApplication.instance() or QApplication(sys.argv)
+    video = tmp_path / "movie.mp4"
+    video.write_bytes(b"video bytes")
+    monkeypatch.setattr("ui.pages.duplicate_page.get_async_thumbnail_loader",
+                        lambda: (_ for _ in ()).throw(AssertionError("video must not use image decoder")))
+    cover = DuplicateImageCover(str(video))
+    assert cover.is_video
+    assert cover.pixmap is None
+    cover.close()
+
+
+def test_page_only_scans_videos_when_include_videos_is_checked(tmp_path, monkeypatch):
+    app = QApplication.instance() or QApplication(sys.argv)
+    (tmp_path / "clip.mp4").write_bytes(b"same clip")
+    (tmp_path / "clip-copy.mov").write_bytes(b"same clip")
+    page = DuplicatePage(DuplicateService(Config(app_data_dir=tmp_path / "data")))
+    page.sources = [str(tmp_path)]
+    monkeypatch.setattr(DuplicateScanWorker, "start", lambda worker: worker.run())
+
+    assert not page.chk_videos.isChecked()
+    page._run_duplicate_scan()
+    assert page.duplicate_sets == []
+
+    page.chk_videos.setChecked(True)
+    page._run_duplicate_scan()
+    assert len(page.duplicate_sets) == 1
+    assert page.duplicate_sets[0]["set_id"] == "video_set_1"
     page.close()

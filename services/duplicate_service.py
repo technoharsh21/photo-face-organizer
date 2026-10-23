@@ -27,6 +27,11 @@ from domain.scanner import discover_photos
 
 logger = logging.getLogger(__name__)
 
+VIDEO_EXTENSIONS = frozenset({
+    ".mp4", ".mov", ".m4v", ".avi", ".mkv", ".webm", ".wmv",
+    ".flv", ".mts", ".m2ts", ".3gp", ".mpeg", ".mpg",
+})
+
 # Precomputed 32x32 DCT basis matrix for fallback/deterministic DCT
 _N_DCT = 32
 _DCT_MATRIX = np.zeros((_N_DCT, _N_DCT), dtype=np.float32)
@@ -76,6 +81,40 @@ def _is_relative_to_compat(child: Path, parent: Path) -> bool:
         return True
     except ValueError:
         return False
+
+
+def _discover_videos(sources: list[str | Path], recursive: bool) -> list[Path]:
+    """Find videos within selected folders without following links outside them."""
+    videos: list[Path] = []
+    seen: set[Path] = set()
+    for source in sources:
+        if not source:
+            continue
+        folder = Path(source).resolve()
+        if folder.is_file():
+            candidates = [folder]
+        elif folder.is_dir() and recursive:
+            candidates = (Path(root) / name for root, _, names in os.walk(folder) for name in names)
+        elif folder.is_dir():
+            try:
+                candidates = folder.iterdir()
+            except OSError:
+                continue
+        else:
+            continue
+        for candidate in candidates:
+            if candidate.suffix.lower() not in VIDEO_EXTENSIONS:
+                continue
+            try:
+                resolved = candidate.resolve()
+                if (resolved.is_file() and resolved not in seen
+                        and (resolved == folder if folder.is_file() else
+                             (_is_relative_to_compat(resolved, folder) if recursive else resolved.parent == folder))):
+                    seen.add(resolved)
+                    videos.append(resolved)
+            except OSError:
+                continue
+    return videos
 
 
 class DuplicateService:
@@ -148,20 +187,21 @@ class DuplicateService:
         recursive: bool = True,
         method: str = "visual",
         max_distance: int = 8,
+        include_videos: bool = False,
     ) -> list[dict[str, Any]]:
         """
-        Scans directories for duplicate images.
+        Scans directories for duplicate photos and videos.
 
         Modes:
         - 'visual': Computes perceptual hash (pHash/dHash) and color signature in addition
           to fast SHA-256 pre-clustering. Catches exact duplicates as well as mobile copies
           (e.g. 'photo (1).jpg' with modified EXIF timestamps or slight recompression).
-        - 'exact': Strict byte-for-byte SHA-256 matching.
+        - 'exact': Strict byte-for-byte SHA-256 matching for photos and videos.
+        Videos are scanned only when include_videos=True, and always use exact matching.
         """
         resolved_sources = [Path(s).resolve() for s in sources if s]
         photo_paths = discover_photos(sources, recursive=recursive)
-        if not photo_paths:
-            return []
+        video_paths = _discover_videos(sources, recursive) if include_videos else []
 
         # Filter photo paths to guarantee strict path isolation within target sources
         valid_paths = []
@@ -174,16 +214,14 @@ class DuplicateService:
                 if any(p_res.parent == src or p_res == src for src in resolved_sources):
                     valid_paths.append(p_res)
 
-        if not valid_paths:
-            return []
-
         if method == "exact":
-            return self._scan_exact_duplicates(valid_paths)
+            photo_sets = self._scan_exact_duplicates(valid_paths)
         else:
-            return self._scan_visual_duplicates(valid_paths, max_distance=max_distance)
+            photo_sets = self._scan_visual_duplicates(valid_paths, max_distance=max_distance) if valid_paths else []
+        return photo_sets + self._scan_exact_duplicates(video_paths, set_prefix="video_set")
 
-    def _scan_exact_duplicates(self, valid_paths: list[Path]) -> list[dict[str, Any]]:
-        """Scans directories for exact byte-for-byte duplicate images using SHA-256."""
+    def _scan_exact_duplicates(self, valid_paths: list[Path], set_prefix: str = "set") -> list[dict[str, Any]]:
+        """Scans files for exact byte-for-byte duplicates using SHA-256."""
         # Step 1: Group by file size
         size_groups: dict[int, list[Path]] = {}
         for p in valid_paths:
@@ -218,14 +256,14 @@ class DuplicateService:
 
         for f_hash, files in hash_groups.items():
             if len(files) >= 2:
-                file_items = self._build_file_items(files)
+                file_items = self._build_file_items(files, known_hash=f_hash)
                 if len(file_items) >= 2:
                     sample_name = file_items[0]["filename"]
                     single_size = file_items[0]["size"]
                     potential_savings = single_size * (len(file_items) - 1)
 
                     duplicate_sets.append({
-                        "set_id": f"set_{set_idx}",
+                        "set_id": f"{set_prefix}_{set_idx}",
                         "hash": f_hash,
                         "sample_name": sample_name,
                         "file_count": len(file_items),
@@ -339,15 +377,9 @@ class DuplicateService:
                     total_size = sum(f["size"] for f in file_items)
                     potential_savings = total_size - file_items[0]["size"]
 
-                    # Representative hash
-                    try:
-                        rep_hash = self.compute_file_hash(files[0])
-                    except Exception:
-                        rep_hash = f"group_{set_idx}"
-
                     duplicate_sets.append({
                         "set_id": f"set_{set_idx}",
-                        "hash": rep_hash,
+                        "hash": file_items[0]["scan_hash"],
                         "sample_name": sample_name,
                         "file_count": len(file_items),
                         "single_size": single_size,
@@ -361,12 +393,12 @@ class DuplicateService:
         return duplicate_sets
 
     @staticmethod
-    def _build_file_items(files: list[Path]) -> list[dict[str, Any]]:
+    def _build_file_items(files: list[Path], known_hash: str | None = None) -> list[dict[str, Any]]:
         """Build structured metadata dictionaries for a list of file paths."""
         file_items = []
         for p in files:
             try:
-                scan_hash = DuplicateService.compute_file_hash(p)
+                scan_hash = known_hash or DuplicateService.compute_file_hash(p)
                 st = p.stat()
                 mtime_iso = datetime.datetime.fromtimestamp(st.st_mtime).strftime("%Y-%m-%d %H:%M:%S")
                 ctime = getattr(st, "st_birthtime", None) or getattr(st, "st_ctime", st.st_mtime)
