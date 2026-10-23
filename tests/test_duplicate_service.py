@@ -253,3 +253,57 @@ def test_mobile_and_recompressed_duplicate_detection(tmp_path):
     # 2. Exact mode should NOT detect them because sizes and byte hashes differ
     sets_exact = service.scan_directories_for_duplicates([dir1], recursive=True, method="exact")
     assert len(sets_exact) == 0
+
+
+def test_visual_scan_does_not_merge_different_flat_colors(tmp_path):
+    from PIL import Image
+
+    service = DuplicateService(Config(app_data_dir=tmp_path / "data"))
+    Image.new("RGB", (100, 100), (100, 100, 100)).save(tmp_path / "gray1.png")
+    Image.new("RGB", (100, 100), (110, 110, 110)).save(tmp_path / "gray2.png")
+
+    assert service.scan_directories_for_duplicates([tmp_path], method="visual") == []
+
+
+def test_visual_groups_require_every_pair_to_match(tmp_path):
+    import numpy as np
+
+    service = DuplicateService(Config(app_data_dir=tmp_path / "data"))
+    files = [tmp_path / f"{name}.jpg" for name in ("a", "b", "c")]
+    for i, path in enumerate(files):
+        path.write_bytes(bytes([i + 1]))
+
+    # A-B and B-C pass distance 2, but A-C fails distance 4.
+    thumb = np.arange(192, dtype=np.uint8).reshape(8, 8, 3)
+    hashes = dict(zip(files, (0, 3, 15)))
+    with patch.object(service, "compute_perceptual_hash", side_effect=lambda p: (hashes[p], 1.0, thumb)):
+        groups = service.scan_directories_for_duplicates([tmp_path], method="visual", max_distance=2)
+
+    assert len(groups) == 1
+    assert groups[0]["file_count"] == 2
+
+
+def test_cleanup_rechecks_both_duplicate_and_keeper(tmp_path):
+    service = DuplicateService(Config(app_data_dir=tmp_path / "data"))
+    keeper = tmp_path / "keep.jpg"
+    duplicate = tmp_path / "copy.jpg"
+    keeper.write_bytes(b"original")
+    duplicate.write_bytes(b"original")
+    expected = {str(p): service.compute_file_hash(p) for p in (keeper, duplicate)}
+    keepers = {str(duplicate): str(keeper)}
+
+    duplicate.write_bytes(b"replacement")
+    assert service.remove_duplicates([str(duplicate)], mode="delete", expected_hashes=expected,
+                                     keepers_by_path=keepers) == (0, 1, 0)
+    assert duplicate.read_bytes() == b"replacement"
+
+    duplicate.write_bytes(b"original")
+    keeper.write_bytes(b"changed keeper")
+    assert service.remove_duplicates([str(duplicate)], mode="delete", expected_hashes=expected,
+                                     keepers_by_path=keepers) == (0, 1, 0)
+    assert duplicate.exists()
+
+    keeper.write_bytes(b"original")
+    assert service.remove_duplicates([str(duplicate)], mode="delete", expected_hashes=expected,
+                                     keepers_by_path=keepers) == (1, 0, len(b"original"))
+    assert not duplicate.exists()

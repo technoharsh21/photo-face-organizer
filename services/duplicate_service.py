@@ -249,6 +249,7 @@ class DuplicateService:
         """
         n = len(valid_paths)
         parent = list(range(n))
+        members = {i: [i] for i in range(n)}
 
         def find(i: int) -> int:
             path = []
@@ -264,6 +265,7 @@ class DuplicateService:
             root_j = find(j)
             if root_i != root_j:
                 parent[root_i] = root_j
+                members[root_j].extend(members.pop(root_i))
 
         # Pass 1: Quick SHA-256 matching for exact identical byte files
         size_groups: dict[int, list[int]] = {}
@@ -276,11 +278,13 @@ class DuplicateService:
                 pass
 
         sha_map: dict[str, int] = {}
+        exact_hashes: dict[int, str] = {}
         for size, indices in size_groups.items():
             if len(indices) >= 2:
                 for idx in indices:
                     try:
                         f_hash = self.compute_file_hash(valid_paths[idx])
+                        exact_hashes[idx] = f_hash
                         if f_hash in sha_map:
                             union(idx, sha_map[f_hash])
                         else:
@@ -293,35 +297,30 @@ class DuplicateService:
         with ThreadPoolExecutor(max_workers=workers) as executor:
             phashes = list(executor.map(self.compute_perceptual_hash, valid_paths))
 
-        # Pass 3: Pairwise comparison with DSU clustering
-        for i in range(n):
+        def compatible(i: int, j: int) -> bool:
+            if i in exact_hashes and exact_hashes.get(i) == exact_hashes.get(j):
+                return True
             h_i, ar_i, c_i = phashes[i]
-            if h_i is None or c_i is None:
-                continue
+            h_j, ar_j, c_j = phashes[j]
+            if h_i is None or c_i is None or h_j is None or c_j is None:
+                return False
+            if abs(ar_i - ar_j) / max(ar_i, ar_j) > 0.08:
+                return False
+            if (h_i ^ h_j).bit_count() > max_distance:
+                return False
+            # Flat images share perceptual hashes even when their actual colors differ.
+            if (np.std(c_i) < 5 or np.std(c_j) < 5) and not np.array_equal(c_i, c_j):
+                return False
+            return float(np.mean(np.abs(c_i.astype(float) - c_j.astype(float)))) <= 12.0
 
+        # Pass 3: A group is safe only when every member matches every other member.
+        for i in range(n):
             for j in range(i + 1, n):
-                if find(i) == find(j):
-                    continue
-
-                h_j, ar_j, c_j = phashes[j]
-                if h_j is None or c_j is None:
-                    continue
-
-                # Verify aspect ratio compatibility (within ~8%)
-                if abs(ar_i - ar_j) > 0.08:
-                    continue
-
-                # Verify Hamming distance (pHash + dHash <= max_distance)
-                dist = (h_i ^ h_j).bit_count()
-                if dist > max_distance:
-                    continue
-
-                # Verify mean color thumbnail difference (ensures solid color images aren't confused)
-                color_diff = float(np.mean(np.abs(c_i.astype(float) - c_j.astype(float))))
-                if color_diff > 12.0:
-                    continue
-
-                union(i, j)
+                root_i, root_j = find(i), find(j)
+                if root_i != root_j and all(
+                    compatible(a, b) for a in members[root_i] for b in members[root_j]
+                ):
+                    union(i, j)
 
         # Pass 4: Build duplicate sets from clusters
         clusters: dict[int, list[Path]] = {}
@@ -367,6 +366,7 @@ class DuplicateService:
         file_items = []
         for p in files:
             try:
+                scan_hash = DuplicateService.compute_file_hash(p)
                 st = p.stat()
                 mtime_iso = datetime.datetime.fromtimestamp(st.st_mtime).strftime("%Y-%m-%d %H:%M:%S")
                 ctime = getattr(st, "st_birthtime", None) or getattr(st, "st_ctime", st.st_mtime)
@@ -378,6 +378,7 @@ class DuplicateService:
                     "mtime": st.st_mtime,
                     "ctime": ctime,
                     "formatted_mtime": mtime_iso,
+                    "scan_hash": scan_hash,
                     "is_recommended_keep": False,
                     "is_selected_for_removal": False,
                 })
@@ -458,6 +459,8 @@ class DuplicateService:
         mode: str = "trash",
         progress_cb: Any = None,
         cancel_check: Any = None,
+        expected_hashes: dict[str, str] | None = None,
+        keepers_by_path: dict[str, str] | None = None,
     ) -> tuple[int, int, int]:
         """
         Removes selected duplicate files by moving them to OS Trash / Recycle Bin or permanently deleting them.
@@ -481,9 +484,20 @@ class DuplicateService:
 
             p = Path(p_str)
             if not p.exists():
+                if expected_hashes is not None:
+                    error_count += 1
                 continue
 
             try:
+                if expected_hashes is not None:
+                    keeper_path = (keepers_by_path or {}).get(p_str)
+                    if (not keeper_path or keeper_path == p_str
+                            or p_str not in expected_hashes or keeper_path not in expected_hashes
+                            or self.compute_file_hash(p) != expected_hashes[p_str]
+                            or self.compute_file_hash(Path(keeper_path)) != expected_hashes[keeper_path]):
+                        logger.warning("Skipping changed duplicate or keeper: %s", p_str)
+                        error_count += 1
+                        continue
                 f_size = p.stat().st_size
                 if mode == "trash":
                     trashed = send_to_trash(p)
