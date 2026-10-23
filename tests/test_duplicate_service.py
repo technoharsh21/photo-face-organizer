@@ -37,6 +37,31 @@ def test_duplicate_detection_and_grouping(tmp_path):
     assert dset["potential_savings"] == len(content_a)
 
 
+def test_exact_scan_skips_full_hash_for_different_prefixes_but_checks_matching_prefixes(tmp_path):
+    service = DuplicateService(Config(app_data_dir=tmp_path / "appdata"))
+    files = [tmp_path / f"{i}.jpg" for i in range(4)]
+    for path, data in zip(files, (b"a" * 4096 + b"x", b"a" * 4096 + b"y",
+                                   b"b" * 4096 + b"x", b"b" * 4096 + b"x")):
+        path.write_bytes(data)
+
+    with patch.object(service, "compute_file_hash", wraps=service.compute_file_hash) as hash_file:
+        groups = service.scan_directories_for_duplicates([tmp_path])
+
+    assert len(groups) == 1
+    assert {f["path"] for f in groups[0]["files"]} == {str(files[2]), str(files[3])}
+    assert hash_file.call_count == 4  # Same-prefix candidates still need full verification.
+
+
+def test_exact_scan_skips_full_hash_when_same_size_prefixes_differ(tmp_path):
+    service = DuplicateService(Config(app_data_dir=tmp_path / "appdata"))
+    (tmp_path / "a.jpg").write_bytes(b"a" * 5000)
+    (tmp_path / "b.jpg").write_bytes(b"b" * 5000)
+
+    with patch.object(service, "compute_file_hash", wraps=service.compute_file_hash) as hash_file:
+        assert service.scan_directories_for_duplicates([tmp_path]) == []
+    hash_file.assert_not_called()
+
+
 def test_auto_select_rules(tmp_path):
     config = Config(app_data_dir=tmp_path / "appdata")
     service = DuplicateService(config)
@@ -253,6 +278,57 @@ def test_mobile_and_recompressed_duplicate_detection(tmp_path):
     # 2. Exact mode should NOT detect them because sizes and byte hashes differ
     sets_exact = service.scan_directories_for_duplicates([dir1], recursive=True, method="exact")
     assert len(sets_exact) == 0
+    assert service.scan_directories_for_duplicates([dir1]) == []
+
+
+def test_quality_keeps_high_resolution_copy_even_when_older_is_smaller(tmp_path):
+    from PIL import Image, ImageDraw
+
+    service = DuplicateService(Config(app_data_dir=tmp_path / "data"))
+    large = Image.new("RGB", (160, 160), "white")
+    ImageDraw.Draw(large).rectangle((20, 20, 100, 100), fill="blue")
+    large.save(tmp_path / "photo (1).png")
+    large.resize((80, 80)).save(tmp_path / "photo.png")
+
+    groups = service.scan_directories_for_duplicates([tmp_path], method="visual")
+    assert len(groups) == 1
+    assert next(f for f in groups[0]["files"] if f["is_recommended_keep"])["filename"] == "photo (1).png"
+
+
+def test_visual_scan_emits_completed_groups_and_can_stop(tmp_path):
+    from PIL import Image, ImageDraw
+
+    service = DuplicateService(Config(app_data_dir=tmp_path / "data"))
+    for prefix, color in (("first", "red"), ("second", "green")):
+        image = Image.new("RGB", (100, 100), "white")
+        ImageDraw.Draw(image).rectangle((20, 20, 70, 70), fill=color)
+        for suffix in ("", "-copy"):
+            image.save(tmp_path / f"{prefix}{suffix}.png")
+
+    seen = []
+    stopped = False
+
+    def on_group(group):
+        nonlocal stopped
+        seen.append(group)
+        stopped = True
+
+    groups = service.scan_directories_for_duplicates([tmp_path], on_group=on_group,
+                                                     cancel_check=lambda: stopped)
+    assert len(groups) == len(seen) == 1
+    assert {f["filename"] for f in groups[0]["files"]} == {"first.png", "first-copy.png"}
+
+
+def test_exact_scan_preserves_completed_groups_when_stopped(tmp_path):
+    service = DuplicateService(Config(app_data_dir=tmp_path / "data"))
+    for name, data in (("one.jpg", b"first"), ("one-copy.jpg", b"first"),
+                       ("two.jpg", b"second"), ("two-copy.jpg", b"second")):
+        (tmp_path / name).write_bytes(data)
+    seen = []
+    groups = service.scan_directories_for_duplicates(
+        [tmp_path], method="exact", on_group=seen.append, cancel_check=lambda: bool(seen))
+    assert len(groups) == len(seen) == 1
+    assert groups[0]["files"] == seen[0]["files"]
 
 
 def test_visual_scan_does_not_merge_different_flat_colors(tmp_path):

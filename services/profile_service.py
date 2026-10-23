@@ -631,7 +631,10 @@ class ProfileService:
 
             width, height = pil_img.size
             if bbox and len(bbox) == 4 and sum(bbox) > 0:
-                top, right, bottom, left = int(bbox[0]), int(bbox[1]), int(bbox[2]), int(bbox[3])
+                top, right, bottom, left = (
+                    int(v) if v == v and abs(v) != float("inf") else 0  # guard NaN/Inf -> OverflowError
+                    for v in (bbox[0], bbox[1], bbox[2], bbox[3])
+                )
                 crop_w = max(1, right - left)
                 crop_h = max(1, bottom - top)
                 c_top = max(0, top)

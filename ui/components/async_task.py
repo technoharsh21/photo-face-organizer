@@ -5,10 +5,13 @@ Reusable QThread wrapper that runs a blocking callable off the GUI event loop
 and delivers its result (or exception) back to the UI thread via Qt signals.
 """
 
+import logging
 import traceback
 from typing import Any, Callable
 
 from PySide6.QtCore import QThread, Signal
+
+logger = logging.getLogger(__name__)
 
 
 class AsyncTask(QThread):
@@ -39,10 +42,21 @@ class AsyncTask(QThread):
         AsyncTask._running_tasks.discard(self)
 
     def run(self):
+        fn_name = getattr(self._fn, "__qualname__", None) or getattr(self._fn, "__name__", repr(self._fn))
         try:
             result = self._fn(*self._args, **self._kwargs)
-        except Exception as exc:  # noqa: BLE001 - report every failure to UI
-            traceback.print_exc()
+        except Exception as exc:
+            tb_str = traceback.format_exc()
+            # Log full traceback to file so it appears in photo_face_organizer.log
+            logger.error(
+                f"AsyncTask FAILED  |  fn={fn_name}\n"
+                f"  Exception : {type(exc).__name__}: {exc}\n"
+                f"  Traceback :\n{tb_str}"
+            )
             self.failed.emit(f"{type(exc).__name__}: {exc}")
         else:
+            result_repr = repr(result)
+            if len(result_repr) > 120:
+                result_repr = result_repr[:120] + "…"
+            logger.debug(f"AsyncTask OK  |  fn={fn_name}  |  result={result_repr}")
             self.result_ready.emit(result)

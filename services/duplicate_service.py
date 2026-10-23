@@ -8,13 +8,12 @@ Provides smart auto-selection rules (Keep Oldest, Keep Newest, Keep Shortest Pat
 and safe cleanup options (OS Trash / Recycle Bin or Permanent Delete).
 """
 
-from concurrent.futures import ThreadPoolExecutor
 import datetime
 import hashlib
 import logging
 import os
 import re
-import shutil
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -185,9 +184,11 @@ class DuplicateService:
         self,
         sources: list[str | Path],
         recursive: bool = True,
-        method: str = "visual",
+        method: str = "exact",
         max_distance: int = 8,
         include_videos: bool = False,
+        on_group: Callable[[dict[str, Any]], None] | None = None,
+        cancel_check: Callable[[], bool] | None = None,
     ) -> list[dict[str, Any]]:
         """
         Scans directories for duplicate photos and videos.
@@ -215,16 +216,24 @@ class DuplicateService:
                     valid_paths.append(p_res)
 
         if method == "exact":
-            photo_sets = self._scan_exact_duplicates(valid_paths)
+            photo_sets = self._scan_exact_duplicates(valid_paths, on_group=on_group, cancel_check=cancel_check)
         else:
-            photo_sets = self._scan_visual_duplicates(valid_paths, max_distance=max_distance) if valid_paths else []
-        return photo_sets + self._scan_exact_duplicates(video_paths, set_prefix="video_set")
+            photo_sets = self._scan_visual_duplicates(valid_paths, max_distance=max_distance,
+                                                      on_group=on_group, cancel_check=cancel_check) if valid_paths else []
+        if cancel_check and cancel_check():
+            return photo_sets
+        return photo_sets + self._scan_exact_duplicates(video_paths, set_prefix="video_set",
+                                                         on_group=on_group, cancel_check=cancel_check)
 
-    def _scan_exact_duplicates(self, valid_paths: list[Path], set_prefix: str = "set") -> list[dict[str, Any]]:
+    def _scan_exact_duplicates(self, valid_paths: list[Path], set_prefix: str = "set",
+                               on_group: Callable[[dict[str, Any]], None] | None = None,
+                               cancel_check: Callable[[], bool] | None = None) -> list[dict[str, Any]]:
         """Scans files for exact byte-for-byte duplicates using SHA-256."""
         # Step 1: Group by file size
         size_groups: dict[int, list[Path]] = {}
         for p in valid_paths:
+            if cancel_check and cancel_check():
+                return []
             try:
                 st = p.stat()
                 if st.st_size > 0:
@@ -232,30 +241,41 @@ class DuplicateService:
             except Exception:
                 pass
 
-        # Candidate sizes with 2 or more files
-        candidate_paths: list[Path] = []
-        for size, files in size_groups.items():
-            if len(files) >= 2:
-                candidate_paths.extend(files)
-
-        if not candidate_paths:
-            return []
-
-        # Step 2: Compute SHA-256 hash for candidates
-        hash_groups: dict[str, list[Path]] = {}
-        for p in candidate_paths:
-            try:
-                f_hash = self.compute_file_hash(p)
-                hash_groups.setdefault(f_hash, []).append(p)
-            except Exception as e:
-                logger.warning(f"Could not hash file {p}: {e}")
-
-        # Step 3: Build duplicate sets for hashes with >= 2 files
+        # Finish each size bucket before publishing its groups; later buckets cannot join it.
         duplicate_sets: list[dict[str, Any]] = []
-        set_idx = 1
-
-        for f_hash, files in hash_groups.items():
-            if len(files) >= 2:
+        for candidates in size_groups.values():
+            if cancel_check and cancel_check():
+                return duplicate_sets
+            if len(candidates) < 2:
+                continue
+            # Most equal-sized photos differ in their first few KB; only full-hash
+            # candidates whose prefixes match. Full SHA-256 remains the final check.
+            prefix_groups: dict[bytes, list[Path]] = {}
+            for p in candidates:
+                if cancel_check and cancel_check():
+                    return duplicate_sets
+                try:
+                    with p.open("rb") as f:
+                        prefix_groups.setdefault(f.read(4096), []).append(p)
+                except OSError as e:
+                    logger.warning("Could not read file %s: %s", p, e)
+            hash_groups: dict[str, list[Path]] = {}
+            for prefix_matches in prefix_groups.values():
+                if len(prefix_matches) < 2:
+                    continue
+                for p in prefix_matches:
+                    if cancel_check and cancel_check():
+                        return duplicate_sets
+                    try:
+                        f_hash = self.compute_file_hash(p)
+                        hash_groups.setdefault(f_hash, []).append(p)
+                    except OSError as e:
+                        logger.warning("Could not hash file %s: %s", p, e)
+            for f_hash, files in hash_groups.items():
+                if cancel_check and cancel_check():
+                    return duplicate_sets
+                if len(files) < 2:
+                    continue
                 file_items = self._build_file_items(files, known_hash=f_hash)
                 if len(file_items) >= 2:
                     sample_name = file_items[0]["filename"]
@@ -263,7 +283,7 @@ class DuplicateService:
                     potential_savings = single_size * (len(file_items) - 1)
 
                     duplicate_sets.append({
-                        "set_id": f"{set_prefix}_{set_idx}",
+                        "set_id": f"{set_prefix}_{len(duplicate_sets) + 1}",
                         "hash": f_hash,
                         "sample_name": sample_name,
                         "file_count": len(file_items),
@@ -272,13 +292,16 @@ class DuplicateService:
                         "formatted_savings": format_bytes(potential_savings),
                         "files": file_items,
                     })
-                    set_idx += 1
+                    self.apply_auto_select_rule(duplicate_sets[-1:], rule="keep_quality" if set_prefix == "set" else "keep_oldest")
+                    if on_group:
+                        on_group(duplicate_sets[-1])
 
-        self.apply_auto_select_rule(duplicate_sets, rule="keep_oldest")
         return duplicate_sets
 
     def _scan_visual_duplicates(
-        self, valid_paths: list[Path], max_distance: int = 8
+        self, valid_paths: list[Path], max_distance: int = 8,
+        on_group: Callable[[dict[str, Any]], None] | None = None,
+        cancel_check: Callable[[], bool] | None = None,
     ) -> list[dict[str, Any]]:
         """
         Scans directories for duplicate images using perceptual hashing (pHash + dHash)
@@ -286,60 +309,42 @@ class DuplicateService:
         Catches exact clones, mobile duplicates with modified EXIF, and recompressed copies.
         """
         n = len(valid_paths)
-        parent = list(range(n))
-        members = {i: [i] for i in range(n)}
 
-        def find(i: int) -> int:
-            path = []
-            while parent[i] != i:
-                path.append(i)
-                i = parent[i]
-            for node in path:
-                parent[node] = i
-            return i
-
-        def union(i: int, j: int):
-            root_i = find(i)
-            root_j = find(j)
-            if root_i != root_j:
-                parent[root_i] = root_j
-                members[root_j].extend(members.pop(root_i))
-
-        # Pass 1: Quick SHA-256 matching for exact identical byte files
-        size_groups: dict[int, list[int]] = {}
+        # Compare exact bytes first for files of the same size, including undecodable images.
+        sizes: dict[int, int] = {}
         for idx, p in enumerate(valid_paths):
             try:
                 st = p.stat()
                 if st.st_size > 0:
-                    size_groups.setdefault(st.st_size, []).append(idx)
+                    sizes[idx] = st.st_size
             except Exception:
                 pass
 
-        sha_map: dict[str, int] = {}
         exact_hashes: dict[int, str] = {}
-        for size, indices in size_groups.items():
-            if len(indices) >= 2:
-                for idx in indices:
-                    try:
-                        f_hash = self.compute_file_hash(valid_paths[idx])
-                        exact_hashes[idx] = f_hash
-                        if f_hash in sha_map:
-                            union(idx, sha_map[f_hash])
-                        else:
-                            sha_map[f_hash] = idx
-                    except Exception:
-                        pass
 
-        # Pass 2: Concurrent perceptual hash extraction
-        workers = min(8, os.cpu_count() or 4)
-        with ThreadPoolExecutor(max_workers=workers) as executor:
-            phashes = list(executor.map(self.compute_perceptual_hash, valid_paths))
+        def exact_hash(idx: int) -> str | None:
+            if idx not in exact_hashes:
+                try:
+                    exact_hashes[idx] = self.compute_file_hash(valid_paths[idx])
+                except OSError:
+                    return None
+            return exact_hashes[idx]
+
+        # Extract signatures as needed so completed groups can be shown during the scan.
+        phashes: dict[int, tuple[int | None, float, np.ndarray | None]] = {}
+
+        def signature(i: int):
+            if i not in phashes:
+                phashes[i] = self.compute_perceptual_hash(valid_paths[i])
+            return phashes[i]
 
         def compatible(i: int, j: int) -> bool:
-            if i in exact_hashes and exact_hashes.get(i) == exact_hashes.get(j):
-                return True
-            h_i, ar_i, c_i = phashes[i]
-            h_j, ar_j, c_j = phashes[j]
+            if sizes.get(i) and sizes.get(i) == sizes.get(j):
+                first_hash = exact_hash(i)
+                if first_hash is not None and first_hash == exact_hash(j):
+                    return True
+            h_i, ar_i, c_i = signature(i)
+            h_j, ar_j, c_j = signature(j)
             if h_i is None or c_i is None or h_j is None or c_j is None:
                 return False
             if abs(ar_i - ar_j) / max(ar_i, ar_j) > 0.08:
@@ -351,45 +356,37 @@ class DuplicateService:
                 return False
             return float(np.mean(np.abs(c_i.astype(float) - c_j.astype(float)))) <= 12.0
 
-        # Pass 3: A group is safe only when every member matches every other member.
-        for i in range(n):
-            for j in range(i + 1, n):
-                root_i, root_j = find(i), find(j)
-                if root_i != root_j and all(
-                    compatible(a, b) for a in members[root_i] for b in members[root_j]
-                ):
-                    union(i, j)
-
-        # Pass 4: Build duplicate sets from clusters
-        clusters: dict[int, list[Path]] = {}
-        for idx, p in enumerate(valid_paths):
-            clusters.setdefault(find(idx), []).append(p)
-
+        # A group is complete only after comparing every remaining candidate with its members.
+        assigned: set[int] = set()
         duplicate_sets: list[dict[str, Any]] = []
-        set_idx = 1
-
-        for root_idx, files in clusters.items():
-            if len(files) >= 2:
-                file_items = self._build_file_items(files)
-                if len(file_items) >= 2:
-                    sample_name = file_items[0]["filename"]
-                    single_size = max(f["size"] for f in file_items)
-                    total_size = sum(f["size"] for f in file_items)
-                    potential_savings = total_size - file_items[0]["size"]
-
-                    duplicate_sets.append({
-                        "set_id": f"set_{set_idx}",
-                        "hash": file_items[0]["scan_hash"],
-                        "sample_name": sample_name,
-                        "file_count": len(file_items),
-                        "single_size": single_size,
-                        "potential_savings": potential_savings,
-                        "formatted_savings": format_bytes(potential_savings),
-                        "files": file_items,
-                    })
-                    set_idx += 1
-
-        self.apply_auto_select_rule(duplicate_sets, rule="keep_oldest")
+        for i in range(n):
+            if cancel_check and cancel_check():
+                break
+            if i in assigned:
+                continue
+            group = [i]
+            for j in range(i + 1, n):
+                if cancel_check and cancel_check():
+                    return duplicate_sets
+                if j not in assigned and all(compatible(a, j) for a in group):
+                    group.append(j)
+            if len(group) < 2:
+                continue
+            assigned.update(group)
+            file_items = self._build_file_items([valid_paths[idx] for idx in group])
+            if len(file_items) < 2:
+                continue
+            duplicate_sets.append({
+                "set_id": f"set_{len(duplicate_sets) + 1}",
+                "hash": file_items[0]["scan_hash"],
+                "sample_name": file_items[0]["filename"],
+                "file_count": len(file_items),
+                "single_size": max(f["size"] for f in file_items),
+                "files": file_items,
+            })
+            self.apply_auto_select_rule(duplicate_sets[-1:], rule="keep_quality")
+            if on_group:
+                on_group(duplicate_sets[-1])
         return duplicate_sets
 
     @staticmethod
@@ -402,10 +399,18 @@ class DuplicateService:
                 st = p.stat()
                 mtime_iso = datetime.datetime.fromtimestamp(st.st_mtime).strftime("%Y-%m-%d %H:%M:%S")
                 ctime = getattr(st, "st_birthtime", None) or getattr(st, "st_ctime", st.st_mtime)
+                pixels = 0
+                if known_hash is None and p.suffix.lower() not in VIDEO_EXTENSIONS:
+                    try:
+                        with Image.open(p) as img:
+                            pixels = img.width * img.height
+                    except (OSError, ValueError):
+                        pass
                 file_items.append({
                     "path": str(p),
                     "filename": p.name,
                     "size": st.st_size,
+                    "pixels": pixels,
                     "formatted_size": format_bytes(st.st_size),
                     "mtime": st.st_mtime,
                     "ctime": ctime,
@@ -425,7 +430,8 @@ class DuplicateService:
         Applies auto-selection rule across all duplicate sets:
         - 'keep_oldest': Keeps original photo with earliest timestamp, prioritizing non-copy filenames.
         - 'keep_newest': Keeps most recently created or modified duplicate copy.
-        - 'keep_shortest_path': Keeps file with shortest and cleanest file path.
+         - 'keep_shortest_path': Keeps file with shortest and cleanest file path.
+         - 'keep_quality': Keeps the highest-resolution photo, then the larger file.
         """
         for dset in duplicate_sets:
             files = dset.get("files", [])
@@ -437,7 +443,11 @@ class DuplicateService:
                 f["is_recommended_keep"] = False
                 f["is_selected_for_removal"] = False
 
-            if rule == "keep_oldest":
+            if rule == "keep_quality":
+                files.sort(key=lambda x: (-x.get("pixels", 0), -x.get("size", 0),
+                                          is_copy_filename(x.get("filename", "")),
+                                          x.get("mtime", 0), x.get("path", "")))
+            elif rule == "keep_oldest":
                 def _key_oldest(x):
                     is_copy = 1 if is_copy_filename(x.get("filename", "")) else 0
                     mtime = x.get("mtime", 0.0)

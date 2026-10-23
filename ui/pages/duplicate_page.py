@@ -12,6 +12,7 @@ import subprocess
 import sys
 from collections.abc import Callable
 from pathlib import Path
+from threading import Event
 from typing import Any
 
 from PySide6.QtCore import QRectF, QSize, Qt, QThread, Signal
@@ -264,15 +265,20 @@ class DuplicateScanWorker(QThread):
 
     finished_signal = Signal(list)
     error_signal = Signal(str)
+    group_signal = Signal(dict)
 
     def __init__(self, duplicate_service: DuplicateService, sources: list[str], recursive: bool,
-                 method: str = "visual", include_videos: bool = False):
+                  method: str = "exact", include_videos: bool = False):
         super().__init__()
         self.duplicate_service = duplicate_service
         self.sources = sources
         self.recursive = recursive
         self.method = method
         self.include_videos = include_videos
+        self._cancelled = Event()
+
+    def cancel(self):
+        self._cancelled.set()
 
     def run(self):
         try:
@@ -281,6 +287,8 @@ class DuplicateScanWorker(QThread):
                 recursive=self.recursive,
                 method=self.method,
                 include_videos=self.include_videos,
+                on_group=self.group_signal.emit,
+                cancel_check=self._cancelled.is_set,
             )
             self.finished_signal.emit(sets)
         except Exception as exc:
@@ -336,6 +344,7 @@ class DuplicatePage(QWidget):
         self.current_set_id: str | None = None
         self.worker: DuplicateScanWorker | None = None
         self._single_del_workers: list[DuplicateBatchActionWorker] = []
+        self._pending_deletions: set[str] = set()
         self._needs_refresh = True  # Track if page needs refresh on next visit
 
         self._setup_ui()
@@ -353,7 +362,7 @@ class DuplicatePage(QWidget):
         title_box.setSpacing(2)
         title_lbl = QLabel("🔍 Duplicate Photos & Videos Manager")
         title_lbl.setStyleSheet("font-size: 18px; font-weight: 800; color: #ffffff;")
-        sub_title = QLabel("Find visual photo matches and exact video copies; review before reclaiming disk space.")
+        sub_title = QLabel("Find byte-for-byte identical photos and videos; review before reclaiming disk space.")
         sub_title.setStyleSheet("color: #94a3b8; font-size: 12px;")
         title_box.addWidget(title_lbl)
         title_box.addWidget(sub_title)
@@ -425,48 +434,8 @@ class DuplicatePage(QWidget):
         self.chk_videos.setToolTip("Off: scan photos only. On: also find byte-for-byte identical videos.")
         self.chk_videos.setStyleSheet("color: #ffffff; font-weight: 600; font-size: 13px;")
 
-        self.combo_scan_mode = QComboBox()
-        self.combo_scan_mode.setCursor(Qt.PointingHandCursor)
-        self.combo_scan_mode.setFixedHeight(36)
-        self.combo_scan_mode.addItems([
-            "🔍 Visual & Mobile Copies (Smart)",
-            "⚡ Exact Match (Byte-for-Byte)",
-        ])
-        self.combo_scan_mode.setToolTip(
-            "Visual mode detects mobile copies and recompressed photos; videos use exact matching.\n"
-            "Exact Match only detects bit-for-bit identical photos and videos."
-        )
-        self.combo_scan_mode.setStyleSheet("""
-            QComboBox {
-                background-color: #1e293b;
-                border: 1px solid #3b82f6;
-                border-radius: 8px;
-                padding: 4px 28px 4px 10px;
-                color: #ffffff;
-                font-size: 12px;
-                font-weight: 600;
-            }
-            QComboBox:hover {
-                background-color: #162238;
-                border: 1px solid #60a5fa;
-            }
-            QComboBox QAbstractItemView {
-                background-color: #0f172a;
-                color: #ffffff;
-                selection-background-color: #2563eb;
-                selection-color: #ffffff;
-                border: 1px solid #3b82f6;
-                border-radius: 8px;
-                padding: 4px;
-                outline: 0px;
-            }
-            QComboBox QAbstractItemView::item {
-                min-height: 28px;
-                padding: 4px 8px;
-            }
-        """)
-
         self.btn_scan = QPushButton("⚡ Scan for Duplicates")
+        self.btn_scan.setToolTip("Find only 100% identical photo and video files (byte-for-byte).")
         self.btn_scan.setProperty("class", "PrimaryButton")
         self.btn_scan.setCursor(Qt.PointingHandCursor)
         self.btn_scan.setFixedHeight(36)
@@ -475,14 +444,17 @@ class DuplicatePage(QWidget):
             "QPushButton:hover { background-color: #059669; }"
         )
         self.btn_scan.clicked.connect(self._run_duplicate_scan)
+        self.btn_stop_scan = QPushButton("⏹ Stop Scan")
+        self.btn_stop_scan.setEnabled(False)
+        self.btn_stop_scan.clicked.connect(self._stop_duplicate_scan)
 
         top_btns.addWidget(btn_choose_folder)
         top_btns.addWidget(btn_add_folder)
         top_btns.addWidget(btn_clear)
         top_btns.addWidget(self.chk_recursive)
         top_btns.addWidget(self.chk_videos)
-        top_btns.addWidget(self.combo_scan_mode)
         top_btns.addStretch()
+        top_btns.addWidget(self.btn_stop_scan)
         top_btns.addWidget(self.btn_scan)
         ctrl_l.addLayout(top_btns)
 
@@ -590,7 +562,8 @@ class DuplicatePage(QWidget):
         self.combo_rule.setCursor(Qt.PointingHandCursor)
         self.combo_rule.setFixedHeight(36)
         self.combo_rule.setMinimumWidth(230)
-        self.combo_rule.addItems(["Keep Oldest (Original)", "Keep Newest Copy", "Keep Shortest Path"])
+        self.combo_rule.addItems(["Keep Highest Quality", "Keep Oldest (Original)", "Keep Newest Copy", "Keep Shortest Path"])
+        self.combo_rule.setToolTip("Highest Quality prefers more pixels, then larger file size at the same resolution.")
         self.combo_rule.setStyleSheet("""
             QComboBox {
                 background-color: #1e293b;
@@ -727,14 +700,18 @@ class DuplicatePage(QWidget):
             return
 
         scan_targets = list(self.sources)
-        scan_mode = "visual" if self.combo_scan_mode.currentIndex() == 0 else "exact"
-        mode_desc = "visual photos" if scan_mode == "visual" else "exact photos"
+        self.duplicate_sets = []
+        self.current_set_id = None
+        self._ignored_group_count = 0
+        self.refresh()
+        mode_desc = "exact photos"
         if self.chk_videos.isChecked():
             mode_desc += " and exact videos"
 
         self.btn_scan.setEnabled(False)
         self.btn_scan.setText("⏳ Scanning... Please wait")
         self.btn_rescan_hdr.setEnabled(False)
+        self.btn_stop_scan.setEnabled(True)
         self.lbl_loading_status.setText(f"⏳ Scanning {len(scan_targets)} folder(s) for {mode_desc}... Please wait.")
         self.lbl_loading_status.show()
 
@@ -742,26 +719,44 @@ class DuplicatePage(QWidget):
             duplicate_service=self.duplicate_service,
             sources=scan_targets,
             recursive=self.chk_recursive.isChecked(),
-            method=scan_mode,
+            method="exact",
             include_videos=self.chk_videos.isChecked(),
         )
         self.worker.finished_signal.connect(self._on_scan_finished)
+        self.worker.group_signal.connect(self._on_scan_group)
         self.worker.error_signal.connect(self._on_scan_error)
+        self.worker.finished.connect(self.worker.deleteLater)
         self.worker.start()
+
+    def _stop_duplicate_scan(self):
+        if self.worker and self.worker.isRunning():
+            self.worker.cancel()
+            self.btn_stop_scan.setEnabled(False)
+            self.lbl_loading_status.setText("⏳ Stopping scan... Completed groups remain available.")
+
+    def _on_scan_group(self, group: dict[str, Any]):
+        rule = self._selected_rule()
+        self.duplicate_service.apply_auto_select_rule([group], rule=rule)
+        self.duplicate_sets.append(group)
+        self.refresh()
+        self._filter_sets_list(self.txt_filter_sets.text())
 
     def _on_scan_finished(self, duplicate_sets: list[dict[str, Any]]):
         self.btn_scan.setEnabled(True)
         self.btn_scan.setText("⚡ Scan for Duplicates")
         self.btn_rescan_hdr.setEnabled(True)
+        self.btn_stop_scan.setEnabled(False)
         self.lbl_loading_status.hide()
-        self._ignored_group_count = 0
-        self.duplicate_sets = duplicate_sets
-        self._apply_auto_select_rule()
+        if self.worker is None:
+            self._ignored_group_count = 0
+            self.duplicate_sets = duplicate_sets
+            self._apply_auto_select_rule()
 
     def _on_scan_error(self, message: str):
         self.btn_scan.setEnabled(True)
         self.btn_scan.setText("⚡ Scan for Duplicates")
         self.btn_rescan_hdr.setEnabled(True)
+        self.btn_stop_scan.setEnabled(False)
         self.lbl_loading_status.hide()
         QMessageBox.warning(self, "Duplicate Scan Failed", f"Could not scan the selected folders:\n{message}")
 
@@ -925,6 +920,8 @@ class DuplicatePage(QWidget):
                 on_open_location=self._open_file_location,
                 on_delete_file=lambda path, c, s_id=dset["set_id"]: self._delete_single_file(s_id, path, c),
             )
+            if f_info["path"] in self._pending_deletions:
+                card.set_deleting_state()
             self.files_layout.addWidget(card)
 
     def _toggle_keep(self, target_file_info: dict[str, Any], is_checked: bool):
@@ -962,11 +959,13 @@ class DuplicatePage(QWidget):
     def _delete_single_file(self, set_id: str, file_path_str: str, card: DuplicateFileCard | None = None):
         """Direct inline deletion of an individual duplicate file directly to Recycle Bin without confirmation popup."""
         dset = next((s for s in self.duplicate_sets if s["set_id"] == set_id), None)
-        if not dset or not any(f["path"] == file_path_str and not f.get("is_recommended_keep") for f in dset["files"]):
+        if (not dset or file_path_str in self._pending_deletions
+                or not any(f["path"] == file_path_str and not f.get("is_recommended_keep") for f in dset["files"])):
             return
         keeper = next((f for f in dset["files"] if f.get("is_recommended_keep")), None)
         if not keeper:
             return
+        self._pending_deletions.add(file_path_str)
         p = Path(file_path_str)
         fname = p.name
 
@@ -981,7 +980,11 @@ class DuplicatePage(QWidget):
                                             expected_hashes=expected, keepers_by_path={file_path_str: keeper["path"]})
 
         def on_finished(success: int, err: int, freed: int):
+            self._pending_deletions.discard(file_path_str)
             self.lbl_loading_status.hide()
+            if self.btn_stop_scan.isEnabled():
+                self.lbl_loading_status.setText("⏳ Scanning... Completed groups are ready to review.")
+                self.lbl_loading_status.show()
             if success > 0:
                 # Find and update the duplicate set in memory immediately
                 dset = next((s for s in self.duplicate_sets if s["set_id"] == set_id), None)
@@ -999,8 +1002,7 @@ class DuplicatePage(QWidget):
 
                 self.refresh()
             else:
-                if card:
-                    card.reset_state()
+                self.refresh()
                 QMessageBox.warning(self, "Delete Error", f"Could not delete '{fname}'. Please check file permissions.")
 
         worker.finished_signal.connect(on_finished)
@@ -1008,15 +1010,19 @@ class DuplicatePage(QWidget):
         self._single_del_workers.append(worker)
         worker.start()
 
-    def _apply_auto_select_rule(self):
+    def _selected_rule(self) -> str:
         text = self.combo_rule.currentText()
-        rule_key = "keep_oldest"
+        rule_key = "keep_quality"
+        if "Oldest" in text:
+            rule_key = "keep_oldest"
         if "Newest" in text:
             rule_key = "keep_newest"
         elif "Shortest" in text:
             rule_key = "keep_shortest_path"
+        return rule_key
 
-        self.duplicate_service.apply_auto_select_rule(self.duplicate_sets, rule=rule_key)
+    def _apply_auto_select_rule(self):
+        self.duplicate_service.apply_auto_select_rule(self.duplicate_sets, rule=self._selected_rule())
         if self.current_set_id:
             dset = next((s for s in self.duplicate_sets if s["set_id"] == self.current_set_id), None)
             if dset:
