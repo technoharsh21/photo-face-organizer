@@ -253,3 +253,99 @@ def test_mobile_and_recompressed_duplicate_detection(tmp_path):
     # 2. Exact mode should NOT detect them because sizes and byte hashes differ
     sets_exact = service.scan_directories_for_duplicates([dir1], recursive=True, method="exact")
     assert len(sets_exact) == 0
+
+
+def test_visual_scan_does_not_merge_different_flat_colors(tmp_path):
+    from PIL import Image
+
+    service = DuplicateService(Config(app_data_dir=tmp_path / "data"))
+    Image.new("RGB", (100, 100), (100, 100, 100)).save(tmp_path / "gray1.png")
+    Image.new("RGB", (100, 100), (110, 110, 110)).save(tmp_path / "gray2.png")
+
+    assert service.scan_directories_for_duplicates([tmp_path], method="visual") == []
+
+
+def test_visual_groups_require_every_pair_to_match(tmp_path):
+    import numpy as np
+
+    service = DuplicateService(Config(app_data_dir=tmp_path / "data"))
+    files = [tmp_path / f"{name}.jpg" for name in ("a", "b", "c")]
+    for i, path in enumerate(files):
+        path.write_bytes(bytes([i + 1]))
+
+    # A-B and B-C pass distance 2, but A-C fails distance 4.
+    thumb = np.arange(192, dtype=np.uint8).reshape(8, 8, 3)
+    hashes = dict(zip(files, (0, 3, 15)))
+    with patch.object(service, "compute_perceptual_hash", side_effect=lambda p: (hashes[p], 1.0, thumb)):
+        groups = service.scan_directories_for_duplicates([tmp_path], method="visual", max_distance=2)
+
+    assert len(groups) == 1
+    assert groups[0]["file_count"] == 2
+
+
+def test_cleanup_rechecks_both_duplicate_and_keeper(tmp_path):
+    service = DuplicateService(Config(app_data_dir=tmp_path / "data"))
+    keeper = tmp_path / "keep.jpg"
+    duplicate = tmp_path / "copy.jpg"
+    keeper.write_bytes(b"original")
+    duplicate.write_bytes(b"original")
+    expected = {str(p): service.compute_file_hash(p) for p in (keeper, duplicate)}
+    keepers = {str(duplicate): str(keeper)}
+
+    duplicate.write_bytes(b"replacement")
+    assert service.remove_duplicates([str(duplicate)], mode="delete", expected_hashes=expected,
+                                     keepers_by_path=keepers) == (0, 1, 0)
+    assert duplicate.read_bytes() == b"replacement"
+
+    duplicate.write_bytes(b"original")
+    keeper.write_bytes(b"changed keeper")
+    assert service.remove_duplicates([str(duplicate)], mode="delete", expected_hashes=expected,
+                                     keepers_by_path=keepers) == (0, 1, 0)
+    assert duplicate.exists()
+
+    keeper.write_bytes(b"original")
+    assert service.remove_duplicates([str(duplicate)], mode="delete", expected_hashes=expected,
+                                     keepers_by_path=keepers) == (1, 0, len(b"original"))
+    assert not duplicate.exists()
+
+
+def test_videos_are_found_in_both_modes_without_mixing_with_photos(tmp_path):
+    service = DuplicateService(Config(app_data_dir=tmp_path / "data"))
+    selected = tmp_path / "selected"
+    nested = selected / "nested"
+    nested.mkdir(parents=True)
+    first = selected / "clip.mp4"
+    second = nested / "clip-copy.MOV"
+    different = selected / "other.mp4"
+    photo = selected / "image.jpg"
+    photo_copy = selected / "image-copy.jpg"
+    for p, content in ((first, b"video 1"), (second, b"video 1"),
+                       (different, b"video 2"), (photo, b"video 1"), (photo_copy, b"video 1")):
+        p.write_bytes(content)
+
+    for mode in ("visual", "exact"):
+        photos_only = service.scan_directories_for_duplicates([selected, nested], method=mode)
+        assert len(photos_only) == 1
+        assert {f["path"] for f in photos_only[0]["files"]} == {str(photo), str(photo_copy)}
+
+        non_recursive = service.scan_directories_for_duplicates(
+            [selected], recursive=False, method=mode, include_videos=True)
+        assert len(non_recursive) == 1
+        groups = service.scan_directories_for_duplicates(
+            [selected, nested], recursive=True, method=mode, include_videos=True)
+        assert len(groups) == 2
+        video_group = next(group for group in groups if group["set_id"] == "video_set_1")
+        assert {f["path"] for f in video_group["files"]} == {str(first), str(second)}
+        assert video_group["potential_savings"] == len(b"video 1")
+
+
+def test_video_scan_does_not_follow_links_outside_selected_folder(tmp_path):
+    service = DuplicateService(Config(app_data_dir=tmp_path / "data"))
+    selected = tmp_path / "selected"
+    selected.mkdir()
+    (selected / "inside.mp4").write_bytes(b"same video")
+    outside = tmp_path / "outside.mov"
+    outside.write_bytes(b"same video")
+    (selected / "linked.mov").symlink_to(outside)
+
+    assert service.scan_directories_for_duplicates([selected], method="exact", include_videos=True) == []

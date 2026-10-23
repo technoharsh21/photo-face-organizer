@@ -428,7 +428,7 @@ class MainWindow(QMainWindow):
                 scan_id = scan_data.get("scan_id")
 
                 if action == "resume":
-                    self._on_resume_history_scan(scan_id)
+                    self._on_resume_history_scan(scan_id, scan_data.get("scan_type"))
                 elif action == "restart":
                     self.navigate_to("New Scan")
                 else:  # discard
@@ -458,10 +458,11 @@ class MainWindow(QMainWindow):
         op_mode = summary.get("operation_mode")
         copied_pairs = summary.get("copied_file_pairs", [])
 
-        if op_mode == "move" and copied_pairs:
+        if op_mode == "move" and copied_pairs and summary.get("status") == "Completed":
             from PySide6.QtWidgets import QMessageBox
 
-            verified, count, verified_sources = self.scan_service.verify_copied_photos(copied_pairs)
+            move_service = self.solo_scan_service if summary.get("scan_type") == "Solo Scan" else self.scan_service
+            verified, count, verified_sources = move_service.verify_copied_photos(copied_pairs)
             if verified and count > 0:
                 answer = QMessageBox.question(
                     self,
@@ -472,11 +473,11 @@ class MainWindow(QMainWindow):
                     QMessageBox.No,
                 )
                 if answer == QMessageBox.Yes:
-                    del_count, err_count = self.scan_service.delete_verified_sources(verified_sources)
+                    del_count, err_count = move_service.delete_verified_sources(verified_sources)
                     QMessageBox.information(
                         self,
                         "Source Photos Cleaned",
-                        f"Successfully deleted {del_count} verified original source photos from disk.",
+                        f"Moved {del_count} verified original source photos to Trash. {err_count} were kept because verification or trashing failed.",
                     )
             elif not verified:
                 QMessageBox.warning(
@@ -487,18 +488,20 @@ class MainWindow(QMainWindow):
 
         self.page_results.load_results(summary)
         self.navigate_to("Results")
+        cancelled = summary.get("status") == "Cancelled"
         self.toasts.show(
-            "Scan complete",
+            "Scan cancelled" if cancelled else "Scan complete",
             f"{summary.get('processed', 0)} photos processed · {summary.get('matched', 0)} matched",
-            "success",
+            "warning" if cancelled else "success",
         )
 
     def _on_view_history_results(self, scan_data: dict[str, Any]):
         self.page_results.load_results(scan_data)
         self.navigate_to("Results")
 
-    def _on_resume_history_scan(self, scan_id: str):
-        res = self.scan_service.resume_scan(scan_id)
+    def _on_resume_history_scan(self, scan_id: str, scan_type: str | None = None):
+        res = (self.solo_scan_service.resume_scan(scan_id) if scan_type == "Solo Scan"
+               else self.scan_service.resume_scan(scan_id))
         if res:
             worker, scan_meta = res
             self._set_navigation_enabled(False)

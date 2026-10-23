@@ -161,8 +161,10 @@ photo-face-organizer/
 - Fast 2-stage duplicate detection:
   1. Instant byte-size grouping.
   2. SHA-256 block hashing on matching file sizes.
+- Scans photos by default. Enable **Include videos (exact copies)** to also scan videos in selected folders. Videos use exact byte-for-byte matching in both scan modes; visual matching applies to photos only. No video decoder is required.
 - View side-by-side comparisons with path and resolution metadata.
 - Apply batch selection rules (*Keep Oldest*, *Keep Newest*, *Keep Shortest Path*).
+- Ignore a group to leave its files untouched for the current scan; rescanning shows it again.
 - Safely resolve duplicates by sending them to **System Trash / Recycle Bin** or deleting them permanently.
 
 ### 7. Zero Data Loss & Audit Reconciliation
@@ -387,5 +389,3 @@ This project is open-source and licensed under the [MIT License](LICENSE).
 
 - **Lead Developer**: [Harsh](https://github.com/technoharsh21) (<technoharsh21@gmail.com>)
 - Powered by [InsightFace](https://github.com/deepinsight/insightface), [PySide6 / Qt](https://www.qt.io/), [ONNX Runtime](https://onnxruntime.ai/), and [Pillow](https://python-pillow.org/).
-
-

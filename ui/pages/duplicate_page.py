@@ -40,7 +40,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from services.duplicate_service import DuplicateService, format_bytes
+from services.duplicate_service import VIDEO_EXTENSIONS, DuplicateService, format_bytes
 from ui.components.flow_layout import FlowLayout
 from ui.components.image_cache import get_async_thumbnail_loader, load_cover_pixmap
 
@@ -51,11 +51,12 @@ class DuplicateImageCover(QWidget):
     def __init__(self, image_path: str | None = None, size: int = 110, radius: int = 8, parent=None):
         super().__init__(parent)
         self.image_path = image_path
+        self.is_video = bool(image_path and Path(image_path).suffix.lower() in VIDEO_EXTENSIONS)
         self.radius = radius
         self.setFixedSize(size, size)
         self.pixmap: QPixmap | None = None
 
-        if image_path and Path(image_path).exists():
+        if image_path and not self.is_video and Path(image_path).exists():
             get_async_thumbnail_loader().load_thumbnail_async(
                 image_path, size, size, callback=self._on_pixmap_loaded, radius=radius
             )
@@ -82,7 +83,7 @@ class DuplicateImageCover(QWidget):
             painter.setPen(Qt.NoPen)
             painter.drawRoundedRect(0, 0, w, h, self.radius, self.radius)
             painter.setPen(QColor("#64748b"))
-            painter.drawText(QRectF(0, 0, w, h), Qt.AlignCenter, "📷 Photo")
+            painter.drawText(QRectF(0, 0, w, h), Qt.AlignCenter, "🎬 Video" if self.is_video else "📷 Photo")
         painter.end()
 
 
@@ -216,6 +217,7 @@ class DuplicateFileCard(QFrame):
             "QPushButton:disabled { background-color: #78350f; color: #fbbf24; border: 1px solid #f59e0b; }"
         )
         self.btn_del_single.clicked.connect(lambda: self.on_delete_file(p_str, self))
+        self.btn_del_single.setEnabled(not is_keep)
         btn_sub_row.addWidget(self.btn_del_single)
 
         ctrl_l.addLayout(btn_sub_row)
@@ -237,7 +239,7 @@ class DuplicateFileCard(QFrame):
     def reset_state(self):
         """Restore card state if deletion was canceled or encountered an error."""
         is_keep = self.file_info.get("is_recommended_keep", False)
-        self.btn_del_single.setEnabled(True)
+        self.btn_del_single.setEnabled(not is_keep)
         self.btn_del_single.setText("🗑️ Delete")
         self.rad_keep.setEnabled(True)
         self._update_style(is_keep)
@@ -261,13 +263,16 @@ class DuplicateScanWorker(QThread):
     """Background worker thread for scanning duplicate images without UI freeze."""
 
     finished_signal = Signal(list)
+    error_signal = Signal(str)
 
-    def __init__(self, duplicate_service: DuplicateService, sources: list[str], recursive: bool, method: str = "visual"):
+    def __init__(self, duplicate_service: DuplicateService, sources: list[str], recursive: bool,
+                 method: str = "visual", include_videos: bool = False):
         super().__init__()
         self.duplicate_service = duplicate_service
         self.sources = sources
         self.recursive = recursive
         self.method = method
+        self.include_videos = include_videos
 
     def run(self):
         try:
@@ -275,10 +280,11 @@ class DuplicateScanWorker(QThread):
                 sources=self.sources,
                 recursive=self.recursive,
                 method=self.method,
+                include_videos=self.include_videos,
             )
             self.finished_signal.emit(sets)
-        except Exception:
-            self.finished_signal.emit([])
+        except Exception as exc:
+            self.error_signal.emit(str(exc))
 
 
 class DuplicateBatchActionWorker(QThread):
@@ -287,11 +293,14 @@ class DuplicateBatchActionWorker(QThread):
     progress_signal = Signal(int, int, str)
     finished_signal = Signal(int, int, int)
 
-    def __init__(self, duplicate_service: DuplicateService, file_paths: list[str], mode: str):
+    def __init__(self, duplicate_service: DuplicateService, file_paths: list[str], mode: str,
+                 expected_hashes: dict[str, str] | None = None, keepers_by_path: dict[str, str] | None = None):
         super().__init__()
         self.duplicate_service = duplicate_service
         self.file_paths = file_paths
         self.mode = mode
+        self.expected_hashes = expected_hashes
+        self.keepers_by_path = keepers_by_path
         self._is_cancelled = False
 
     def cancel(self):
@@ -309,6 +318,8 @@ class DuplicateBatchActionWorker(QThread):
             mode=self.mode,
             progress_cb=on_prog,
             cancel_check=is_cancelled,
+            expected_hashes=self.expected_hashes,
+            keepers_by_path=self.keepers_by_path,
         )
         self.finished_signal.emit(success, err, freed)
 
@@ -321,8 +332,10 @@ class DuplicatePage(QWidget):
         self.duplicate_service = duplicate_service
         self.sources: list[str] = []
         self.duplicate_sets: list[dict[str, Any]] = []
+        self._ignored_group_count = 0
         self.current_set_id: str | None = None
         self.worker: DuplicateScanWorker | None = None
+        self._single_del_workers: list[DuplicateBatchActionWorker] = []
         self._needs_refresh = True  # Track if page needs refresh on next visit
 
         self._setup_ui()
@@ -338,9 +351,9 @@ class DuplicatePage(QWidget):
 
         title_box = QVBoxLayout()
         title_box.setSpacing(2)
-        title_lbl = QLabel("🔍 Duplicate Photos Manager")
+        title_lbl = QLabel("🔍 Duplicate Photos & Videos Manager")
         title_lbl.setStyleSheet("font-size: 18px; font-weight: 800; color: #ffffff;")
-        sub_title = QLabel("Identify identical duplicate photos using SHA-256 byte hashing and safely reclaim disk storage.")
+        sub_title = QLabel("Find visual photo matches and exact video copies; review before reclaiming disk space.")
         sub_title.setStyleSheet("color: #94a3b8; font-size: 12px;")
         title_box.addWidget(title_lbl)
         title_box.addWidget(sub_title)
@@ -406,6 +419,12 @@ class DuplicatePage(QWidget):
         self.chk_recursive.setCursor(Qt.PointingHandCursor)
         self.chk_recursive.setStyleSheet("color: #ffffff; font-weight: 600; font-size: 13px;")
 
+        self.chk_videos = QCheckBox("🎬 Include videos (exact copies)")
+        self.chk_videos.setChecked(False)
+        self.chk_videos.setCursor(Qt.PointingHandCursor)
+        self.chk_videos.setToolTip("Off: scan photos only. On: also find byte-for-byte identical videos.")
+        self.chk_videos.setStyleSheet("color: #ffffff; font-weight: 600; font-size: 13px;")
+
         self.combo_scan_mode = QComboBox()
         self.combo_scan_mode.setCursor(Qt.PointingHandCursor)
         self.combo_scan_mode.setFixedHeight(36)
@@ -414,8 +433,8 @@ class DuplicatePage(QWidget):
             "⚡ Exact Match (Byte-for-Byte)",
         ])
         self.combo_scan_mode.setToolTip(
-            "Visual mode detects mobile copies, recompressed photos, and images with modified EXIF timestamps.\n"
-            "Exact Match only detects bit-for-bit identical files."
+            "Visual mode detects mobile copies and recompressed photos; videos use exact matching.\n"
+            "Exact Match only detects bit-for-bit identical photos and videos."
         )
         self.combo_scan_mode.setStyleSheet("""
             QComboBox {
@@ -461,6 +480,7 @@ class DuplicatePage(QWidget):
         top_btns.addWidget(btn_add_folder)
         top_btns.addWidget(btn_clear)
         top_btns.addWidget(self.chk_recursive)
+        top_btns.addWidget(self.chk_videos)
         top_btns.addWidget(self.combo_scan_mode)
         top_btns.addStretch()
         top_btns.addWidget(self.btn_scan)
@@ -632,8 +652,15 @@ class DuplicatePage(QWidget):
             "QPushButton { background-color: #dc2626; color: #ffffff; font-weight: 700; border-radius: 8px; padding: 0 18px; font-size: 13px; border: none; }"
             "QPushButton:hover { background-color: #b91c1c; }"
         )
-        self.btn_delete.setToolTip("Safely delete selected duplicate photos to recycle bin.")
+        self.btn_delete.setToolTip("Safely move selected duplicate photos and videos to the recycle bin.")
         self.btn_delete.clicked.connect(self._delete_selected)
+        self.btn_ignore = QPushButton("⏭️ Ignore This Group")
+        self.btn_ignore.setProperty("class", "SecondaryButton")
+        self.btn_ignore.setCursor(Qt.PointingHandCursor)
+        self.btn_ignore.setFixedHeight(36)
+        self.btn_ignore.setToolTip("Leave these files untouched and move to the next group. A rescan shows them again.")
+        self.btn_ignore.clicked.connect(self._ignore_current_group)
+        actions_l.addWidget(self.btn_ignore)
         actions_l.addWidget(self.btn_delete)
 
         right_l.addWidget(actions_bar)
@@ -660,14 +687,14 @@ class DuplicatePage(QWidget):
         self.refresh()
 
     def _choose_folder(self):
-        folder = QFileDialog.getExistingDirectory(self, "Select Folder to Scan for Duplicates")
+        folder = QFileDialog.getExistingDirectory(self, "Select Folder to Scan for Duplicate Photos and Videos")
         if folder:
             p_str = str(Path(folder).resolve())
             self.sources = [p_str]
             self._update_sources_label()
 
     def _add_folder(self):
-        folder = QFileDialog.getExistingDirectory(self, "Add Another Folder to Scan for Duplicates")
+        folder = QFileDialog.getExistingDirectory(self, "Add Another Folder to Scan for Duplicate Photos and Videos")
         if folder:
             p_str = str(Path(folder).resolve())
             if p_str not in self.sources:
@@ -701,7 +728,9 @@ class DuplicatePage(QWidget):
 
         scan_targets = list(self.sources)
         scan_mode = "visual" if self.combo_scan_mode.currentIndex() == 0 else "exact"
-        mode_desc = "visual & mobile duplicate photos" if scan_mode == "visual" else "exact duplicate photos"
+        mode_desc = "visual photos" if scan_mode == "visual" else "exact photos"
+        if self.chk_videos.isChecked():
+            mode_desc += " and exact videos"
 
         self.btn_scan.setEnabled(False)
         self.btn_scan.setText("⏳ Scanning... Please wait")
@@ -714,8 +743,10 @@ class DuplicatePage(QWidget):
             sources=scan_targets,
             recursive=self.chk_recursive.isChecked(),
             method=scan_mode,
+            include_videos=self.chk_videos.isChecked(),
         )
         self.worker.finished_signal.connect(self._on_scan_finished)
+        self.worker.error_signal.connect(self._on_scan_error)
         self.worker.start()
 
     def _on_scan_finished(self, duplicate_sets: list[dict[str, Any]]):
@@ -723,8 +754,16 @@ class DuplicatePage(QWidget):
         self.btn_scan.setText("⚡ Scan for Duplicates")
         self.btn_rescan_hdr.setEnabled(True)
         self.lbl_loading_status.hide()
+        self._ignored_group_count = 0
         self.duplicate_sets = duplicate_sets
         self._apply_auto_select_rule()
+
+    def _on_scan_error(self, message: str):
+        self.btn_scan.setEnabled(True)
+        self.btn_scan.setText("⚡ Scan for Duplicates")
+        self.btn_rescan_hdr.setEnabled(True)
+        self.lbl_loading_status.hide()
+        QMessageBox.warning(self, "Duplicate Scan Failed", f"Could not scan the selected folders:\n{message}")
 
     def refresh(self):
         """Refresh duplicate sets list and summary bar while preserving active selection."""
@@ -744,14 +783,13 @@ class DuplicatePage(QWidget):
             name = dset["sample_name"]
             files = dset.get("files", [])
             f_cnt = len(files)
-            single_size = dset.get("single_size", 0)
-            potential_savings = single_size * (f_cnt - 1)
+            potential_savings = sum(f["size"] for f in files if f.get("is_selected_for_removal"))
             savings_str = format_bytes(potential_savings)
             dset["file_count"] = f_cnt
             dset["potential_savings"] = potential_savings
             dset["formatted_savings"] = savings_str
 
-            total_files_cnt += f_cnt
+            total_files_cnt += f_cnt - 1
             total_savings_bytes += potential_savings
 
             first_path = files[0]["path"] if files else None
@@ -779,6 +817,7 @@ class DuplicatePage(QWidget):
         self.lbl_sum_files.setText(f"📦 Duplicate Copies: {total_files_cnt}")
         self.lbl_sum_savings.setText(f"💾 Reclaimable Space: {format_bytes(total_savings_bytes)}")
         self.lbl_group_count.setText(f"{len(self.duplicate_sets)} Group{'s' if len(self.duplicate_sets) != 1 else ''}")
+        self.btn_ignore.setEnabled(bool(self.duplicate_sets))
 
         if self.sets_list_widget.count() > 0:
             if select_row >= 0:
@@ -804,11 +843,15 @@ class DuplicatePage(QWidget):
             icon_lbl.setStyleSheet("font-size: 40px; background: transparent; border: none;")
             icon_lbl.setAlignment(Qt.AlignCenter)
 
-            lbl_empty = QLabel("<b>All Clean! No duplicate image files found.</b>")
+            empty_title = ("No duplicate groups left to review." if self._ignored_group_count
+                           else "All Clean! No duplicate photos or videos found.")
+            lbl_empty = QLabel(f"<b>{empty_title}</b>")
             lbl_empty.setStyleSheet("font-size: 16px; color: #34d399; background: transparent; border: none;")
             lbl_empty.setAlignment(Qt.AlignCenter)
 
-            lbl_sub_empty = QLabel("Your scanned photo directories are 100% deduplicated and organized.")
+            empty_detail = ("Ignored groups were not deleted and will reappear after a rescan."
+                            if self._ignored_group_count else "No duplicate files were found in the selected folders.")
+            lbl_sub_empty = QLabel(empty_detail)
             lbl_sub_empty.setStyleSheet("font-size: 12px; color: #94a3b8; background: transparent; border: none;")
             lbl_sub_empty.setAlignment(Qt.AlignCenter)
 
@@ -818,6 +861,24 @@ class DuplicatePage(QWidget):
             self.files_layout.addWidget(empty_frame)
 
         self._needs_refresh = False
+
+    def _ignore_current_group(self):
+        """Hide the active group for this scan without touching its files."""
+        index = next((i for i, d in enumerate(self.duplicate_sets)
+                      if d["set_id"] == self.current_set_id), None)
+        if index is None:
+            return
+        self.duplicate_sets.pop(index)
+        self._ignored_group_count += 1
+        query = self.txt_filter_sets.text().strip().lower()
+        ordered = self.duplicate_sets[index:] + self.duplicate_sets[:index]
+        visible = next((d for d in ordered if query in d["sample_name"].lower()), None)
+        if not visible:
+            self.txt_filter_sets.clear()
+            visible = ordered[0] if ordered else None
+        self.current_set_id = visible["set_id"] if visible else None
+        self.refresh()
+        self._filter_sets_list(self.txt_filter_sets.text())
 
     def _filter_sets_list(self, query: str):
         q = query.strip().lower()
@@ -900,6 +961,12 @@ class DuplicatePage(QWidget):
 
     def _delete_single_file(self, set_id: str, file_path_str: str, card: DuplicateFileCard | None = None):
         """Direct inline deletion of an individual duplicate file directly to Recycle Bin without confirmation popup."""
+        dset = next((s for s in self.duplicate_sets if s["set_id"] == set_id), None)
+        if not dset or not any(f["path"] == file_path_str and not f.get("is_recommended_keep") for f in dset["files"]):
+            return
+        keeper = next((f for f in dset["files"] if f.get("is_recommended_keep")), None)
+        if not keeper:
+            return
         p = Path(file_path_str)
         fname = p.name
 
@@ -909,7 +976,9 @@ class DuplicatePage(QWidget):
         self.lbl_loading_status.setText(f"⏳ Moving '{fname}' to Recycle Bin... Please wait.")
         self.lbl_loading_status.show()
 
-        worker = DuplicateBatchActionWorker(self.duplicate_service, [file_path_str], mode="trash")
+        expected = {f["path"]: f["scan_hash"] for f in dset["files"]}
+        worker = DuplicateBatchActionWorker(self.duplicate_service, [file_path_str], mode="trash",
+                                            expected_hashes=expected, keepers_by_path={file_path_str: keeper["path"]})
 
         def on_finished(success: int, err: int, freed: int):
             self.lbl_loading_status.hide()
@@ -935,8 +1004,9 @@ class DuplicatePage(QWidget):
                 QMessageBox.warning(self, "Delete Error", f"Could not delete '{fname}'. Please check file permissions.")
 
         worker.finished_signal.connect(on_finished)
+        worker.finished.connect(lambda: self._single_del_workers.remove(worker))
+        self._single_del_workers.append(worker)
         worker.start()
-        self._single_del_worker = worker
 
     def _apply_auto_select_rule(self):
         text = self.combo_rule.currentText()
@@ -993,7 +1063,15 @@ class DuplicatePage(QWidget):
             "QProgressBar::chunk { background-color: #10b981; border-radius: 5px; }"
         )
 
-        worker = DuplicateBatchActionWorker(self.duplicate_service, to_remove, mode)
+        expected = {f["path"]: f["scan_hash"] for dset in self.duplicate_sets for f in dset["files"]}
+        keepers = {
+            f["path"]: keeper["path"]
+            for dset in self.duplicate_sets
+            for keeper in dset["files"] if keeper.get("is_recommended_keep")
+            for f in dset["files"] if f.get("is_selected_for_removal")
+        }
+        worker = DuplicateBatchActionWorker(self.duplicate_service, to_remove, mode,
+                                            expected_hashes=expected, keepers_by_path=keepers)
 
         def on_prog(cur: int, tot: int, fname: str):
             prog_dlg.setValue(cur)
@@ -1008,7 +1086,8 @@ class DuplicatePage(QWidget):
             QMessageBox.information(
                 self,
                 "Batch Cleanup Complete",
-                f"✨ Successfully sent to Trash {success} duplicate file(s).\n\n💾 Reclaimed {format_bytes(freed)} of disk space.",
+                f"✨ Successfully sent to Trash {success} duplicate file(s).\n"
+                f"Skipped or failed: {err} file(s).\n\n💾 Reclaimed {format_bytes(freed)} of disk space.",
             )
 
         prog_dlg.canceled.connect(worker.cancel)
