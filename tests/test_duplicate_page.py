@@ -68,6 +68,30 @@ def test_scan_worker_shows_completed_group_before_scan_finishes(tmp_path):
     page.close()
 
 
+def test_scan_groups_append_without_rebuilding_existing_widgets(tmp_path):
+    app = QApplication.instance() or QApplication(sys.argv)
+    service = DuplicateService(Config(app_data_dir=tmp_path / "data"))
+    for name, data in (("a.jpg", b"one"), ("a-copy.jpg", b"one"),
+                       ("b.jpg", b"two"), ("b-copy.jpg", b"two")):
+        (tmp_path / name).write_bytes(data)
+    groups = service.scan_directories_for_duplicates([tmp_path], method="exact")
+    page = DuplicatePage(service)
+
+    page._on_scan_group(groups[0])
+    first_item = page.sets_list_widget.item(0)
+    first_widget = page.sets_list_widget.itemWidget(first_item)
+    page.txt_filter_sets.setText(groups[0]["sample_name"])
+    page._on_scan_group(groups[1])
+
+    assert page.sets_list_widget.item(0) is first_item
+    assert page.sets_list_widget.itemWidget(first_item) is first_widget
+    assert page.sets_list_widget.item(1).isHidden()
+    assert page.lbl_sum_sets.text().endswith("2")
+    assert page.lbl_sum_files.text().endswith("2")
+    assert page.lbl_sum_savings.text().endswith("6 B")
+    page.close()
+
+
 def test_ignore_group_moves_to_next_and_excludes_files_from_cleanup(tmp_path):
     app = QApplication.instance() or QApplication(sys.argv)
     service = DuplicateService(Config(app_data_dir=tmp_path / "data"))

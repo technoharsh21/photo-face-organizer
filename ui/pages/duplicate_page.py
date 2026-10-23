@@ -40,6 +40,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+from shiboken6 import isValid
 
 from services.duplicate_service import VIDEO_EXTENSIONS, DuplicateService, format_bytes
 from ui.components.flow_layout import FlowLayout
@@ -63,7 +64,7 @@ class DuplicateImageCover(QWidget):
             )
 
     def _on_pixmap_loaded(self, pix: QPixmap):
-        if pix is not None and not pix.isNull():
+        if isValid(self) and pix is not None and not pix.isNull():
             self.pixmap = pix
             self.update()
 
@@ -341,6 +342,8 @@ class DuplicatePage(QWidget):
         self.sources: list[str] = []
         self.duplicate_sets: list[dict[str, Any]] = []
         self._ignored_group_count = 0
+        self._total_files_cnt = 0
+        self._total_savings_bytes = 0
         self.current_set_id: str | None = None
         self.worker: DuplicateScanWorker | None = None
         self._single_del_workers: list[DuplicateBatchActionWorker] = []
@@ -738,8 +741,21 @@ class DuplicatePage(QWidget):
         rule = self._selected_rule()
         self.duplicate_service.apply_auto_select_rule([group], rule=rule)
         self.duplicate_sets.append(group)
-        self.refresh()
-        self._filter_sets_list(self.txt_filter_sets.text())
+        files = group["files"]
+        savings = sum(f["size"] for f in files if f.get("is_selected_for_removal"))
+        group["file_count"] = len(files)
+        group["potential_savings"] = savings
+        group["formatted_savings"] = format_bytes(savings)
+        self._total_files_cnt += len(files) - 1
+        self._total_savings_bytes += savings
+        self._append_set_item(group)
+        self.lbl_sum_sets.setText(f"🔍 Duplicate Groups: {len(self.duplicate_sets)}")
+        self.lbl_sum_files.setText(f"📦 Duplicate Copies: {self._total_files_cnt}")
+        self.lbl_sum_savings.setText(f"💾 Reclaimable Space: {format_bytes(self._total_savings_bytes)}")
+        self.lbl_group_count.setText(f"{len(self.duplicate_sets)} Group{'s' if len(self.duplicate_sets) != 1 else ''}")
+        self.btn_ignore.setEnabled(True)
+        if self.sets_list_widget.count() == 1:
+            self.sets_list_widget.setCurrentRow(0)
 
     def _on_scan_finished(self, duplicate_sets: list[dict[str, Any]]):
         self.btn_scan.setEnabled(True)
@@ -760,6 +776,22 @@ class DuplicatePage(QWidget):
         self.lbl_loading_status.hide()
         QMessageBox.warning(self, "Duplicate Scan Failed", f"Could not scan the selected folders:\n{message}")
 
+    def _append_set_item(self, dset: dict[str, Any]):
+        files = dset["files"]
+        item = QListWidgetItem()
+        item.setData(Qt.UserRole, dset["set_id"])
+        item.setSizeHint(QSize(200, 60))
+        self.sets_list_widget.addItem(item)
+        widget = DuplicateSetListItemWidget(
+            sample_name=dset["sample_name"],
+            file_count=len(files),
+            savings_str=dset["formatted_savings"],
+            sample_path=files[0]["path"] if files else None,
+        )
+        self.sets_list_widget.setItemWidget(item, widget)
+        query = self.txt_filter_sets.text().strip().lower()
+        item.setHidden(query not in dset["sample_name"].lower())
+
     def refresh(self):
         """Refresh duplicate sets list and summary bar while preserving active selection."""
         target_set_id = self.current_set_id
@@ -775,7 +807,6 @@ class DuplicatePage(QWidget):
 
         for idx, dset in enumerate(self.duplicate_sets):
             set_id = dset["set_id"]
-            name = dset["sample_name"]
             files = dset.get("files", [])
             f_cnt = len(files)
             potential_savings = sum(f["size"] for f in files if f.get("is_selected_for_removal"))
@@ -787,25 +818,14 @@ class DuplicatePage(QWidget):
             total_files_cnt += f_cnt - 1
             total_savings_bytes += potential_savings
 
-            first_path = files[0]["path"] if files else None
-
-            item = QListWidgetItem()
-            item.setData(Qt.UserRole, set_id)
-            item.setSizeHint(QSize(200, 60))
-            self.sets_list_widget.addItem(item)
-
-            widget = DuplicateSetListItemWidget(
-                sample_name=name,
-                file_count=f_cnt,
-                savings_str=savings_str,
-                sample_path=first_path,
-            )
-            self.sets_list_widget.setItemWidget(item, widget)
+            self._append_set_item(dset)
 
             if target_set_id and set_id == target_set_id:
                 select_row = idx
 
         self.sets_list_widget.blockSignals(False)
+        self._total_files_cnt = total_files_cnt
+        self._total_savings_bytes = total_savings_bytes
 
         # Update Summary Labels
         self.lbl_sum_sets.setText(f"🔍 Duplicate Groups: {len(self.duplicate_sets)}")
