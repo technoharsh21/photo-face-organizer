@@ -700,6 +700,17 @@ class InsightFaceEngine:
             return 100.0
 
     @staticmethod
+    def _safe_bbox_to_ints(bbox_raw: "np.ndarray") -> tuple[int, int, int, int] | None:
+        """
+        Safely convert a numpy bbox array [left, top, right, bottom] to plain Python ints.
+        Returns None if any element is NaN or Inf, which would otherwise raise OverflowError
+        when passed to Python's int() builtin (or Qt's coordinate methods).
+        """
+        if not np.all(np.isfinite(bbox_raw)):
+            return None
+        return (int(bbox_raw[0]), int(bbox_raw[1]), int(bbox_raw[2]), int(bbox_raw[3]))
+
+    @staticmethod
     def is_valid_face_geometry(bbox: list[int] | tuple[int, int, int, int], kps: Any = None) -> bool:
         """
         Verifies anatomical human facial proportions to reject non-human texture artifacts
@@ -745,11 +756,15 @@ class InsightFaceEngine:
             faces = self._run_inference(self.app, img_bgr, det_thresh=det_thresh)
             locations = []
             for face in faces:
-                bbox = face.bbox.astype(int)  # [left, top, right, bottom]
-                kps = getattr(face, "kps", None)
-                if not self.is_valid_face_geometry(bbox, kps):
+                bbox_raw = face.bbox  # [left, top, right, bottom] as float32
+                coords = self._safe_bbox_to_ints(bbox_raw)
+                if coords is None:
+                    logger.debug("[detect_faces] Skipping face with NaN/Inf bbox (OverflowError guard)")
                     continue
-                left, top, right, bottom = int(bbox[0]), int(bbox[1]), int(bbox[2]), int(bbox[3])
+                left, top, right, bottom = coords
+                kps = getattr(face, "kps", None)
+                if not self.is_valid_face_geometry((left, top, right, bottom), kps):
+                    continue
                 locations.append((top, right, bottom, left))
             return locations
         except Exception as e:
@@ -777,8 +792,12 @@ class InsightFaceEngine:
                     faces = self._run_inference(cpu_app, img_bgr, det_thresh=det_thresh)
                     locations = []
                     for face in faces:
-                        bbox = face.bbox.astype(int)
-                        left, top, right, bottom = int(bbox[0]), int(bbox[1]), int(bbox[2]), int(bbox[3])
+                        bbox_raw = face.bbox
+                        coords = self._safe_bbox_to_ints(bbox_raw)
+                        if coords is None:
+                            logger.debug("[detect_faces/cpu_fallback] Skipping face with NaN/Inf bbox")
+                            continue
+                        left, top, right, bottom = coords
                         locations.append((top, right, bottom, left))
 
                     # PERMANENTLY switch engine to CPU for remaining scan
@@ -817,11 +836,15 @@ class InsightFaceEngine:
         try:
             faces = self._run_inference(self.app, img_bgr, det_thresh=det_thresh)
             for face in faces:
-                bbox = face.bbox.astype(int)  # [left, top, right, bottom]
-                kps = getattr(face, "kps", None)
-                if not self.is_valid_face_geometry(bbox, kps):
+                bbox_raw = face.bbox  # [left, top, right, bottom]
+                coords = self._safe_bbox_to_ints(bbox_raw)
+                if coords is None:
+                    logger.debug("[detect_faces_with_kps] Skipping face with NaN/Inf bbox (OverflowError guard)")
                     continue
-                left, top, right, bottom = int(bbox[0]), int(bbox[1]), int(bbox[2]), int(bbox[3])
+                left, top, right, bottom = coords
+                kps = getattr(face, "kps", None)
+                if not self.is_valid_face_geometry((left, top, right, bottom), kps):
+                    continue
                 kps_arr = None
                 if kps is not None:
                     kps_arr = np.asarray(kps, dtype=np.float32)
@@ -901,12 +924,15 @@ class InsightFaceEngine:
             width, height = pil_img.size
 
             for face in faces:
-                bbox = face.bbox.astype(int)  # [left, top, right, bottom]
+                bbox_raw = face.bbox  # [left, top, right, bottom]
                 kps = getattr(face, "kps", None)
-                if not self.is_valid_face_geometry(bbox, kps):
+                coords = self._safe_bbox_to_ints(bbox_raw)
+                if coords is None:
+                    logger.debug("[detect_and_embed_faces] Skipping face with NaN/Inf bbox (OverflowError guard)")
                     continue
-
-                left, top, right, bottom = int(bbox[0]), int(bbox[1]), int(bbox[2]), int(bbox[3])
+                left, top, right, bottom = coords
+                if not self.is_valid_face_geometry((left, top, right, bottom), kps):
+                    continue
                 locations.append((top, right, bottom, left))
 
                 if hasattr(face, "normed_embedding") and face.normed_embedding is not None:
@@ -961,8 +987,12 @@ class InsightFaceEngine:
                     crops = []
                     width, height = pil_img.size
                     for face in faces:
-                        bbox = face.bbox.astype(int)
-                        left, top, right, bottom = int(bbox[0]), int(bbox[1]), int(bbox[2]), int(bbox[3])
+                        bbox_raw = face.bbox
+                        coords = self._safe_bbox_to_ints(bbox_raw)
+                        if coords is None:
+                            logger.debug("[detect_and_embed_faces/cpu_fallback] Skipping face with NaN/Inf bbox")
+                            continue
+                        left, top, right, bottom = coords
                         locations.append((top, right, bottom, left))
                         if hasattr(face, "normed_embedding") and face.normed_embedding is not None:
                             embeddings.append(np.asarray(face.normed_embedding, dtype=np.float64))
@@ -994,8 +1024,6 @@ class InsightFaceEngine:
                         f"[detect_and_embed_faces] CPU fallback FAILED | img={w}x{h} | "
                         f"DML error was: {e} | CPU error: {cpu_err}"
                     )
-
-            return [], [], []
 
             return [], [], []
 

@@ -47,6 +47,27 @@ def test_scan_worker_reports_failure_instead_of_empty_result(tmp_path):
     assert results == []
 
 
+def test_scan_worker_shows_completed_group_before_scan_finishes(tmp_path):
+    app = QApplication.instance() or QApplication(sys.argv)
+    service = DuplicateService(Config(app_data_dir=tmp_path / "data"))
+    for name, data in (("a.jpg", b"one"), ("a-copy.jpg", b"one"),
+                       ("b.jpg", b"two"), ("b-copy.jpg", b"two")):
+        (tmp_path / name).write_bytes(data)
+    page = DuplicatePage(service)
+    worker = DuplicateScanWorker(service, [str(tmp_path)], True, method="exact")
+    page.worker = worker
+    worker.group_signal.connect(page._on_scan_group)
+    worker.finished_signal.connect(page._on_scan_finished)
+    seen = []
+    worker.group_signal.connect(lambda group: seen.append(page.lbl_sum_sets.text()))
+    worker.run()
+
+    assert seen == ["🔍 Duplicate Groups: 1", "🔍 Duplicate Groups: 2"]
+    assert len(page.duplicate_sets) == 2
+    assert page.combo_rule.currentText() == "Keep Highest Quality"
+    page.close()
+
+
 def test_ignore_group_moves_to_next_and_excludes_files_from_cleanup(tmp_path):
     app = QApplication.instance() or QApplication(sys.argv)
     service = DuplicateService(Config(app_data_dir=tmp_path / "data"))
@@ -103,8 +124,10 @@ def test_page_only_scans_videos_when_include_videos_is_checked(tmp_path, monkeyp
     page.sources = [str(tmp_path)]
     monkeypatch.setattr(DuplicateScanWorker, "start", lambda worker: worker.run())
 
+    assert not hasattr(page, "combo_scan_mode")
     assert not page.chk_videos.isChecked()
     page._run_duplicate_scan()
+    assert page.worker.method == "exact"
     assert page.duplicate_sets == []
 
     page.chk_videos.setChecked(True)
