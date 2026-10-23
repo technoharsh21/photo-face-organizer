@@ -6,6 +6,7 @@ with multi-tier fallbacks (send2trash, Linux gio/trash-put, macOS AppleScript, W
 """
 
 import logging
+import hashlib
 import os
 import shutil
 import subprocess
@@ -13,6 +14,54 @@ import sys
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
+
+
+def _file_hash(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for chunk in iter(lambda: stream.read(65536), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def verify_copy_pairs(pairs: list[tuple[str, str]]) -> tuple[bool, int, list[str], dict[str, tuple[str, list[str]]]]:
+    """Verify actual bytes for every output before offering to remove any source."""
+    verified: dict[str, tuple[str, list[str]]] = {}
+    for source, target in pairs:
+        try:
+            src, dst = Path(source), Path(target)
+            if src.resolve() == dst.resolve() or not src.is_file() or not dst.is_file() or not src.stat().st_size:
+                raise ValueError("Missing, empty, or overlapping source/destination")
+            source_hash = _file_hash(src)
+            if source_hash != _file_hash(dst):
+                raise ValueError("Copy content does not match source")
+            if source in verified and verified[source][0] != source_hash:
+                raise ValueError("Source changed during verification")
+            verified.setdefault(source, (source_hash, []))[1].append(target)
+        except (OSError, ValueError) as exc:
+            logger.warning("Copy verification failed for %s -> %s: %s", source, target, exc)
+            return False, 0, [], {}
+    return True, len(verified), list(verified), verified
+
+
+def trash_verified_sources(source_paths: list[str], verified: dict[str, tuple[str, list[str]]]) -> tuple[int, int]:
+    """Recheck every copy before trashing; never delete permanently on Trash failure."""
+    deleted = errors = 0
+    for source in source_paths:
+        record = verified.pop(source, None)
+        try:
+            if not record or not record[1] or _file_hash(Path(source)) != record[0] or any(
+                Path(source).resolve() == Path(target).resolve() or _file_hash(Path(target)) != record[0]
+                for target in record[1]
+            ):
+                raise ValueError("Unverified or changed source/copy")
+            if not send_to_trash(Path(source)):
+                raise OSError("Could not move source to Trash")
+            deleted += 1
+        except (OSError, ValueError) as exc:
+            logger.warning("Keeping source %s: %s", source, exc)
+            errors += 1
+    return deleted, errors
 
 
 def _win32_recycle_bin(path_str: str) -> bool:

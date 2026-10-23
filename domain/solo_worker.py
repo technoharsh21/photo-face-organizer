@@ -17,6 +17,7 @@ import queue
 import threading
 import time
 from pathlib import Path
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from typing import Any
 
 from PySide6.QtCore import QThread, Signal
@@ -113,6 +114,7 @@ class SoloScanWorker(QThread):
 
     def cancel(self):
         self._is_cancelled = True
+        self._is_paused = False
 
     @property
     def is_paused(self) -> bool:
@@ -133,8 +135,6 @@ class SoloScanWorker(QThread):
             self.total_files = len(self.files)
 
         logger.info(f"Starting deep solo scan worker {self.scan_id} on {self.total_files} files (mode={self.operation_mode}).")
-
-        from concurrent.futures import ThreadPoolExecutor, as_completed
 
         cpu_count = os.cpu_count() or 4
         if self.performance_mode == "Maximum Performance":
@@ -195,84 +195,105 @@ class SoloScanWorker(QThread):
             with unknown_lock:
                 self.unknown_faces_count = unknown_count
 
-        # Submit ALL remaining files at once — no batch barrier.
-        # Keeps the CUDA stream saturated: next thread hands its image as soon as the GPU finishes.
+        # Keep only active work in flight so Pause and Cancel stop new submissions.
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            future_to_file = {executor.submit(self._process_file, f, 0): f for f in remaining_files}
+            pending = iter(remaining_files)
+            future_to_file = {}
 
-            for future in as_completed(future_to_file):
+            def fill_slots():
+                while len(future_to_file) < max_workers and not self._is_paused and not self._is_cancelled:
+                    f = next(pending, None)
+                    if f is None:
+                        break
+                    future_to_file[executor.submit(self._process_file, f, 0)] = f
+
+            fill_slots()
+            while future_to_file or (self._is_paused and not self._is_cancelled):
                 if self._is_cancelled:
-                    logger.info("Solo scan worker cancelled by user.")
-                    _drain_unknown_queue()
-                    self._save_checkpoint("Cancelled", self.processed_count)
-                    self.finished_signal.emit(self._build_summary("Cancelled", time.time() - start_time))
-                    return
-
-                while self._is_paused and not self._is_cancelled:
+                    for future in future_to_file:
+                        future.cancel()
+                if not future_to_file:
                     time.sleep(0.2)
+                    fill_slots()
+                    continue
+                done, _ = wait(future_to_file, timeout=0.2, return_when=FIRST_COMPLETED)
+                if done and self._is_paused and not self._is_cancelled:
                     self._save_checkpoint("Paused", self.processed_count)
+                while self._is_paused and not self._is_cancelled:
+                    time.sleep(0.1)
+                for future in done:
+                    f_path = future_to_file.pop(future)
+                    str_path = str(f_path)
+                    if future.cancelled():
+                        continue
+                    try:
+                        result = future.result()
+                    except Exception as exc:
+                        result = {"status": "error", "error": str(exc)}
+                    if result.get("status") == "cancelled":
+                        continue
 
-                f_path = future_to_file[future]
-                str_path = str(f_path)
-                try:
-                    file_result = future.result()
-                    # Queue unknown face registration to background thread — DO NOT block worker.
-                    if isinstance(file_result, dict) and "unknown_face" in file_result:
-                        self.source_to_output_map[str_path] = ["Unmatched Single Face (No Output Copy)"]
-                        unknown_queue.put(file_result["unknown_face"])
-                except Exception as exc:
-                    self.skipped_count += 1
-                    self.error_count += 1
-                    self.errors_log.append({"file": str_path, "error": str(exc)})
+                    status = result["status"]
+                    if status == "matched":
+                        self.matched_count += 1
+                        for name in result["matched_names"]:
+                            self.results_by_person[name] = self.results_by_person.get(name, 0) + 1
+                        self.copied_file_pairs.extend(result["copied_pairs"])
+                    elif status == "no_match":
+                        self.no_match_count += 1
+                    else:
+                        self.skipped_count += 1
+                    if status == "error":
+                        self.error_count += 1
+                        self.errors_log.append({"file": str_path, "error": result["error"]})
+                    self.source_to_output_map[str_path] = result.get("output_targets", [])
+                    if "unknown_face" in result:
+                        unknown_queue.put(result["unknown_face"])
+                    self.processed_count += 1
+                    self.processed_files.add(str_path)
+                    if self.processed_count % 5 == 0 or self.processed_count == self.total_files:
+                        self._save_checkpoint("Running", self.processed_count)
 
-                self.processed_count += 1
-                self.processed_files.add(str_path)
-
-                if self.processed_count % 5 == 0 or self.processed_count == self.total_files:
-                    self._save_checkpoint("Running", self.processed_count)
-
-                elapsed = time.time() - start_time
-                files_per_sec = self.processed_count / elapsed if elapsed > 0 else 0
-                rem_count = self.total_files - self.processed_count
-                eta_seconds = rem_count / files_per_sec if files_per_sec > 0 else 0
-
-                with unknown_lock:
-                    _snap_unknown = unknown_count
-
-                self.progress_signal.emit({
-                    "scan_id": self.scan_id,
-                    "current_file": f_path.name,
-                    "current_index": self.processed_count,
-                    "total_files": self.total_files,
-                    "progress_percent": round((self.processed_count / self.total_files) * 100.0, 1),
-                    "processed": self.processed_count,
-                    "matched": self.matched_count,
-                    "no_match": self.no_match_count,
-                    "unknown_faces": _snap_unknown,
-                    "skipped": self.skipped_count,
-                    "errors": self.error_count,
-                    "speed_fps": round(files_per_sec, 2),
-                    "eta_seconds": round(eta_seconds, 1),
-                })
+                    elapsed = time.time() - start_time
+                    files_per_sec = self.processed_count / elapsed if elapsed > 0 else 0
+                    with unknown_lock:
+                        snap_unknown = unknown_count
+                    self.progress_signal.emit({
+                        "scan_id": self.scan_id,
+                        "current_file": f_path.name,
+                        "current_index": self.processed_count,
+                        "total_files": self.total_files,
+                        "progress_percent": round((self.processed_count / self.total_files) * 100.0, 1),
+                        "processed": self.processed_count,
+                        "matched": self.matched_count,
+                        "no_match": self.no_match_count,
+                        "unknown_faces": snap_unknown,
+                        "skipped": self.skipped_count,
+                        "errors": self.error_count,
+                        "speed_fps": round(files_per_sec, 2),
+                        "eta_seconds": round((self.total_files - self.processed_count) / files_per_sec, 1) if files_per_sec else 0,
+                    })
+                fill_slots()
 
         # Flush pending unknown face registrations before finishing.
         _drain_unknown_queue()
 
-        # Solo scan completed
+        # All active tasks are finished before emitting a final result.
         elapsed_total = time.time() - start_time
-        self._save_checkpoint("Completed", self.total_files)
-        summary = self._build_summary("Completed", elapsed_total)
+        status = "Cancelled" if self._is_cancelled else "Completed"
+        self._save_checkpoint(status, self.processed_count)
+        summary = self._build_summary(status, elapsed_total)
         self.finished_signal.emit(summary)
 
     def _process_file(self, file_path: Path, index: int) -> dict[str, Any]:
         """Returns {unknown_face: (crop, encoding, str_path, bbox)} if an unknown face needs registering."""
+        while self._is_paused and not self._is_cancelled:
+            time.sleep(0.1)
+        if self._is_cancelled:
+            return {"status": "cancelled"}
         pil_img, err = load_image(file_path)
         if pil_img is None:
-            self.skipped_count += 1
-            self.error_count += 1
-            self.errors_log.append({"file": str(file_path), "error": err or "Unreadable image"})
-            self.source_to_output_map[str(file_path)] = ["Skipped/Unreadable"]
-            return
+            return {"status": "error", "error": err or "Unreadable image", "output_targets": ["Skipped/Unreadable"]}
 
         try:
             # Check Disk Cache
@@ -316,10 +337,8 @@ class SoloScanWorker(QThread):
                     self.face_cache_service.save_cached_faces(file_path, face_locations, face_encodings)
 
             if not face_locations:
-                self.no_match_count += 1
                 logger.info(f"[SOLO: {file_path.name}] 0 faces detected.")
-                self.source_to_output_map[str(file_path)] = ["No faces detected"]
-                return
+                return {"status": "no_match", "output_targets": ["No faces detected"]}
 
             # 2. Evaluate solo and exclusive group solo matches
             matched_person_names, face_results = self.matcher.evaluate_solo_photo_matches(
@@ -341,28 +360,36 @@ class SoloScanWorker(QThread):
 
             # 4. Route copies ONLY IF matched to a person profile
             if matched_person_names:
-                self.matched_count += 1
                 output_targets = []
+                copied_pairs = []
+                failed = []
                 matched_str = ", ".join(sorted(matched_person_names))
                 logger.info(f"[SOLO: {file_path.name}] MATCHED -> {matched_str} (faces: {len(face_locations)}, sharpness: {sharpness:.1f})")
                 for p_name in sorted(matched_person_names):
-                    self.results_by_person[p_name] = self.results_by_person.get(p_name, 0) + 1
+                    while self._is_paused and not self._is_cancelled:
+                        time.sleep(0.1)
+                    if self._is_cancelled:
+                        return {"status": "cancelled"}
                     clean_name = self.output_service.sanitize_folder_name(p_name)
                     person_base = self.output_dir / clean_name
                     target_folder = self.output_service.get_destination_folder(person_base, file_path, self.folder_organization)
                     success, target_path, status = self.output_service.copy_photo_to_destination(
                         file_path, target_folder, folder_key=clean_name
                     )
-                    if target_path is not None:
+                    if success and target_path is not None:
                         output_targets.append(str(target_path))
-                        self.copied_file_pairs.append((str(file_path), str(target_path)))
+                        copied_pairs.append((str(file_path), str(target_path)))
                     else:
                         output_targets.append(f"Copy Status: {status}")
+                        failed.append(status)
 
-                self.source_to_output_map[str(file_path)] = output_targets
+                if failed:
+                    return {"status": "skipped" if all(s == "DUPLICATE_SKIPPED" for s in failed) else "error",
+                            "error": "; ".join(failed), "output_targets": output_targets}
+                return {"status": "matched", "matched_names": matched_person_names,
+                        "copied_pairs": copied_pairs, "output_targets": output_targets}
             else:
                 # Unmatched photo -> Increment no_match counter, DO NOT create 'No Match' folder
-                self.no_match_count += 1
                 top_score = face_results[0].match_score if face_results else 0.0
                 if len(face_locations) > 1:
                     logger.info(f"[SOLO: {file_path.name}] SKIPPED -> Group photo ({len(face_locations)} faces detected, solo requires exactly 1)")
@@ -371,17 +398,16 @@ class SoloScanWorker(QThread):
 
                 if len(face_locations) == 1 and face_results and face_crops:
                     res = face_results[0]
-                    return {"unknown_face": (face_crops[0], res.face_encoding, str(file_path), res.bounding_box)}
+                    return {"status": "no_match", "output_targets": ["Unmatched Single Face (No Output Copy)"],
+                            "unknown_face": (face_crops[0], res.face_encoding, str(file_path), res.bounding_box)}
 
                 else:
-                    self.source_to_output_map[str(file_path)] = [f"Filtered Out Group Photo ({len(face_locations)} faces)"]
+                    return {"status": "no_match", "output_targets": [f"Filtered Out Group Photo ({len(face_locations)} faces)"]}
 
 
         except Exception as e:
             logger.error(f"Error processing solo photo {file_path}: {e}")
-            self.error_count += 1
-            self.errors_log.append({"file": str(file_path), "error": str(e)})
-            self.source_to_output_map[str(file_path)] = [f"Error: {e!s}"]
+            return {"status": "error", "error": str(e), "output_targets": [f"Error: {e!s}"]}
 
     def _save_checkpoint(self, status: str, current_index: int):
         self.checkpoint_file.parent.mkdir(parents=True, exist_ok=True)

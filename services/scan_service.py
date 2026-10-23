@@ -14,7 +14,7 @@ from typing import Any
 
 from config import Config
 from domain.face_engine import FaceEngine
-from domain.file_utils import send_to_trash
+from domain.file_utils import trash_verified_sources, verify_copy_pairs
 from domain.scanner import discover_photos
 from domain.worker import ScanWorker
 from services.history_service import HistoryService
@@ -46,6 +46,7 @@ class ScanService:
 
         self.current_worker: ScanWorker | None = None
         self.active_scan_data: dict[str, Any] | None = None
+        self._verified_copies: dict[str, tuple[str, list[str]]] = {}
 
     def check_interrupted_scans(self) -> list[dict[str, Any]]:
         """
@@ -183,43 +184,13 @@ class ScanService:
 
     def verify_copied_photos(self, copied_file_pairs: list[tuple[str, str]]) -> tuple[bool, int, list[str]]:
         """
-        Verifies that 100% of target output files exist and match the size of original source files.
+        Verifies that 100% of target output files match their source contents.
         Used for safe Move Mode deletion confirmation.
 
         :return: (is_100_percent_verified, count_verified, list_of_verified_source_paths)
         """
-        if not copied_file_pairs:
-            return True, 0, []
-
-        verified_sources: set[str] = set()
-        failed_count = 0
-
-        for src_str, target_str in copied_file_pairs:
-            src = Path(src_str)
-            tgt = Path(target_str)
-
-            if not tgt.exists():
-                logger.warning(f"Verification failed: Target file missing: {target_str}")
-                failed_count += 1
-                continue
-
-            try:
-                tgt_size = tgt.stat().st_size
-                src_size = src.stat().st_size if src.exists() else -1
-
-                if tgt_size == 0 or tgt_size != src_size:
-                    logger.warning(f"Verification failed: Size mismatch for {src_str} ({src_size} vs {tgt_size})")
-                    failed_count += 1
-                else:
-                    verified_sources.add(str(src))
-            except Exception as e:
-                logger.warning(f"Verification check exception for {src_str}: {e}")
-                failed_count += 1
-
-        if failed_count == 0:
-            return True, len(verified_sources), list(verified_sources)
-        else:
-            return False, failed_count, []
+        result, count, sources, self._verified_copies = verify_copy_pairs(copied_file_pairs)
+        return result, count, sources
 
     def delete_verified_sources(self, source_paths: list[str]) -> tuple[int, int]:
         """
@@ -227,21 +198,7 @@ class ScanService:
 
         :return: (successfully_deleted_count, error_count)
         """
-        deleted_count = 0
-        error_count = 0
-
-        for src_str in source_paths:
-            src = Path(src_str)
-            if src.exists():
-                try:
-                    if not send_to_trash(src):
-                        src.unlink()
-                    deleted_count += 1
-                except Exception as e:
-                    logger.error(f"Failed to delete source file {src_str}: {e}")
-                    error_count += 1
-
-        return deleted_count, error_count
+        return trash_verified_sources(source_paths, self._verified_copies)
 
     def resume_scan(self, scan_id: str) -> tuple[ScanWorker, dict[str, Any]] | None:
         """
@@ -256,6 +213,8 @@ class ScanService:
 
         with open(scan_file, "r", encoding="utf-8") as f:
             scan_meta = json.load(f)
+        if scan_meta.get("scan_type") == "Solo Scan":
+            return None  # Solo checkpoints must be resumed by SoloScanService.
         with open(checkpoint_file, "r", encoding="utf-8") as f:
             cp_data = json.load(f)
 
